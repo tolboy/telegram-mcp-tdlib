@@ -1,0 +1,323 @@
+name: Publish Release Docker Image
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: telegram-mcp-tdlib
+
+jobs:
+  verify-release:
+    name: Full release verification
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+
+      - name: Validate release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "Release tags must use vX.Y.Z"
+            exit 1
+          }
+
+      - name: Set up Java 25
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+
+      - name: Run complete test and release gates
+        shell: pwsh
+        env:
+          KTM_BUILD_DIR: build
+        run: |
+          $version = '${{ github.ref_name }}'.Substring(1)
+          ./gradlew test bootJar verifyNativeRuntimeCoverage verifyReleaseMetadata "-PreleaseVersion=$version" --no-daemon --no-build-cache
+
+  build-app-images:
+    name: Runtime app image — ${{ matrix.target }}
+    needs: verify-release
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: windows-x64
+            runner: windows-latest
+          - target: linux-x64
+            runner: ubuntu-latest
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+          - target: macos-arm64
+            runner: macos-14
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+
+      - name: Set up Java 25
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+
+      - name: Build runtime-inclusive app image
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.Substring(1)
+          ./scripts/package-app-image.ps1 -Version $version -Target '${{ matrix.target }}' -OutputDirectory release-assets
+
+      - name: Upload app image
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: app-image-${{ matrix.target }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 2
+
+  publish-release:
+    needs: build-app-images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+
+      - name: Resolve publish metadata
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! "${GITHUB_REF_NAME}" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "❌ Release tags must use the vX.Y.Z format"
+            exit 1
+          fi
+
+          release_version="${GITHUB_REF_NAME#v}"
+          IFS='.' read -r major minor patch <<< "${release_version}"
+
+          echo "version=${release_version}" >> "${GITHUB_OUTPUT}"
+          echo "major_minor=${major}.${minor}" >> "${GITHUB_OUTPUT}"
+          echo "build_version=${release_version}" >> "${GITHUB_OUTPUT}"
+
+          echo "🚀 Release build for ${release_version}"
+
+      - name: Set up Java 25
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+
+      - name: Download runtime app images
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: app-image-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Build standalone JAR and release manifest
+        shell: pwsh
+        env:
+          KTM_BUILD_DIR: build
+        run: |
+          ./gradlew bootJar verifyNativeRuntimeCoverage verifyReleaseMetadata '-PreleaseVersion=${{ steps.version.outputs.version }}' --no-daemon
+          Copy-Item -LiteralPath build/libs/telegram-mcp-server.jar -Destination 'release-assets/telegram-mcp-server-${{ steps.version.outputs.version }}.jar'
+          ./scripts/merge-release-manifest.ps1 -Version '${{ steps.version.outputs.version }}' -OutputDirectory release-assets
+          ./scripts/generate-package-manifests.ps1 -Version '${{ steps.version.outputs.version }}' -OutputDirectory release-assets
+
+      - name: Generate SBOM for runnable JAR
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          file: release-assets/telegram-mcp-server-${{ steps.version.outputs.version }}.jar
+          format: spdx-json
+          output-file: release-assets/telegram-mcp-server-${{ steps.version.outputs.version }}.spdx.json
+          artifact-name: telegram-mcp-server-${{ steps.version.outputs.version }}-sbom
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Attest release artifact provenance
+        if: github.event.repository.visibility == 'public'
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4
+        with:
+          subject-path: |
+            release-assets/*.zip
+            release-assets/*.tar.gz
+            release-assets/*.jar
+            release-assets/*.json
+            release-assets/*.rb
+
+      - name: Attest runnable JAR SBOM
+        if: github.event.repository.visibility == 'public'
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4
+        with:
+          subject-path: release-assets/telegram-mcp-server-${{ steps.version.outputs.version }}.jar
+          sbom-path: release-assets/telegram-mcp-server-${{ steps.version.outputs.version }}.spdx.json
+
+      # ─── Docker image build and publication ───
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          flavor: |
+            latest=false
+          tags: |
+            type=raw,value=latest
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=${{ steps.version.outputs.major_minor }}
+            type=sha,format=short,prefix=sha-
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+
+      - name: Build and push Docker image
+        id: image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.build_version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Extract stdio image metadata
+        id: stdio-meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest-stdio
+            type=raw,value=${{ steps.version.outputs.version }}-stdio
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+
+      - name: Build and push stdio registry image
+        id: stdio-image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          target: stdio-runtime
+          push: true
+          tags: ${{ steps.stdio-meta.outputs.tags }}
+          labels: ${{ steps.stdio-meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.build_version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Attest container image provenance
+        if: github.event.repository.visibility == 'public'
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Attest stdio container image provenance
+        if: github.event.repository.visibility == 'public'
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.stdio-image.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign container image digest
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        shell: bash
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Sign stdio container image digest
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          DIGEST: ${{ steps.stdio-image.outputs.digest }}
+        shell: bash
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Publish metadata to the official MCP Registry
+        if: github.event.repository.visibility == 'public'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version='${{ steps.version.outputs.version }}'
+          image="${REGISTRY}/${GITHUB_REPOSITORY_OWNER}/${IMAGE_NAME}:${version}-stdio"
+          jq --arg version "${version}" --arg image "${image}" \
+            '.version = $version | .packages[0].identifier = $image' \
+            server.json > server.tmp.json
+          mv server.tmp.json server.json
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" \
+            | tar xz mcp-publisher
+          ./mcp-publisher validate
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" --clobber \
+              release-assets/*.zip release-assets/*.tar.gz release-assets/*.jar release-assets/*.spdx.json release-assets/release-manifest.json \
+              release-assets/telegram-mcp.rb release-assets/telegram-mcp.json
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              --title "Telegram MCP Server ${GITHUB_REF_NAME}" \
+              --generate-notes \
+              release-assets/*.zip release-assets/*.tar.gz release-assets/*.jar release-assets/*.spdx.json release-assets/release-manifest.json \
+              release-assets/telegram-mcp.rb release-assets/telegram-mcp.json
+          fi

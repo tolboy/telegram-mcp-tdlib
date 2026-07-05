@@ -1,0 +1,116 @@
+name: Platform MCP Surface Smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64 — inbox profile
+            runner: ubuntu-latest
+            profile: inbox
+            required: get_history,send_message,set_privacy_settings
+            forbidden: create_group,set_admin_rights
+          - name: Windows x64 — reader profile
+            runner: windows-latest
+            profile: reader
+            required: get_history,search_public_messages
+            forbidden: send_message,transcribe_voice_note,create_group
+          - name: macOS Apple silicon — research profile
+            runner: macos-14
+            profile: research
+            required: get_history,search_public_messages,get_chat
+            forbidden: send_message,transcribe_voice_note,create_group
+          - name: Linux x64 — community admin profile
+            runner: ubuntu-latest
+            profile: community-admin
+            required: get_history,send_message,create_group,set_admin_rights
+            forbidden: transcribe_voice_note,search_public_messages
+          - name: Linux x64 — complete profile
+            runner: ubuntu-latest
+            profile: all
+            required: get_history,send_message,transcribe_voice_note,create_group,set_admin_rights
+            forbidden: __no_such_tool__
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Java 25
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+
+      - name: Confirm Apple-silicon runner
+        if: matrix.runner == 'macos-14'
+        shell: bash
+        run: test "$(uname -m)" = arm64
+
+      - name: Build runnable JAR
+        shell: pwsh
+        env:
+          KTM_BUILD_DIR: build
+        run: ./gradlew bootJar verifyNativeRuntimeCoverage verifyReleaseMetadata --no-daemon
+
+      - name: Start server and smoke MCP surface
+        shell: pwsh
+        env:
+          MCP_TOOL_PROFILE: ${{ matrix.profile }}
+          REQUIRED_TOOLS: ${{ matrix.required }}
+          FORBIDDEN_TOOLS: ${{ matrix.forbidden }}
+          MCP_READ_ONLY: 'false'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $jar = Join-Path $PWD 'build/libs/telegram-mcp-server.jar'
+          if (-not (Test-Path -LiteralPath $jar)) { throw "Runnable JAR was not produced: $jar" }
+
+          $port = 18080
+          $baseUrl = "http://127.0.0.1:$port"
+          $stdout = Join-Path $env:RUNNER_TEMP 'telegram-mcp-stdout.log'
+          $stderr = Join-Path $env:RUNNER_TEMP 'telegram-mcp-stderr.log'
+          $process = Start-Process -FilePath java -ArgumentList @('--enable-preview', '-jar', $jar, "--server.port=$port") -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+
+          try {
+            $ready = $false
+            for ($attempt = 1; $attempt -le 30; $attempt++) {
+              try {
+                $health = Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/actuator/health" -TimeoutSec 2
+                if ($health.StatusCode -eq 200) { $ready = $true; break }
+              } catch {
+                Start-Sleep -Seconds 1
+              }
+            }
+            if (-not $ready) {
+              Get-Content -LiteralPath $stdout -ErrorAction SilentlyContinue
+              Get-Content -LiteralPath $stderr -ErrorAction SilentlyContinue
+              throw "Server did not become healthy at $baseUrl"
+            }
+
+            & ./scripts/mcp-streamable-http-smoke.ps1 -Endpoint "$baseUrl/mcp" -RequiredTool ($env:REQUIRED_TOOLS -split ',') -ForbiddenTool ($env:FORBIDDEN_TOOLS -split ',')
+          } finally {
+            if ($null -ne $process -and -not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }
+
+      - name: Smoke STDIO transport
+        shell: pwsh
+        env:
+          MCP_TOOL_PROFILE: ${{ matrix.profile }}
+          REQUIRED_TOOLS: ${{ matrix.required }}
+          FORBIDDEN_TOOLS: ${{ matrix.forbidden }}
+        run: |
+          ./scripts/mcp-stdio-smoke.ps1 `
+            -Jar build/libs/telegram-mcp-server.jar `
+            -RequiredTool ($env:REQUIRED_TOOLS -split ',') `
+            -ForbiddenTool ($env:FORBIDDEN_TOOLS -split ',')

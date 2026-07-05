@@ -1,0 +1,19 @@
+version: 2
+updates:
+  - package-ecosystem: gradle
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      kotlin-and-spring:
+        patterns:
+          - "org.jetbrains.kotlin*"
+          - "org.springframework*"
+          - "io.modelcontextprotocol.sdk*"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

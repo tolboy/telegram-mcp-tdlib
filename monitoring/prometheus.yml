@@ -1,0 +1,12 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "telegram-mcp-server"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["telegram-mcp:8080"]
+    # If API key auth is enabled, provide the key here
+    # authorization:
+    #   credentials: "your-api-key-here"

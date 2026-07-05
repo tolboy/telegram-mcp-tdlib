@@ -1,0 +1,44 @@
+﻿# Test profile — TDLib is NOT configured, fallback NoOp client is used.
+# No real Telegram calls; all tools return TelegramUnavailableException.
+
+# TDLib explicitly disabled (api.id = 0 means not configured)
+tdlib:
+  api:
+    id: 0
+    hash: ""
+
+telegram:
+  bot:
+    token: "test-token-not-real"
+    username: "test_bot"
+  security:
+    allowed-chat-ids: []
+
+mcp:
+  security:
+    api-key: ""  # no auth in tests
+  guardrails:
+    max-tool-input-length: 4096
+    blocked-patterns: []
+
+server-mode:
+  read-only: false
+  confirmation:
+    enabled: false
+  file-security:
+    allowed-roots: []
+  audit:
+    enabled: false
+    log-arguments: false
+
+spring:
+  ai:
+    mcp:
+      server:
+        name: test-mcp-server
+        version: 0.0.1-test
+
+logging:
+  level:
+    root: WARN
+    dev.telegrammcp.server: DEBUG

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <!-- ── Console appender (dev) ─────────────────────────────────────────── -->
+    <springProfile name="!prod &amp; !stdio">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>%d{ISO8601} [%thread] [%X{traceId:-}] [%X{sessionId:-}] [%X{toolName:-}] %-5level %logger{36} - %msg%n</pattern>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <!-- STDIO reserves stdout for JSON-RPC frames. -->
+    <springProfile name="stdio">
+        <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
+            <target>System.err</target>
+            <encoder>
+                <pattern>%d{ISO8601} [%thread] [%X{traceId:-}] [%X{sessionId:-}] [%X{toolName:-}] %-5level %logger{36} - %msg%n</pattern>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="STDERR"/>
+        </root>
+    </springProfile>
+
+    <!-- ── JSON appender (prod) ───────────────────────────────────────────── -->
+    <springProfile name="prod">
+        <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <includeMdcKeyName>traceId</includeMdcKeyName>
+                <includeMdcKeyName>sessionId</includeMdcKeyName>
+                <includeMdcKeyName>toolName</includeMdcKeyName>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="JSON"/>
+        </root>
+    </springProfile>
+</configuration>

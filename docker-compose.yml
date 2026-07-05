@@ -1,0 +1,147 @@
+﻿services:
+  # ── Telegram MCP Server ──────────────────────────────────────────────────
+  telegram-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: telegram-mcp-server
+    ports:
+      - "${MCP_BIND_HOST:-127.0.0.1}:${SERVER_PORT:-8080}:8080"
+    environment:
+      TDLIB_API_ID: ${TDLIB_API_ID:-0}
+      TDLIB_API_HASH: ${TDLIB_API_HASH:-}
+      TDLIB_PHONE_NUMBER: ${TDLIB_PHONE_NUMBER:-}
+      TDLIB_BOT_TOKEN: ${TDLIB_BOT_TOKEN:-}
+      TDLIB_2FA_PASSWORD: ${TDLIB_2FA_PASSWORD:-}
+      TDLIB_AUTH_CODE: ${TDLIB_AUTH_CODE:-}
+      TDLIB_DATA_DIR: /data/tdlib-data
+      TELEGRAM_MCP_DATA_DIR: /data/tdlib-data
+      TDLIB_DOWNLOADS_DIR: /data/downloads
+      TDLIB_LOG_VERBOSITY: ${TDLIB_LOG_VERBOSITY:-1}
+      TDLIB_PROXY_TYPE: ${TDLIB_PROXY_TYPE:-}
+      TDLIB_PROXY_SERVER: ${TDLIB_PROXY_SERVER:-}
+      TDLIB_PROXY_PORT: ${TDLIB_PROXY_PORT:-0}
+      TDLIB_PROXY_USERNAME: ${TDLIB_PROXY_USERNAME:-}
+      TDLIB_PROXY_PASSWORD: ${TDLIB_PROXY_PASSWORD:-}
+      TDLIB_PROXY_PASSWORD_FILE: ${TDLIB_PROXY_PASSWORD_FILE:-}
+      TDLIB_PROXY_HTTP_ONLY: ${TDLIB_PROXY_HTTP_ONLY:-false}
+      TDLIB_PROXY_SECRET: ${TDLIB_PROXY_SECRET:-}
+      TDLIB_PROXY_SECRET_FILE: ${TDLIB_PROXY_SECRET_FILE:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
+      TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
+      MCP_API_KEY: ${MCP_API_KEY:-}
+      MCP_AUTH_HEADER: ${MCP_AUTH_HEADER:-Authorization}
+      MCP_READ_ONLY: ${MCP_READ_ONLY:-true}
+      MCP_CONFIRMATION_REQUIRED: ${MCP_CONFIRMATION_REQUIRED:-true}
+      MCP_FILE_ROOTS: /data/uploads
+      MCP_AUDIT_ENABLED: ${MCP_AUDIT_ENABLED:-true}
+      MCP_AUDIT_LOG_ARGS: ${MCP_AUDIT_LOG_ARGS:-false}
+      ANTI_SPAM_INTERNAL_CHAT_IDS: ${ANTI_SPAM_INTERNAL_CHAT_IDS:-}
+      PUBLIC_SEARCH_ENABLED: ${PUBLIC_SEARCH_ENABLED:-true}
+      PUBLIC_SEARCH_CHAT_ALLOWLIST: ${PUBLIC_SEARCH_CHAT_ALLOWLIST:-}
+      PUBLIC_SEARCH_MAX_CHATS_PER_SEARCH: ${PUBLIC_SEARCH_MAX_CHATS_PER_SEARCH:-20}
+      PUBLIC_SEARCH_MAX_MESSAGES_PER_CHAT: ${PUBLIC_SEARCH_MAX_MESSAGES_PER_CHAT:-60}
+      SERVER_PORT: 8080
+      SPRING_PROFILES_ACTIVE: prod
+    volumes:
+      - tdlib-data:/data/tdlib-data
+      - telegram-downloads:/data/downloads
+      - ${MCP_UPLOADS_DIR:-./docker-data/uploads}:/data/uploads
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+
+  # ── MCP Inspector (optional — interactive tool browser) ─────────────────
+  # Start with: docker compose --profile inspector up
+  # Open http://localhost:6274, choose "Streamable HTTP", enter
+  # http://telegram-mcp:8080/mcp and the Authorization: Bearer <MCP_API_KEY>
+  # header. The Inspector prints its own session token to the container log.
+  inspector:
+    image: ghcr.io/modelcontextprotocol/inspector:latest
+    container_name: telegram-mcp-inspector
+    profiles: ["inspector"]
+    environment:
+      HOST: "0.0.0.0"
+      ALLOWED_ORIGINS: "http://localhost:6274"
+    ports:
+      - "127.0.0.1:6274:6274"
+      - "127.0.0.1:6277:6277"
+    depends_on:
+      telegram-mcp:
+        condition: service_healthy
+
+  # ── Prometheus (optional — observability) ────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: telegram-mcp-prometheus
+    profiles: ["monitoring"]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      telegram-mcp:
+        condition: service_healthy
+
+  # ── Dev mode — hot-reload with mounted sources ──────────────────────────
+  telegram-mcp-dev:
+    image: eclipse-temurin:25-jdk
+    container_name: telegram-mcp-dev
+    profiles: ["dev"]
+    working_dir: /app
+    command: ["./gradlew", "bootRun", "--no-daemon"]
+    ports:
+      - "${MCP_BIND_HOST:-127.0.0.1}:${SERVER_PORT:-8080}:8080"
+    environment:
+      TDLIB_API_ID: ${TDLIB_API_ID:-0}
+      TDLIB_API_HASH: ${TDLIB_API_HASH:-}
+      TDLIB_PHONE_NUMBER: ${TDLIB_PHONE_NUMBER:-}
+      TDLIB_BOT_TOKEN: ${TDLIB_BOT_TOKEN:-}
+      TDLIB_2FA_PASSWORD: ${TDLIB_2FA_PASSWORD:-}
+      TDLIB_AUTH_CODE: ${TDLIB_AUTH_CODE:-}
+      TDLIB_DATA_DIR: /app/tdlib-data
+      TELEGRAM_MCP_DATA_DIR: /app/tdlib-data
+      TDLIB_DOWNLOADS_DIR: /app/tdlib-data/downloads
+      TDLIB_LOG_VERBOSITY: ${TDLIB_LOG_VERBOSITY:-1}
+      TDLIB_PROXY_TYPE: ${TDLIB_PROXY_TYPE:-}
+      TDLIB_PROXY_SERVER: ${TDLIB_PROXY_SERVER:-}
+      TDLIB_PROXY_PORT: ${TDLIB_PROXY_PORT:-0}
+      TDLIB_PROXY_USERNAME: ${TDLIB_PROXY_USERNAME:-}
+      TDLIB_PROXY_PASSWORD: ${TDLIB_PROXY_PASSWORD:-}
+      TDLIB_PROXY_PASSWORD_FILE: ${TDLIB_PROXY_PASSWORD_FILE:-}
+      TDLIB_PROXY_HTTP_ONLY: ${TDLIB_PROXY_HTTP_ONLY:-false}
+      TDLIB_PROXY_SECRET: ${TDLIB_PROXY_SECRET:-}
+      TDLIB_PROXY_SECRET_FILE: ${TDLIB_PROXY_SECRET_FILE:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
+      TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
+      MCP_API_KEY: ${MCP_API_KEY:-}
+      MCP_AUTH_HEADER: ${MCP_AUTH_HEADER:-Authorization}
+      MCP_READ_ONLY: ${MCP_READ_ONLY:-true}
+      MCP_CONFIRMATION_REQUIRED: ${MCP_CONFIRMATION_REQUIRED:-true}
+      MCP_FILE_ROOTS: /app/docker-data/uploads
+      MCP_AUDIT_ENABLED: ${MCP_AUDIT_ENABLED:-true}
+      MCP_AUDIT_LOG_ARGS: ${MCP_AUDIT_LOG_ARGS:-false}
+      ANTI_SPAM_INTERNAL_CHAT_IDS: ${ANTI_SPAM_INTERNAL_CHAT_IDS:-}
+      PUBLIC_SEARCH_ENABLED: ${PUBLIC_SEARCH_ENABLED:-true}
+      PUBLIC_SEARCH_CHAT_ALLOWLIST: ${PUBLIC_SEARCH_CHAT_ALLOWLIST:-}
+      SPRING_PROFILES_ACTIVE: dev
+    volumes:
+      - .:/app
+      - gradle-cache:/root/.gradle
+    restart: "no"
+
+volumes:
+  gradle-cache:
+  tdlib-data:
+  telegram-downloads:

@@ -1,0 +1,40 @@
+### Gradle ###
+.gradle/
+build/
+build-*/
+$bd/
+### Eclipse / IntelliJ build output ###
+bin/
+### IDE ###
+.idea/
+### Kotlin ###
+.kotlin/
+
+### AI / IDE assistants ###
+.claude/
+
+### Local source trees not part of the standalone server ###
+libs/
+
+*.iml
+*.ipr
+*.iws
+out/
+
+### Kotlin ###
+*.class
+
+### OS ###
+.DS_Store
+Thumbs.db
+
+### Environment / secrets ###
+.env
+*.env.local
+credentials.json
+
+### Docker ###
+docker-data/
+
+### TDLib session data ###
+tdlib-data/
