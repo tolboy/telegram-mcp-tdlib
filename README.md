@@ -5,37 +5,71 @@
 [![Security](https://github.com/tolboy/telegram-mcp-tdlib/actions/workflows/security.yml/badge.svg)](https://github.com/tolboy/telegram-mcp-tdlib/actions/workflows/security.yml)
 [![Latest release](https://img.shields.io/github/v/release/tolboy/telegram-mcp-tdlib)](https://github.com/tolboy/telegram-mcp-tdlib/releases/latest)
 
-A local-first, production-minded [Model Context Protocol](https://modelcontextprotocol.io/) server for real Telegram accounts. It exposes **110 MCP tools** through TDLib with strict account isolation, read-only profiles, audit and anti-spam controls. Use it as a zero-Java desktop command over **STDIO** or as a managed **Streamable HTTP** service at `/mcp`.
+**Telegram MCP for real accounts — safe by default, TDLib-powered, production-ready.**
 
-The server is fully standalone: it has no dependency on a particular router, desktop application, workflow engine, lexical dictionary, or outreach product.
+A local-first [Model Context Protocol](https://modelcontextprotocol.io/) server that gives
+an AI agent real Telegram-account access without handing it the keys to your account. It
+starts read-only, hides write tools until you opt in, and runs over **STDIO** for desktop
+clients or **Streamable HTTP** at `/mcp` for managed deployments.
 
-![Safe Telegram MCP onboarding](docs/assets/onboarding-demo.gif)
+### Why this one?
 
-## Install And Connect
+- **Safe by default** — boots in read-only mode with a small `inbox`/`reader` profile;
+  write and quota-consuming tools are *hidden from the model*, not merely blocked, until you
+  turn them on.
+- **Real user accounts, not just bots** — built on **TDLib** (via tdlight-java), so an agent
+  can read and act on your actual account, not only a Bot API subset.
+- **Isolated multi-account** — each account gets its own session, mandatory selection, and
+  scoped API keys; reads never fan out across accounts.
+- **Two transports** — STDIO for Claude Desktop / Cursor / VS Code / Codex, Streamable HTTP
+  for a managed service.
+- **No JDK to install** — runtime-inclusive release bundles for Windows, Linux x64/ARM64, and
+  Apple-silicon macOS, with checksums, an SBOM, and signed container digests.
 
-Runtime-inclusive releases need no JDK, Gradle, Git, Python or Node.js.
+![Telegram MCP — read-only inbox summary in an AI client](docs/assets/hero.svg)
 
-macOS Apple silicon or Linux with Homebrew:
+> The image is an illustrative mockup; a real screencast is on the way.
+
+## Safe first run
+
+Runtime-inclusive releases need no JDK, Gradle, Git, Python, or Node.js. Use a test account
+for your first run if you can.
+
+**1. Install** (macOS Apple silicon / Linux with Homebrew):
 
 ```bash
 brew install --formula https://github.com/tolboy/telegram-mcp-tdlib/releases/latest/download/telegram-mcp.rb
-telegram-mcp auth --method qr
 ```
 
 Windows with Scoop:
 
 ```powershell
 scoop install https://github.com/tolboy/telegram-mcp-tdlib/releases/latest/download/telegram-mcp.json
+```
+
+**2. Log in** with a QR scan — the one-time code never touches your shell history:
+
+```bash
 telegram-mcp auth --method qr
 ```
 
-Start with a deliberately small, non-mutating surface:
+**3. Serve a small, read-only surface** over STDIO:
 
 ```bash
-MCP_TOOL_PROFILE=reader MCP_READ_ONLY=true telegram-mcp serve --transport stdio
+MCP_TOOL_PROFILE=inbox MCP_READ_ONLY=true telegram-mcp serve --transport stdio
 ```
 
-Example desktop-client entry:
+Now point an AI client at it (below) and try a first prompt that cannot change anything:
+
+> “Summarize my last 20 conversations. Do not send or modify anything.”
+
+In this mode write and quota-consuming tools are absent from the tool list entirely, so the
+model has nothing destructive to call. Switch to `MCP_READ_ONLY=false` only after you have
+reviewed the surface; destructive actions still require confirmation by default.
+
+## Connect your client
+
+STDIO is the low-friction path for desktop clients. Minimal entry:
 
 ```json
 {
@@ -46,7 +80,7 @@ Example desktop-client entry:
       "env": {
         "TDLIB_API_ID": "123456",
         "TDLIB_API_HASH_FILE": "/absolute/path/to/telegram-api-hash",
-        "MCP_TOOL_PROFILE": "reader",
+        "MCP_TOOL_PROFILE": "inbox",
         "MCP_READ_ONLY": "true"
       }
     }
@@ -54,7 +88,13 @@ Example desktop-client entry:
 }
 ```
 
-For a managed HTTP deployment:
+- **Claude Desktop** — add the block above to `claude_desktop_config.json`
+  (Settings → Developer → Edit Config), then restart the app.
+- **Cursor** — add it to `~/.cursor/mcp.json` (or Settings → MCP → Add).
+- **VS Code** — use `.vscode/mcp.json`; VS Code names the top-level key `servers` instead of
+  `mcpServers`, otherwise the entry is identical.
+
+For a managed HTTP deployment instead of STDIO:
 
 ```bash
 docker run --rm -p 127.0.0.1:8080:8080 \
@@ -64,34 +104,84 @@ docker run --rm -p 127.0.0.1:8080:8080 \
 
 See [CLI and STDIO](docs/CLI_AND_STDIO.md), [interactive authentication](docs/INTERACTIVE_AUTH.md), and [client compatibility](docs/MCP_CLIENT_COMPATIBILITY.md) for exact platform/client variants.
 
+## How it compares
+
+Most Telegram MCP servers wrap the Bot API or a Telethon user session and expose every
+capability to the model at once. This project optimizes for connecting an agent to a **real
+account you care about**, safely:
+
+| Dimension | This server | Typical Telethon / Bot-API MCP servers |
+|---|---|---|
+| Account access | Real user account via TDLib (tdlight-java) | Often bot-only, or a single Telethon user session |
+| Default posture | Read-only; write/quota tools **hidden** until enabled | Usually all tools exposed from the start |
+| Multi-account | Isolated sessions, mandatory selection, scoped keys, **no cross-account read fan-out** | Single account, or implicit fan-out |
+| Transports | STDIO **and** Streamable HTTP `/mcp` | Usually STDIO only |
+| Guardrails | Confirmation gating, audit log, anti-spam limits, chat allow-list, untrusted-content marking | Minimal |
+| Distribution | Signed runtime bundles (no JDK), SBOM + provenance, GHCR image | Source install via pip/npx |
+
+The detailed, dated benchmark against the leading public servers — including features
+deliberately declined (raw MTProto escape hatch, ownership transfer, bulk contact export) —
+is in [PUBLIC_BENCHMARK_AND_ROADMAP.md](docs/PUBLIC_BENCHMARK_AND_ROADMAP.md).
+
+## Tool profiles
+
+You don't expose 110 tools on day one. `MCP_TOOL_PROFILE` narrows the advertised surface
+*before a client ever sees it*, without weakening account scoping, read-only mode,
+confirmation, audit, or anti-spam:
+
+| Profile | Surface |
+|---|---|
+| `reader` | Always non-mutating — safe for a first look |
+| `inbox` | Personal messages, drafts, media, contacts, privacy |
+| `community-admin` | Moderation, group/channel, permissions, bot commands |
+| `research` | Bounded account/public discovery and reading |
+| `all` | The full inventory (opt in deliberately) |
+
+See [TOOL_PROFILES.md](docs/TOOL_PROFILES.md) for the exact intent of each surface.
+
 ## Features
 
-- **Streamable HTTP MCP transport** at `/mcp`, using the current Spring AI 2.0 / MCP SDK 2.0 stack
-- **STDIO transport** for Claude Desktop, Cursor, VS Code, Codex and other process-based clients
-- **110 MCP tools** covering messages, polls, read receipts, scheduled sends, chat folders, chats, invite-link administration, contacts, media, drafts, privacy, bot commands, detailed group permissions, profile, search, group management, account routing, and connector self-description
-- **TDLib integration** via tdlight-java — supports user accounts, not just bots
-- **Isolated multi-account mode** — independent TDLib factories, session directories, mandatory account selection, and optional API-key account scopes
-- **Entity resolution** — resolve `@username`, `+phone`, or numeric IDs transparently
-- **API Key authentication** via `Authorization: Bearer`, `X-MCP-API-Key`, or a configured custom header
-- **Host-friendly discovery** via `/.well-known/mcp-server.json` for installers, desktop hosts, and service managers
-- **Prompt injection guardrails** with configurable blocked patterns
-- **Chat allow-list** to restrict which Telegram chats can be accessed
-- **Read-only tool surface** + confirmation mode for destructive operations
-- **Task-focused tool profiles** — start with a small inbox, reader, community-admin, or research surface instead of all 110 tools
-- **MCP behavior annotations** — every advertised tool declares read-only, destructive, retry, and open-world hints for safer client UX
-- **Structured, marked output** — backward-compatible JSON text plus `structuredContent`; Telegram-controlled fields are explicitly untrusted and presentation-control Unicode is escaped
-- **Audit logging** with in-memory ring buffer and Micrometer metrics
-- **File security service** for safe media uploads
-- **Resilience4j** rate limiter (30 req/s) + circuit breaker for Telegram API calls
-- **Observability**: Micrometer metrics, Prometheus endpoint, structured JSON logging with MDC (`traceId`, `sessionId`, `toolName`)
-- **Actuator** health probes, info, metrics
-- **Graceful shutdown** with configurable timeout
-- **Multi-stage Docker** build + docker-compose with dev hot-reload
-- **Verified release bundles** — Windows x64, Linux x64/ARM64, and Apple-silicon macOS launch bundles with checksums; every bundle contains the matching TDLib native runtime packages
-- **Runtime-inclusive app images** — the supported release archives include their own Java runtime and pass an actual STDIO handshake before publication
-- **Offline session doctor** — inspect configured TDLib state paths and lock availability without starting TDLib or printing secrets
-- **Clean Architecture** — config / model / client / service / tool / security / util / exception
-- **Language-neutral public search** — callers pass synonyms, translations and spelling variants in any language; product-specific policy interpretation stays in the MCP host
+- **110 MCP tools** — messages, polls, read receipts, scheduled sends, chats, folders,
+  invite-link administration, contacts, media, drafts, privacy, bot commands, detailed group
+  permissions, profile, search, and account routing.
+- **TDLib via tdlight-java** — real user accounts, not just the Bot API.
+- **Isolated multi-account mode** — independent sessions, mandatory account selection, and
+  optional per-key account scopes with no cross-account read fan-out.
+- **Safe by default** — read-only tool surface, confirmation mode for destructive actions,
+  and task-focused profiles (`reader`/`inbox`/`community-admin`/`research`/`all`).
+- **Two transports** — STDIO for desktop clients and Streamable HTTP `/mcp`
+  (Spring AI 2.0 / MCP SDK 2.0), with API-key auth.
+- **Guardrails** — audit logging, anti-spam via Resilience4j rate limiter (30 req/s) and
+  circuit breaker, chat allow-list, prompt-injection patterns, and untrusted-content marking.
+- **Observability** — Micrometer metrics, Prometheus endpoint, and structured JSON logging
+  with MDC (`traceId`, `sessionId`, `toolName`).
+- **Verified, runtime-inclusive releases** — Windows x64, Linux x64/ARM64, and Apple-silicon
+  macOS bundles with checksums, an SBOM, and signed container digests — no JDK required.
+
+<details>
+<summary>More capabilities</summary>
+
+- **Entity resolution** — resolve `@username`, `+phone`, or numeric IDs transparently.
+- **MCP behavior annotations** — every advertised tool declares read-only, destructive,
+  retry, and open-world hints for safer client UX.
+- **Structured, marked output** — backward-compatible JSON text plus `structuredContent`;
+  Telegram-controlled fields are explicitly untrusted and presentation-control Unicode is
+  escaped.
+- **Host-friendly discovery** via `/.well-known/mcp-server.json` for installers, desktop
+  hosts, and service managers.
+- **File security service** for safe media uploads; **Actuator** health/info/metrics;
+  **graceful shutdown** with configurable timeout.
+- **Multi-stage Docker** build + docker-compose with dev hot-reload.
+- **Runtime-inclusive app images** — the supported release archives include their own Java
+  runtime and pass an actual STDIO handshake before publication.
+- **Offline session doctor** — inspect configured TDLib state paths and lock availability
+  without starting TDLib or printing secrets.
+- **Clean Architecture** — config / model / client / service / tool / security / util /
+  exception.
+- **Language-neutral public search** — callers pass synonyms, translations, and spelling
+  variants in any language; product-specific policy interpretation stays in the MCP host.
+
+</details>
 
 ## Tech Stack
 
@@ -429,6 +519,12 @@ For remote deployment, terminate TLS before the service and restrict network acc
 
 ## Available MCP Tools
 
+The full inventory is grouped below. In practice you start with a
+[tool profile](#tool-profiles) rather than enabling all of it at once.
+
+<details>
+<summary><b>Show all 110 tools</b></summary>
+
 ### Messages (29 tools)
 
 | Tool | Description |
@@ -594,6 +690,8 @@ all-administrator, chat, chat-administrator, and chat-member scopes.
 | `_manifest` | Return a compact self-description and grouped tool inventory |
 | `list_accounts` | List account-routing labels visible to the authenticated MCP client |
 | `register_internal_chat` | Mark an operator control chat for conservative anti-spam policy handling |
+
+</details>
 
 ## How to Add New Tools
 

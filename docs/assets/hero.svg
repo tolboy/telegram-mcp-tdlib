@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <rect width="1200" height="600" rx="16" fill="#0b0f14"/>
+
+  <!-- Header -->
+  <text x="56" y="66" fill="#58a6ff" font-size="26" font-weight="700" letter-spacing="2">TELEGRAM MCP</text>
+  <text x="56" y="96" fill="#8b949e" font-size="18">Safe by default · real accounts via TDLib · JVM / Kotlin</text>
+
+  <!-- Client conversation card -->
+  <rect x="56" y="124" width="1088" height="356" rx="14" fill="#161b22" stroke="#21262d" stroke-width="1"/>
+  <circle cx="82" cy="150" r="5" fill="#ff5f56"/>
+  <circle cx="102" cy="150" r="5" fill="#ffbd2e"/>
+  <circle cx="122" cy="150" r="5" fill="#27c93f"/>
+  <text x="1120" y="155" text-anchor="end" fill="#6e7681" font-size="14" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">MCP_READ_ONLY=true · profile: inbox</text>
+
+  <!-- User bubble (right) -->
+  <rect x="474" y="180" width="646" height="64" rx="14" fill="#1f6feb"/>
+  <text x="1096" y="208" text-anchor="end" fill="#eef4ff" font-size="18">Summarize my last 20 conversations.</text>
+  <text x="1096" y="232" text-anchor="end" fill="#cfe0ff" font-size="18">Don’t send or change anything.</text>
+
+  <!-- Assistant bubble (left) -->
+  <rect x="80" y="262" width="740" height="150" rx="14" fill="#21262d"/>
+  <text x="104" y="292" fill="#3fb950" font-size="16" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">✓ read 20 chats in read-only mode — no writes possible</text>
+  <text x="104" y="324" fill="#e6edf3" font-size="18">• Family — 3 unread, dinner plans for Saturday</text>
+  <text x="104" y="352" fill="#e6edf3" font-size="18">• Work / deploys — release shipped, CI green</text>
+  <text x="104" y="380" fill="#e6edf3" font-size="18">• Landlord — awaiting your reply since Tuesday</text>
+
+  <!-- Safety pills -->
+  <g font-size="15" font-weight="600">
+    <rect x="80" y="430" width="132" height="32" rx="16" fill="#0d2a17" stroke="#238636" stroke-width="1"/>
+    <text x="146" y="451" text-anchor="middle" fill="#3fb950">read-only</text>
+    <rect x="224" y="430" width="156" height="32" rx="16" fill="#0d2a17" stroke="#238636" stroke-width="1"/>
+    <text x="302" y="451" text-anchor="middle" fill="#3fb950">writes hidden</text>
+    <rect x="392" y="430" width="150" height="32" rx="16" fill="#10233f" stroke="#1f6feb" stroke-width="1"/>
+    <text x="467" y="451" text-anchor="middle" fill="#58a6ff">profile: inbox</text>
+    <rect x="554" y="430" width="176" height="32" rx="16" fill="#10233f" stroke="#1f6feb" stroke-width="1"/>
+    <text x="642" y="451" text-anchor="middle" fill="#58a6ff">multi-account safe</text>
+  </g>
+
+  <!-- Footer -->
+  <text x="56" y="524" fill="#8b949e" font-size="16">STDIO for Claude Desktop · Cursor · VS Code   —   Streamable HTTP at <tspan fill="#c9d1d9" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">/mcp</tspan></text>
+  <text x="56" y="556" fill="#6e7681" font-size="14">Illustrative mockup — a real screencast is coming.</text>
+</svg>
