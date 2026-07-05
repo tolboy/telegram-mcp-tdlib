@@ -32,6 +32,13 @@ jobs:
     # Run automatically as soon as the repository is public.
     if: github.event.repository.visibility == 'public'
     runs-on: ubuntu-latest
+    # CodeQL's Kotlin extractor lags Kotlin releases: as of CodeQL 2.25.2 it
+    # supports Kotlin <= 2.3.20 and hard-errors on this project's 2.4.0
+    # (KotlinVersionTooRecentError; tracked in github/codeql#21938). Keep the
+    # job wired so analysis resumes automatically once support lands, but do
+    # not let the upstream lag mark the Security workflow red until then.
+    # Remove continue-on-error once CodeQL supports the project's Kotlin.
+    continue-on-error: true
     permissions:
       contents: read
       security-events: write
