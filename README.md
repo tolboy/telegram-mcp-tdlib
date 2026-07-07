@@ -104,6 +104,17 @@ docker run --rm -p 127.0.0.1:8080:8080 \
 
 See [CLI and STDIO](docs/CLI_AND_STDIO.md), [interactive authentication](docs/INTERACTIVE_AUTH.md), and [client compatibility](docs/MCP_CLIENT_COMPATIBILITY.md) for exact platform/client variants.
 
+## Recipes
+
+Copy-paste configurations and prompts for real tasks, each with the smallest
+tool surface that can do the job:
+[summarize your inbox](docs/recipes/summarize-inbox.md),
+[find a lost message](docs/recipes/find-lost-message.md),
+[research public groups](docs/recipes/research-public-groups.md),
+[read-only community health check](docs/recipes/community-review-readonly.md),
+and [draft replies without sending](docs/recipes/safe-draft-reply.md) —
+index in [docs/recipes](docs/recipes/README.md).
+
 ## How it compares
 
 Most Telegram MCP servers wrap the Bot API or a Telethon user session and expose every
@@ -119,7 +130,9 @@ account you care about**, safely:
 | Guardrails | Confirmation gating, audit log, anti-spam limits, chat allow-list, untrusted-content marking | Minimal |
 | Distribution | Signed runtime bundles (no JDK), SBOM + provenance, GHCR image | Source install via pip/npx |
 
-The detailed, dated benchmark against the leading public servers — including features
+A fuller architectural comparison (TDLib vs Telethon vs Bot API, and why "hidden,
+not blocked" matters) is in [docs/COMPARISON.md](docs/COMPARISON.md). The detailed,
+dated benchmark against the leading public servers — including features
 deliberately declined (raw MTProto escape hatch, ownership transfer, bulk contact export) —
 is in [PUBLIC_BENCHMARK_AND_ROADMAP.md](docs/PUBLIC_BENCHMARK_AND_ROADMAP.md).
 
