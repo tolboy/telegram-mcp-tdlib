@@ -32,13 +32,6 @@ jobs:
     # Run automatically as soon as the repository is public.
     if: github.event.repository.visibility == 'public'
     runs-on: ubuntu-latest
-    # CodeQL's Kotlin extractor lags Kotlin releases: as of CodeQL 2.25.2 it
-    # supports Kotlin <= 2.3.20 and hard-errors on this project's 2.4.0
-    # (KotlinVersionTooRecentError; tracked in github/codeql#21938). Keep the
-    # job wired so analysis resumes automatically once support lands, but do
-    # not let the upstream lag mark the Security workflow red until then.
-    # Remove continue-on-error once CodeQL supports the project's Kotlin.
-    continue-on-error: true
     permissions:
       contents: read
       security-events: write
@@ -63,10 +56,22 @@ jobs:
           languages: kotlin
           build-mode: manual
 
+      # CodeQL's Kotlin extractor lags Kotlin releases: as of CodeQL 2.25.2 it
+      # supports Kotlin <= 2.3.20 and hard-errors on this project's 2.4.0
+      # (KotlinVersionTooRecentError; tracked in github/codeql#21938).
+      # Tolerate the failure at STEP level: job-level continue-on-error keeps
+      # the run green but still records a failing check run, which GitHub
+      # surfaces as a red cross on the commit on the repository front page.
+      # A real compile break is still caught by the CI build-and-test job.
+      # Remove continue-on-error and the condition on Analyze once CodeQL
+      # supports the project's Kotlin version.
       - name: Build code for analysis
+        id: codeql-build
+        continue-on-error: true
         run: ./gradlew classes --no-daemon
 
       - name: Analyze
+        if: steps.codeql-build.outcome == 'success'
         uses: github/codeql-action/analyze@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4
         with:
           category: /language:kotlin
