@@ -1,6 +1,7 @@
 ﻿package dev.telegrammcp.server.service
 
 import com.github.benmanes.caffeine.cache.Caffeine
+import dev.telegrammcp.server.client.TelegramAccountContext
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.exception.EntityNotFoundException
 import dev.telegrammcp.server.model.EntityIdentifier
@@ -14,15 +15,21 @@ import java.time.Duration
  *
  * Results are cached with a 10-minute TTL to avoid redundant TDLib calls.
  * Usernames may change, so the cache has a reasonable expiry.
+ *
+ * Cache keys are scoped to the Telegram account selected for the current MCP
+ * call: [telegramClient] routes per account, and identifiers such as the
+ * canonical `self` chat resolve to *different* IDs per account. A shared key
+ * would leak one account's resolution into another.
  */
 @Service
 class EntityResolverService(
     private val telegramClient: TelegramClientService,
+    private val accountContext: TelegramAccountContext? = null,
 ) {
 
     private val log = StructuredLogger.forClass<EntityResolverService>()
 
-    /** Cache: raw identifier string → resolved numeric ID. */
+    /** Cache: account-scoped identifier string → resolved numeric ID. */
     private val cache = Caffeine.newBuilder()
         .maximumSize(1_000)
         .expireAfterWrite(Duration.ofMinutes(10))
@@ -56,7 +63,7 @@ class EntityResolverService(
     }
 
     private fun resolveUsername(username: String): Long {
-        val cacheKey = "username:$username"
+        val cacheKey = "${accountScope()}|username:$username"
         cache.getIfPresent(cacheKey)?.let {
             log.debug("Cache hit for @{} → {}", username, it)
             return it
@@ -73,7 +80,7 @@ class EntityResolverService(
     }
 
     private fun resolvePhone(phone: String): Long {
-        val cacheKey = "phone:$phone"
+        val cacheKey = "${accountScope()}|phone:$phone"
         cache.getIfPresent(cacheKey)?.let {
             log.debug("Cache hit for phone → {}", it)
             return it
@@ -90,7 +97,7 @@ class EntityResolverService(
     }
 
     private fun resolveSelfChat(identifier: String): Long {
-        val cacheKey = "self"
+        val cacheKey = "${accountScope()}|self"
         cache.getIfPresent(cacheKey)?.let {
             log.debug("Cache hit for self chat '{}' → {}", identifier, it)
             return it
@@ -105,4 +112,7 @@ class EntityResolverService(
             throw EntityNotFoundException(identifier)
         }
     }
+
+    private fun accountScope(): String =
+        runCatching { accountContext?.currentAccount() }.getOrNull() ?: "default"
 }

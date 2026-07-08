@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.service
 
+import dev.telegrammcp.server.client.TelegramAccountContext
+import dev.telegrammcp.server.client.TelegramAccountRegistry
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.exception.EntityNotFoundException
 import dev.telegrammcp.server.model.EntityIdentifier
@@ -120,6 +122,60 @@ class EntityResolverServiceTest {
 
             assertEquals(777L, result)
             verify(exactly = 1) { telegramClient.resolveSelfChat() }
+        }
+    }
+
+    @Nested
+    inner class MultiAccountIsolation {
+
+        @Test
+        fun `self chat cache never crosses account boundaries`() {
+            val registry = TelegramAccountRegistry()
+            registry.register(TelegramAccountRegistry.AccountHandle("personal", mockk<TelegramClientService>()))
+            registry.register(TelegramAccountRegistry.AccountHandle("work", mockk<TelegramClientService>()))
+            val accountContext = TelegramAccountContext(registry)
+            val scopedService = EntityResolverService(telegramClient, accountContext)
+
+            every { telegramClient.resolveSelfChat() } returns 111L
+            val personal = accountContext.withAccount("personal") {
+                scopedService.resolve(EntityIdentifier.SelfChat("self"))
+            }
+
+            every { telegramClient.resolveSelfChat() } returns 222L
+            val work = accountContext.withAccount("work") {
+                scopedService.resolve(EntityIdentifier.SelfChat("self"))
+            }
+
+            assertEquals(111L, personal)
+            assertEquals(222L, work)
+            verify(exactly = 2) { telegramClient.resolveSelfChat() }
+
+            // Cached entries stay per-account on repeat resolution.
+            val personalAgain = accountContext.withAccount("personal") {
+                scopedService.resolve(EntityIdentifier.SelfChat("self"))
+            }
+            assertEquals(111L, personalAgain)
+            verify(exactly = 2) { telegramClient.resolveSelfChat() }
+        }
+
+        @Test
+        fun `username cache is scoped per account`() {
+            val registry = TelegramAccountRegistry()
+            registry.register(TelegramAccountRegistry.AccountHandle("personal", mockk<TelegramClientService>()))
+            registry.register(TelegramAccountRegistry.AccountHandle("work", mockk<TelegramClientService>()))
+            val accountContext = TelegramAccountContext(registry)
+            val scopedService = EntityResolverService(telegramClient, accountContext)
+
+            every { telegramClient.resolveUsername("shared_handle") } returns 42L
+            accountContext.withAccount("personal") {
+                scopedService.resolve(EntityIdentifier.Username("shared_handle"))
+            }
+            accountContext.withAccount("work") {
+                scopedService.resolve(EntityIdentifier.Username("shared_handle"))
+            }
+
+            // Each account resolves through its own TDLib session.
+            verify(exactly = 2) { telegramClient.resolveUsername("shared_handle") }
         }
     }
 
