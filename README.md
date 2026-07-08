@@ -702,7 +702,7 @@ all-administrator, chat, chat-administrator, and chat-member scopes.
 |------|-------------|
 | `_manifest` | Return a compact self-description and grouped tool inventory |
 | `list_accounts` | List account-routing labels visible to the authenticated MCP client |
-| `register_internal_chat` | Mark an operator control chat for conservative anti-spam policy handling |
+| `register_internal_chat` | Mark an operator control chat as internal anti-spam context (destructive, requires confirmation — it loosens rate limits for that chat) |
 
 </details>
 

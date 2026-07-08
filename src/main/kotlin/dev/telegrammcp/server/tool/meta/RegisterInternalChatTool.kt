@@ -45,6 +45,10 @@ class RegisterInternalChatTool(
             "chat_id": {
               "type": ["string", "number"],
               "description": "Numeric Telegram chat ID to register as internal admin context"
+            },
+            "confirmed": {
+              "type": "boolean",
+              "description": "Set to true to confirm loosening anti-spam limits for this chat"
             }
           },
           "required": ["chat_id"]
@@ -54,7 +58,7 @@ class RegisterInternalChatTool(
 
     override fun definition(): McpSchema.Tool = ToolSupport.definition(
         TOOL_NAME,
-        "Register a Telegram chat as an internal admin context with looser anti-spam thresholds",
+        "Register a Telegram chat as an internal admin context with looser anti-spam thresholds (destructive, requires confirmation)",
         INPUT_SCHEMA,
         objectMapper,
     )

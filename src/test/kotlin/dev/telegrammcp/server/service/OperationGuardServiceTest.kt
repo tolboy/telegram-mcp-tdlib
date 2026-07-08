@@ -96,6 +96,22 @@ class OperationGuardServiceTest {
     }
 
     @Test
+    fun `guardrail-loosening register_internal_chat requires confirmation`() {
+        val service = guard(
+            ServerModeProperties(
+                confirmation = ServerModeProperties.ConfirmationProps(enabled = true),
+            ),
+        )
+
+        assertThrows<ConfirmationRequiredException> {
+            service.checkPermission("register_internal_chat", mapOf("chat_id" to 1L))
+        }
+        assertDoesNotThrow {
+            service.checkPermission("register_internal_chat", mapOf("chat_id" to 1L, "confirmed" to true))
+        }
+    }
+
+    @Test
     fun `confirmation mode allows non-destructive write tools without confirmation`() {
         val service = guard(
             ServerModeProperties(

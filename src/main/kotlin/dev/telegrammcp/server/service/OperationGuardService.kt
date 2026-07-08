@@ -106,6 +106,9 @@ class OperationGuardService(
             "close_poll",
             "revoke_invite_link",
             "set_slow_mode",
+            // Loosens anti-spam thresholds for the target chat; a prompt-injected
+            // call must not silently weaken its own guardrails.
+            "register_internal_chat",
         )
 
         /**
@@ -205,6 +208,7 @@ class OperationGuardService(
             "close_poll" -> "This will permanently close the poll for all voters"
             "revoke_invite_link" -> "This will permanently invalidate the invite link"
             "set_slow_mode" -> "This will rate-limit every non-admin member of the group"
+            "register_internal_chat" -> "This will loosen anti-spam rate limits for the chat"
             else -> "This is a destructive operation"
         }
     }
