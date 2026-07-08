@@ -3,10 +3,12 @@
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
+import dev.telegrammcp.server.exception.ReadOnlyModeException
 import dev.telegrammcp.server.model.DownloadResult
 import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
+import dev.telegrammcp.server.service.OperationGuardService
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.mockk.every
 import io.mockk.mockk
@@ -24,6 +26,7 @@ class DownloadMediaToolTest {
     private lateinit var telegramClient: TelegramClientService
     private lateinit var entityResolver: EntityResolverService
     private lateinit var guardrailService: GuardrailService
+    private lateinit var operationGuardService: OperationGuardService
     private lateinit var auditService: AuditService
     private lateinit var objectMapper: ObjectMapper
     private lateinit var tool: DownloadMediaTool
@@ -34,6 +37,7 @@ class DownloadMediaToolTest {
         telegramClient = mockk()
         entityResolver = mockk()
         guardrailService = mockk(relaxed = true)
+        operationGuardService = mockk(relaxed = true)
         auditService = mockk(relaxed = true)
         objectMapper = jacksonObjectMapper().findAndRegisterModules()
         exchange = mockk(relaxed = true)
@@ -42,6 +46,7 @@ class DownloadMediaToolTest {
             telegramClient = telegramClient,
             entityResolver = entityResolver,
             guardrailService = guardrailService,
+            operationGuardService = operationGuardService,
             auditService = auditService,
             objectMapper = objectMapper,
             meterRegistry = SimpleMeterRegistry(),
@@ -51,6 +56,18 @@ class DownloadMediaToolTest {
     @Test
     fun `definition returns correct tool name`() {
         assertEquals("download_media", tool.definition().name())
+    }
+
+    @Test
+    fun `blocks download when operation guard rejects the call`() {
+        every {
+            operationGuardService.checkPermission("download_media", any())
+        } throws ReadOnlyModeException("download_media")
+
+        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to 100))
+
+        assertTrue(result.isError)
+        verify(exactly = 0) { telegramClient.downloadMedia(any(), any()) }
     }
 
     @Test

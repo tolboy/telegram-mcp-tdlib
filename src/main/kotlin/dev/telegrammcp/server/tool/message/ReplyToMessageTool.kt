@@ -3,13 +3,15 @@ package dev.telegrammcp.server.tool.message
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.exception.InvalidToolInputException
+import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
+import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
 import dev.telegrammcp.server.tool.ToolInputParsers
+import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
-import io.micrometer.core.instrument.Timer
 import io.modelcontextprotocol.server.McpSyncServerExchange
 import io.modelcontextprotocol.spec.McpSchema
 import org.springframework.stereotype.Component
@@ -34,6 +36,8 @@ class ReplyToMessageTool(
     private val telegramClient: TelegramClientService,
     private val entityResolver: EntityResolverService,
     private val guardrailService: GuardrailService,
+    private val operationGuardService: OperationGuardService,
+    private val auditService: AuditService,
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
 ) : McpToolHandler {
@@ -73,42 +77,39 @@ class ReplyToMessageTool(
     }
 
     override fun definition(): McpSchema.Tool =
-        dev.telegrammcp.server.tool.ToolSupport.definition(TOOL_NAME, "Reply to a specific message in a Telegram chat", INPUT_SCHEMA, objectMapper)
+        ToolSupport.definition(TOOL_NAME, "Reply to a specific message in a Telegram chat", INPUT_SCHEMA, objectMapper)
 
     override fun execute(
         exchange: McpSyncServerExchange,
         arguments: Map<String, Any>,
-    ): McpSchema.CallToolResult {
-        val sample = Timer.start(meterRegistry)
+    ): McpSchema.CallToolResult = ToolSupport.execute(
+        toolName = TOOL_NAME,
+        arguments = arguments,
+        objectMapper = objectMapper,
+        meterRegistry = meterRegistry,
+        log = log,
+        failureMessage = "Failed to reply",
+        auditService = auditService,
+    ) {
+        operationGuardService.checkPermission(TOOL_NAME, arguments)
 
-        return try {
-            val chatId = resolveChatId(arguments)
-            val messageId = extractMessageId(arguments)
-            val text = extractText(arguments)
-            val parseMode = ToolInputParsers.parseMode(arguments)
+        val chatId = resolveChatId(arguments)
+        val messageId = extractMessageId(arguments)
+        val text = extractText(arguments)
+        val parseMode = ToolInputParsers.parseMode(arguments)
 
-            log.withTool(TOOL_NAME).info(
-                "Replying to message {} in chat {} (parseMode={})", messageId, chatId, parseMode,
-            )
+        log.withTool(TOOL_NAME).info(
+            "Replying to message {} in chat {} (parseMode={})", messageId, chatId, parseMode,
+        )
 
-            guardrailService.validateInput(text)
-            guardrailService.validateChatAccess(chatId)
+        guardrailService.validateInput(text)
+        guardrailService.validateChatAccess(chatId)
 
-            val reply = telegramClient.replyToMessage(chatId, messageId, text, parseMode)
-            if (reply.replyToMessageId != messageId) {
-                throw IllegalStateException("Telegram did not attach reply to message $messageId in chat $chatId")
-            }
-            val json = objectMapper.writeValueAsString(reply)
-
-            dev.telegrammcp.server.tool.ToolSupport.textResult(json)
-        } catch (ex: Exception) {
-            log.withTool(TOOL_NAME).error("Failed to reply: {}", ex.message, ex)
-            dev.telegrammcp.server.tool.ToolSupport.errorText("Error: ${ex.message}")
-        } finally {
-            sample.stop(
-                Timer.builder("mcp.tool.execution").tag("tool", TOOL_NAME).register(meterRegistry),
-            )
+        val reply = telegramClient.replyToMessage(chatId, messageId, text, parseMode)
+        if (reply.replyToMessageId != messageId) {
+            throw IllegalStateException("Telegram did not attach reply to message $messageId in chat $chatId")
         }
+        objectMapper.writeValueAsString(reply)
     }
 
     private fun resolveChatId(args: Map<String, Any>): Long {

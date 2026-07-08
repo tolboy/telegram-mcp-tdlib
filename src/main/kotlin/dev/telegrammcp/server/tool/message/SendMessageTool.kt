@@ -4,8 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.exception.InvalidToolInputException
 import dev.telegrammcp.server.model.ReplyMarkupSpec
+import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
+import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
 import dev.telegrammcp.server.tool.ToolInputParsers
 import dev.telegrammcp.server.tool.ToolSupport
@@ -41,6 +43,8 @@ class SendMessageTool(
     private val telegramClient: TelegramClientService,
     private val entityResolver: EntityResolverService,
     private val guardrailService: GuardrailService,
+    private val operationGuardService: OperationGuardService,
+    private val auditService: AuditService,
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
 ) : McpToolHandler {
@@ -116,7 +120,10 @@ class SendMessageTool(
         meterRegistry = meterRegistry,
         log = log,
         failureMessage = "Failed to send message",
+        auditService = auditService,
     ) {
+            operationGuardService.checkPermission(TOOL_NAME, arguments)
+
             val chatId = resolveChatId(arguments)
             val text = extractText(arguments)
             val parseMode = ToolInputParsers.parseMode(arguments)

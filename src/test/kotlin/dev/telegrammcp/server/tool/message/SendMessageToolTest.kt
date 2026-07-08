@@ -3,11 +3,14 @@
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
+import dev.telegrammcp.server.exception.AntiSpamException
 import dev.telegrammcp.server.model.ParseMode
 import dev.telegrammcp.server.model.ReplyMarkupSpec
 import dev.telegrammcp.server.model.TelegramMessage
+import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
+import dev.telegrammcp.server.service.OperationGuardService
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.mockk.every
 import io.mockk.mockk
@@ -25,6 +28,8 @@ class SendMessageToolTest {
     private lateinit var telegramClient: TelegramClientService
     private lateinit var entityResolver: EntityResolverService
     private lateinit var guardrailService: GuardrailService
+    private lateinit var operationGuardService: OperationGuardService
+    private lateinit var auditService: AuditService
     private lateinit var objectMapper: ObjectMapper
     private lateinit var tool: SendMessageTool
     private lateinit var exchange: McpSyncServerExchange
@@ -34,6 +39,8 @@ class SendMessageToolTest {
         telegramClient = mockk()
         entityResolver = mockk()
         guardrailService = mockk(relaxed = true)
+        operationGuardService = mockk(relaxed = true)
+        auditService = mockk(relaxed = true)
         objectMapper = jacksonObjectMapper().findAndRegisterModules()
         exchange = mockk(relaxed = true)
 
@@ -41,6 +48,8 @@ class SendMessageToolTest {
             telegramClient = telegramClient,
             entityResolver = entityResolver,
             guardrailService = guardrailService,
+            operationGuardService = operationGuardService,
+            auditService = auditService,
             objectMapper = objectMapper,
             meterRegistry = SimpleMeterRegistry(),
         )
@@ -58,8 +67,23 @@ class SendMessageToolTest {
         val result = tool.execute(exchange, mapOf("chat_id" to 42, "text" to "Hello"))
 
         assertFalse(result.isError)
+        verify { operationGuardService.checkPermission("send_message", any()) }
         verify { guardrailService.validateInput("Hello") }
         verify { guardrailService.validateChatAccess(42L) }
+    }
+
+    @Test
+    fun `blocks send when anti-spam guard rejects the call`() {
+        every {
+            operationGuardService.checkPermission("send_message", any())
+        } throws AntiSpamException("send_message", "rate limit 6 ops per 60s (external)", 1000L)
+
+        val result = tool.execute(exchange, mapOf("chat_id" to 42, "text" to "Hello"))
+
+        assertTrue(result.isError)
+        val text = (result.content.first() as McpSchema.TextContent).text()
+        assertTrue(text.contains("rate limit"))
+        verify(exactly = 0) { telegramClient.sendMessage(any(), any(), any(), any(), any()) }
     }
 
     @Test

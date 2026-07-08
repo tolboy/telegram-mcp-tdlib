@@ -3,10 +3,13 @@
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
+import dev.telegrammcp.server.exception.ConfirmationRequiredException
 import dev.telegrammcp.server.model.ParseMode
 import dev.telegrammcp.server.model.TelegramMessage
+import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
+import dev.telegrammcp.server.service.OperationGuardService
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.mockk.every
 import io.mockk.mockk
@@ -25,6 +28,8 @@ class ReplyToMessageToolTest {
     private lateinit var telegramClient: TelegramClientService
     private lateinit var entityResolver: EntityResolverService
     private lateinit var guardrailService: GuardrailService
+    private lateinit var operationGuardService: OperationGuardService
+    private lateinit var auditService: AuditService
     private lateinit var objectMapper: ObjectMapper
     private lateinit var tool: ReplyToMessageTool
     private lateinit var exchange: McpSyncServerExchange
@@ -34,6 +39,8 @@ class ReplyToMessageToolTest {
         telegramClient = mockk()
         entityResolver = mockk()
         guardrailService = mockk(relaxed = true)
+        operationGuardService = mockk(relaxed = true)
+        auditService = mockk(relaxed = true)
         objectMapper = jacksonObjectMapper().findAndRegisterModules()
         exchange = mockk(relaxed = true)
 
@@ -41,6 +48,8 @@ class ReplyToMessageToolTest {
             telegramClient = telegramClient,
             entityResolver = entityResolver,
             guardrailService = guardrailService,
+            operationGuardService = operationGuardService,
+            auditService = auditService,
             objectMapper = objectMapper,
             meterRegistry = SimpleMeterRegistry(),
         )
@@ -50,6 +59,21 @@ class ReplyToMessageToolTest {
     fun `definition returns correct tool name`() {
         val def = tool.definition()
         assertEquals("reply_to_message", def.name())
+    }
+
+    @Test
+    fun `blocks reply when operation guard rejects the call`() {
+        every {
+            operationGuardService.checkPermission("reply_to_message", any())
+        } throws ConfirmationRequiredException("reply_to_message", "This is a destructive operation")
+
+        val result = tool.execute(
+            exchange,
+            mapOf("chat_id" to 42, "message_id" to 55, "text" to "Great point!"),
+        )
+
+        assertTrue(result.isError)
+        verify(exactly = 0) { telegramClient.replyToMessage(any(), any(), any(), any()) }
     }
 
     @Test

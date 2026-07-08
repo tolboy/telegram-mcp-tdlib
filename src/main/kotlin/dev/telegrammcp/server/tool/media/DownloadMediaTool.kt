@@ -6,11 +6,11 @@ import dev.telegrammcp.server.exception.InvalidToolInputException
 import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
-import dev.telegrammcp.server.model.AuditOutcome
+import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
-import io.micrometer.core.instrument.Timer
 import io.modelcontextprotocol.server.McpSyncServerExchange
 import io.modelcontextprotocol.spec.McpSchema
 import org.springframework.stereotype.Component
@@ -29,6 +29,7 @@ class DownloadMediaTool(
     private val telegramClient: TelegramClientService,
     private val entityResolver: EntityResolverService,
     private val guardrailService: GuardrailService,
+    private val operationGuardService: OperationGuardService,
     private val auditService: AuditService,
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
@@ -59,35 +60,31 @@ class DownloadMediaTool(
     }
 
     override fun definition(): McpSchema.Tool =
-        dev.telegrammcp.server.tool.ToolSupport.definition(TOOL_NAME, "Download media from a Telegram message to a local file", INPUT_SCHEMA, objectMapper)
+        ToolSupport.definition(TOOL_NAME, "Download media from a Telegram message to a local file", INPUT_SCHEMA, objectMapper)
 
     override fun execute(
         exchange: McpSyncServerExchange,
         arguments: Map<String, Any>,
-    ): McpSchema.CallToolResult {
-        val sample = Timer.start(meterRegistry)
-        val startMs = System.currentTimeMillis()
+    ): McpSchema.CallToolResult = ToolSupport.execute(
+        toolName = TOOL_NAME,
+        arguments = arguments,
+        objectMapper = objectMapper,
+        meterRegistry = meterRegistry,
+        log = log,
+        failureMessage = "Failed to download media",
+        auditService = auditService,
+    ) {
+        operationGuardService.checkPermission(TOOL_NAME, arguments)
 
-        return try {
-            val chatId = resolveChatId(arguments)
-            val messageId = extractMessageId(arguments)
+        val chatId = resolveChatId(arguments)
+        val messageId = extractMessageId(arguments)
 
-            log.withTool(TOOL_NAME).info("Downloading media from message {} in chat {}", messageId, chatId)
+        log.withTool(TOOL_NAME).info("Downloading media from message {} in chat {}", messageId, chatId)
 
-            guardrailService.validateChatAccess(chatId)
+        guardrailService.validateChatAccess(chatId)
 
-            val result = telegramClient.downloadMedia(chatId, messageId)
-            val json = objectMapper.writeValueAsString(result)
-
-            auditService.record(TOOL_NAME, arguments, AuditOutcome.SUCCESS, durationMs = System.currentTimeMillis() - startMs)
-            dev.telegrammcp.server.tool.ToolSupport.textResult(json)
-        } catch (ex: Exception) {
-            log.withTool(TOOL_NAME).error("Failed to download media: {}", ex.message, ex)
-            auditService.record(TOOL_NAME, arguments, AuditOutcome.ERROR, error = ex.message)
-            dev.telegrammcp.server.tool.ToolSupport.errorText("Error: ${ex.message}")
-        } finally {
-            sample.stop(Timer.builder("mcp.tool.execution").tag("tool", TOOL_NAME).register(meterRegistry))
-        }
+        val result = telegramClient.downloadMedia(chatId, messageId)
+        objectMapper.writeValueAsString(result)
     }
 
     private fun resolveChatId(args: Map<String, Any>): Long {
