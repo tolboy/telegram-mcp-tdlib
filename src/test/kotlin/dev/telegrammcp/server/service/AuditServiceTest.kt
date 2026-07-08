@@ -108,6 +108,38 @@ class AuditServiceTest {
     }
 
     @Test
+    fun `redacts sensitive keys nested in object and array arguments`() {
+        val service = auditService(logArguments = true)
+
+        service.record(
+            toolName = "send_message",
+            arguments = mapOf(
+                "chat_id" to 42,
+                "options" to mapOf(
+                    "bot_token" to "123:abc",
+                    "proxyPassword" to "hunter2",
+                    "label" to "kept",
+                ),
+                "recipients" to listOf(
+                    mapOf("phone_number" to "+15551234567", "name" to "kept-too"),
+                ),
+            ),
+        )
+
+        val entry = service.getRecentEntries().first()
+        @Suppress("UNCHECKED_CAST")
+        val options = entry.arguments["options"] as Map<String, Any>
+        assertEquals("***REDACTED***", options["bot_token"])
+        assertEquals("***REDACTED***", options["proxyPassword"])
+        assertEquals("kept", options["label"])
+
+        @Suppress("UNCHECKED_CAST")
+        val recipient = (entry.arguments["recipients"] as List<Map<String, Any>>).first()
+        assertEquals("***REDACTED***", recipient["phone_number"])
+        assertEquals("kept-too", recipient["name"])
+    }
+
+    @Test
     fun `increments metrics counter`() {
         val service = auditService()
 

@@ -40,6 +40,8 @@ class AuditService(
 
     companion object {
         private const val MAX_ENTRIES = 1000
+        private const val REDACTED = "***REDACTED***"
+        private val SENSITIVE_KEY_TOKENS = listOf("password", "secret", "token", "api_key", "apikey", "phone")
 
         /** Maps tool names to audit categories. */
         private val TOOL_CATEGORIES = mapOf(
@@ -254,11 +256,26 @@ class AuditService(
         return recentEntries.take(limit)
     }
 
-    /** Removes sensitive values from arguments before logging. */
-    private fun sanitizeArguments(args: Map<String, Any>): Map<String, Any> {
-        val sensitiveKeys = setOf("password", "token", "secret", "api_key", "phone_number")
-        return args.mapValues { (key, value) ->
-            if (key.lowercase() in sensitiveKeys) "***REDACTED***" else value
+    /**
+     * Removes sensitive values from arguments before logging. Matching is
+     * token-based ("bot_token", "proxyPassword") and recursive so credentials
+     * nested inside object or array arguments cannot slip into the audit log.
+     */
+    private fun sanitizeArguments(args: Map<String, Any>): Map<String, Any> =
+        args.mapValues { (key, value) -> sanitizeValue(key, value) }
+
+    private fun sanitizeValue(key: String, value: Any?): Any = when {
+        isSensitiveKey(key) -> REDACTED
+        value is Map<*, *> -> value.entries.associate { (nestedKey, nestedValue) ->
+            val name = nestedKey.toString()
+            name to sanitizeValue(name, nestedValue)
         }
+        value is List<*> -> value.map { element -> sanitizeValue(key = "", value = element) }
+        else -> value ?: ""
+    }
+
+    private fun isSensitiveKey(key: String): Boolean {
+        val normalized = key.lowercase()
+        return SENSITIVE_KEY_TOKENS.any { it in normalized }
     }
 }
