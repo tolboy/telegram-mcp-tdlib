@@ -27,6 +27,8 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Primary
 import org.springframework.context.annotation.Profile
+import org.springframework.core.env.Environment
+import org.springframework.core.env.Profiles
 import java.nio.file.Path
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
@@ -49,6 +51,7 @@ class TdLibConfig(
     private val rateLimiter: RateLimiter,
     private val circuitBreaker: CircuitBreaker,
     private val meterRegistry: MeterRegistry,
+    private val environment: Environment,
     private val buildProperties: BuildProperties? = null,
 ) {
     private val log = StructuredLogger.forClass<TdLibConfig>()
@@ -198,13 +201,9 @@ class TdLibConfig(
     }
 
     private fun validateDistinctStorage(accounts: List<RuntimeAccountConfig>) {
-        accounts.forEachIndexed { leftIndex, left ->
-            accounts.drop(leftIndex + 1).forEach { right ->
-                require(!left.databaseDirectory.startsWith(right.databaseDirectory) && !right.databaseDirectory.startsWith(left.databaseDirectory)) {
-                    "Telegram accounts '${left.label}' and '${right.label}' must use separate TDLib database directories"
-                }
-            }
-        }
+        validateDistinctAccountStorage(
+            accounts.map { AccountStorage(it.label, it.databaseDirectory, it.downloadsDirectory) },
+        )
     }
 
     private fun ensureNativeInitialized(logVerbosityLevel: Int) {
@@ -232,7 +231,17 @@ class TdLibConfig(
             }
             builder.addUpdateHandler(TdApi.UpdateMessageSendSucceeded::class.java, messageSendTracker::onSucceeded)
             builder.addUpdateHandler(TdApi.UpdateMessageSendFailed::class.java, messageSendTracker::onFailed)
-            builder.setClientInteraction(NonInteractiveClientInteraction(config, log))
+            builder.setClientInteraction(
+                HeadlessClientInteraction(
+                    label = config.label,
+                    configuredCode = config.code,
+                    configuredPassword = config.password,
+                    // STDIO reserves stdout for JSON-RPC frames and stdin for the
+                    // transport reader; a console prompt would corrupt the protocol.
+                    allowConsolePrompts = !environment.acceptsProfiles(Profiles.of("stdio")),
+                    log = log,
+                ),
+            )
             val client = builder.build(authenticationSupplier(config))
             configureProxy(client, config)
 
@@ -354,37 +363,83 @@ class TdLibConfig(
         val logVerbosityLevel: Int,
     )
 
-    private class NonInteractiveClientInteraction(
-        private val config: RuntimeAccountConfig,
-        private val log: StructuredLogger,
-    ) : ClientInteraction {
-        private val codeUsed = AtomicBoolean(false)
+}
 
-        override fun onParameterRequest(parameter: InputParameter, info: ParameterInfo): CompletableFuture<String> {
-            val configured = when (parameter) {
-                InputParameter.ASK_CODE -> config.code.takeIf { it.isNotBlank() && codeUsed.compareAndSet(false, true) }
-                InputParameter.ASK_PASSWORD -> config.password.takeIf { it.isNotBlank() }
-                InputParameter.NOTIFY_LINK -> {
-                    log.info("TDLib account '{}' requires external confirmation", config.label)
-                    return CompletableFuture.completedFuture("")
-                }
-                InputParameter.TERMS_OF_SERVICE -> return CompletableFuture.completedFuture("Y")
-                else -> null
-            }
-            if (configured != null) return CompletableFuture.completedFuture(configured)
+internal data class AccountStorage(
+    val label: String,
+    val databaseDirectory: Path,
+    val downloadsDirectory: Path,
+)
 
-            return CompletableFuture.supplyAsync {
-                val prompt = when (parameter) {
-                    InputParameter.ASK_CODE -> "Enter Telegram login code for ${config.label}: "
-                    InputParameter.ASK_PASSWORD -> "Enter 2FA password for ${config.label}: "
-                    InputParameter.ASK_EMAIL_ADDRESS -> "Enter email for ${config.label}: "
-                    InputParameter.ASK_EMAIL_CODE -> "Enter email code for ${config.label}: "
-                    InputParameter.ASK_FIRST_NAME -> "Enter first name for ${config.label}: "
-                    InputParameter.ASK_LAST_NAME -> "Enter last name for ${config.label}: "
-                }
-                print(prompt)
-                System.`in`.bufferedReader().readLine()?.trim().orEmpty()
+/**
+ * Session isolation depends on disjoint storage: a shared or nested TDLib
+ * database corrupts sessions, and a shared downloads directory mixes one
+ * account's files into another's file surface.
+ */
+internal fun validateDistinctAccountStorage(accounts: List<AccountStorage>) {
+    accounts.forEachIndexed { leftIndex, left ->
+        accounts.drop(leftIndex + 1).forEach { right ->
+            require(!left.databaseDirectory.startsWith(right.databaseDirectory) && !right.databaseDirectory.startsWith(left.databaseDirectory)) {
+                "Telegram accounts '${left.label}' and '${right.label}' must use separate TDLib database directories"
             }
+            require(!left.downloadsDirectory.startsWith(right.downloadsDirectory) && !right.downloadsDirectory.startsWith(left.downloadsDirectory)) {
+                "Telegram accounts '${left.label}' and '${right.label}' must use separate downloads directories"
+            }
+            require(!left.downloadsDirectory.startsWith(right.databaseDirectory) && !right.downloadsDirectory.startsWith(left.databaseDirectory)) {
+                "Telegram accounts '${left.label}' and '${right.label}' must not place a downloads directory inside another account's TDLib database directory"
+            }
+        }
+    }
+}
+
+/**
+ * Supplies TDLib authentication parameters from configuration and only falls
+ * back to console prompts when the process owns its console. With the STDIO
+ * MCP transport, stdout carries JSON-RPC frames and stdin feeds the transport
+ * reader, so an unresolved parameter fails authentication instead of
+ * corrupting the protocol stream.
+ */
+internal class HeadlessClientInteraction(
+    private val label: String,
+    private val configuredCode: String,
+    private val configuredPassword: String,
+    private val allowConsolePrompts: Boolean,
+    private val log: StructuredLogger,
+) : ClientInteraction {
+    private val codeUsed = AtomicBoolean(false)
+
+    override fun onParameterRequest(parameter: InputParameter, info: ParameterInfo): CompletableFuture<String> {
+        val configured = when (parameter) {
+            InputParameter.ASK_CODE -> configuredCode.takeIf { it.isNotBlank() && codeUsed.compareAndSet(false, true) }
+            InputParameter.ASK_PASSWORD -> configuredPassword.takeIf { it.isNotBlank() }
+            InputParameter.NOTIFY_LINK -> {
+                log.info("TDLib account '{}' requires external confirmation", label)
+                return CompletableFuture.completedFuture("")
+            }
+            InputParameter.TERMS_OF_SERVICE -> return CompletableFuture.completedFuture("Y")
+            else -> null
+        }
+        if (configured != null) return CompletableFuture.completedFuture(configured)
+
+        if (!allowConsolePrompts) {
+            val message = "TDLib account '$label' needs interactive input ($parameter) but the STDIO " +
+                "transport reserves stdin/stdout for MCP. Configure TDLIB_AUTH_CODE / TDLIB_2FA_PASSWORD " +
+                "(or their *_FILE variants), or authenticate once with 'telegram-mcp auth'."
+            log.error(message)
+            return CompletableFuture.failedFuture(TdLibAuthException(message))
+        }
+
+        return CompletableFuture.supplyAsync {
+            val prompt = when (parameter) {
+                InputParameter.ASK_CODE -> "Enter Telegram login code for $label: "
+                InputParameter.ASK_PASSWORD -> "Enter 2FA password for $label: "
+                InputParameter.ASK_EMAIL_ADDRESS -> "Enter email for $label: "
+                InputParameter.ASK_EMAIL_CODE -> "Enter email code for $label: "
+                InputParameter.ASK_FIRST_NAME -> "Enter first name for $label: "
+                InputParameter.ASK_LAST_NAME -> "Enter last name for $label: "
+            }
+            print(prompt)
+            System.`in`.bufferedReader().readLine()?.trim().orEmpty()
         }
     }
 }
