@@ -2,11 +2,13 @@
 
 import dev.telegrammcp.server.client.TelegramAccountContext
 import dev.telegrammcp.server.client.TelegramAccountRegistry
+import dev.telegrammcp.server.exception.ReadOnlyModeException
 import dev.telegrammcp.server.security.AccountAccessPolicy
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.service.ToolSurfacePolicy
 import dev.telegrammcp.server.tool.AccountAgnosticMcpToolHandler
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolSupport
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification
 import io.modelcontextprotocol.spec.McpSchema
 import org.slf4j.LoggerFactory
@@ -63,12 +65,21 @@ class McpConfig {
             log.info("Registering MCP tool: {} — {}", tool.name(), tool.description())
             SyncToolSpecification(tool) { exchange, request ->
                 val arguments = request.arguments() ?: emptyMap()
-                if (handler is AccountAgnosticMcpToolHandler) {
-                    handler.execute(exchange, arguments)
-                } else {
-                    val account = accountAccessPolicy.selectAccount(arguments)
-                    accountContext.withAccount(account) {
-                        handler.execute(exchange, arguments - AccountAccessPolicy.ACCOUNT_ARGUMENT)
+                when {
+                    // Defense in depth: read-only mode already hides write
+                    // tools at registration, but a client may replay a cached
+                    // tool list. Execution must fail closed regardless.
+                    serverMode.readOnly && tool.name() in OperationGuardService.WRITE_TOOLS ->
+                        ToolSupport.errorResult(ReadOnlyModeException(tool.name()))
+
+                    handler is AccountAgnosticMcpToolHandler ->
+                        handler.execute(exchange, arguments)
+
+                    else -> {
+                        val account = accountAccessPolicy.selectAccount(arguments)
+                        accountContext.withAccount(account) {
+                            handler.execute(exchange, arguments - AccountAccessPolicy.ACCOUNT_ARGUMENT)
+                        }
                     }
                 }
             }

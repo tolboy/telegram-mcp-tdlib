@@ -5,6 +5,8 @@ import dev.telegrammcp.server.client.TelegramAccountRegistry
 import dev.telegrammcp.server.security.AccountAccessPolicy
 import dev.telegrammcp.server.service.ToolSurfacePolicy
 import dev.telegrammcp.server.tool.AccountAgnosticMcpToolHandler
+import io.mockk.every
+import io.mockk.mockk
 import io.modelcontextprotocol.server.McpSyncServerExchange
 import io.modelcontextprotocol.spec.McpSchema
 import org.junit.jupiter.api.Test
@@ -103,6 +105,34 @@ class McpConfigReadOnlyTest {
         val destructiveAnnotations = specifications.getValue("delete_message").tool().annotations()
         assertFalse(destructiveAnnotations.readOnlyHint())
         assertTrue(destructiveAnnotations.destructiveHint())
+    }
+
+    @Test
+    fun `execution fails closed when a write tool is registered despite read-only mode`() {
+        // Simulate a surface-policy regression that leaves a write tool
+        // visible: the dispatch wrapper must still refuse to execute it.
+        val registry = TelegramAccountRegistry()
+        val brokenSurfacePolicy = mockk<ToolSurfacePolicy>(relaxed = true)
+        every { brokenSurfacePolicy.isVisible(any(), any()) } returns true
+        every { brokenSurfacePolicy.profile } returns McpToolProfile.ALL
+
+        val specification = McpConfig().syncToolSpecifications(
+            handlers = listOf(TestHandler("send_message")),
+            registry = registry,
+            accountContext = TelegramAccountContext(registry),
+            accountAccessPolicy = AccountAccessPolicy(registry),
+            serverMode = ServerModeProperties(readOnly = true),
+            toolSurfacePolicy = brokenSurfacePolicy,
+        ).single()
+
+        val result = specification.callHandler().apply(
+            mockk<McpSyncServerExchange>(),
+            McpSchema.CallToolRequest("send_message", mapOf("chat_id" to 1, "text" to "hi"), emptyMap()),
+        )
+
+        assertTrue(result.isError)
+        val text = (result.content.first() as McpSchema.TextContent).text()
+        assertTrue(text.contains("read-only"), "Expected a read-only rejection, got: $text")
     }
 
     @Test
