@@ -3,6 +3,39 @@
 Notable changes to Telegram MCP Server are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.9.0 - 2026-07-08
+
+### Security
+
+- `send_message`, `reply_to_message`, `edit_message`, and `download_media` now
+  pass through the operation guard like every other write tool. Previously the
+  per-tool guard call was missing, so anti-spam rate limits, duplicate-message
+  detection, and operator-configured confirmation lists were not enforced for
+  the highest-volume messaging tools. A new source-level regression test
+  (`WriteToolGuardCoverageTest`) fails the build if any write tool skips the
+  guard.
+- `send_message`, `reply_to_message`, and `edit_message` are now audit-logged;
+  outbound messages previously produced no audit entries.
+- Entity resolution caching (`self`, `@username`, `+phone`) is now scoped per
+  Telegram account. In multi-account mode, the canonical `self` chat of one
+  account could previously be served from another account's cache entry and
+  misroute a message across accounts.
+- Read-only mode is enforced at tool dispatch in addition to tool hiding, so a
+  client replaying a cached tool list (or a future registration regression)
+  cannot execute a write tool.
+- `register_internal_chat` is destructive and confirmation-gated: it loosens
+  anti-spam rate limits for the target chat, so a prompt-injected call must
+  not silently weaken its own guardrails.
+- Audit-log redaction is recursive and token-based; credentials nested inside
+  object or array arguments (`bot_token`, `proxyPassword`, `phone_number`) are
+  redacted instead of only top-level exact-name keys.
+- With the STDIO transport, an unresolved TDLib login parameter now fails
+  authentication with actionable guidance instead of prompting on
+  stdout/stdin, which corrupted the JSON-RPC stream and could swallow
+  protocol frames.
+- Multi-account startup validation now also rejects shared or nested
+  downloads directories, not only shared TDLib database directories.
+
 ## 1.8.2 - 2026-07-04
 
 ### Changed
