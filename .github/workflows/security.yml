@@ -56,8 +56,11 @@ jobs:
           languages: kotlin
           build-mode: manual
 
+      # --no-build-cache: CodeQL's tracer must observe real compiler
+      # invocations; a FROM-CACHE compileKotlin yields an empty database
+      # and Analyze fails with "no source code seen during build".
       - name: Build code for analysis
-        run: ./gradlew classes --no-daemon
+        run: ./gradlew classes --no-daemon --no-build-cache
 
       - name: Analyze
         uses: github/codeql-action/analyze@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
