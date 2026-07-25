@@ -88,8 +88,11 @@ STDIO is the low-friction path for desktop clients. Minimal entry:
 }
 ```
 
-- **Claude Desktop** — add the block above to `claude_desktop_config.json`
-  (Settings → Developer → Edit Config), then restart the app.
+- **Claude Desktop** — add the block above to `claude_desktop_config.json`, then quit the app
+  from the tray and start it again. Use Settings → Developer → Edit Config to open the file:
+  it points at the right copy for your build. Editing `%APPDATA%\Claude` by hand works only
+  for the installer build — the Microsoft Store build is packaged as MSIX and keeps its config
+  in `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\` instead.
 - **Cursor** — add it to `~/.cursor/mcp.json` (or Settings → MCP → Add).
 - **VS Code** — use `.vscode/mcp.json`; VS Code names the top-level key `servers` instead of
   `mcpServers`, otherwise the entry is identical.

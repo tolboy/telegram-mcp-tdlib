@@ -7,6 +7,8 @@ import dev.telegrammcp.server.auth.AuthState
 import dev.telegrammcp.server.auth.TelegramAuthStateHolder
 import dev.telegrammcp.server.auth.TelegramAuthOrchestrator
 import dev.telegrammcp.server.client.TelegramAccountRegistry
+import dev.telegrammcp.server.runtime.ServerShutdown
+import dev.telegrammcp.server.runtime.installStdinCloseWatcher
 import org.springframework.boot.WebApplicationType
 import org.springframework.boot.builder.SpringApplicationBuilder
 import org.springframework.context.ConfigurableApplicationContext
@@ -62,8 +64,17 @@ object TelegramMcpCli {
                     "spring.ai.mcp.server.stdio=true",
                     "spring.main.banner-mode=off",
                 )
+            // Wrap stdin before the transport claims it. A stdio client ends the
+            // session by closing stdin without sending a signal, and `docker run`
+            // does not stop the container when its own client dies — without this
+            // the process outlives the client and keeps the TDLib session locked.
+            installStdinCloseWatcher(ServerShutdown.INSTANCE)
         }
-        builder.run(*invocation.remaining.toTypedArray())
+        val context = builder.run(*invocation.remaining.toTypedArray())
+        // EOF may already have arrived while the context was still starting; the
+        // hand-off is what lets that shutdown close the context instead of only
+        // halting the JVM.
+        ServerShutdown.INSTANCE.attach(context)
     }
 
     internal fun resolveServerInvocation(

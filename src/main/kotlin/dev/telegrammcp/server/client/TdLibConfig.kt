@@ -3,6 +3,7 @@ package dev.telegrammcp.server.client
 import dev.telegrammcp.server.config.TdLibProperties
 import dev.telegrammcp.server.config.TelegramProperties
 import dev.telegrammcp.server.exception.TdLibAuthException
+import dev.telegrammcp.server.runtime.ServerShutdown
 import dev.telegrammcp.server.security.SecretResolver
 import dev.telegrammcp.server.service.PlatformPaths
 import dev.telegrammcp.server.util.StructuredLogger
@@ -30,11 +31,10 @@ import org.springframework.context.annotation.Profile
 import org.springframework.core.env.Environment
 import org.springframework.core.env.Profiles
 import java.nio.file.Path
+import java.time.Duration
 import java.util.concurrent.CompletableFuture
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Builds one isolated TDLib factory and database per configured Telegram
@@ -163,6 +163,9 @@ class TdLibConfig(
     ): RuntimeAccountConfig {
         require(api.id > 0) { "Telegram account '$label' requires a positive API ID" }
         require(logVerbosityLevel in 0..10) { "Telegram account '$label' log verbosity must be between 0 and 10" }
+        require(!auth.readyTimeout.isNegative && !auth.readyTimeout.isZero) {
+            "Telegram account '$label' auth ready-timeout must be positive"
+        }
 
         val apiHash = secretResolver.resolve(api.hash, api.hashFile, "Telegram account '$label' API hash", required = true)
         val botToken = secretResolver.resolve(auth.botToken, auth.botTokenFile, "Telegram account '$label' bot token")
@@ -197,6 +200,7 @@ class TdLibConfig(
             deviceModel = session.deviceModel.ifBlank { "Telegram MCP Server" },
             proxy = proxyResolver.resolve(proxy, label),
             logVerbosityLevel = logVerbosityLevel,
+            authReadyTimeout = auth.readyTimeout,
         )
     }
 
@@ -219,18 +223,21 @@ class TdLibConfig(
         val factory = SimpleTelegramClientFactory()
         return try {
             val builder: SimpleTelegramClientBuilder = factory.builder(buildSettings(config))
-            val authReady = CountDownLatch(1)
-            val authError = AtomicReference<String>()
+            val authGate = TelegramAuthGate(config.label, config.authReadyTimeout)
             val chatFolderState = ChatFolderState()
             val messageSendTracker = MessageSendTracker()
             builder.addUpdateHandler(TdApi.UpdateAuthorizationState::class.java) { update ->
-                handleAuthState(config.label, update, authReady, authError)
+                handleAuthState(config.label, update, authGate)
             }
             builder.addUpdateHandler(TdApi.UpdateChatFolders::class.java) { update ->
                 chatFolderState.replace(update)
             }
             builder.addUpdateHandler(TdApi.UpdateMessageSendSucceeded::class.java, messageSendTracker::onSucceeded)
             builder.addUpdateHandler(TdApi.UpdateMessageSendFailed::class.java, messageSendTracker::onFailed)
+            // Errors raised outside the authorization-state machine (a locked
+            // binlog is the important one) reach the client only here.
+            builder.addDefaultExceptionHandler { error -> handleClientError(config, error, authGate) }
+            builder.addUpdateExceptionHandler { error -> handleClientError(config, error, authGate) }
             builder.setClientInteraction(
                 HeadlessClientInteraction(
                     label = config.label,
@@ -245,10 +252,14 @@ class TdLibConfig(
             val client = builder.build(authenticationSupplier(config))
             configureProxy(client, config)
 
-            log.info("Waiting for TDLib authentication for account '{}' (up to 90s)", config.label)
-            if (!authReady.await(90, TimeUnit.SECONDS)) {
-                throw TdLibAuthException(authError.get() ?: "Authentication timed out after 90 seconds for account '${config.label}'")
-            }
+            // Startup deliberately does not wait for authentication: the MCP
+            // `initialize` response must not sit behind a Telegram login. The
+            // gate moves that wait to the first tool call.
+            log.info(
+                "Started TDLib account '{}'; authentication continues in the background (tool calls wait up to {}s)",
+                config.label,
+                config.authReadyTimeout.toSeconds(),
+            )
             // A circuit failure or rate burst from one account must not throttle
             // or open the breaker for a different account.
             val accountRateLimiter = RateLimiter.of(
@@ -261,13 +272,15 @@ class TdLibConfig(
             )
             TelegramAccountRegistry.AccountHandle(
                 label = config.label,
-                service = TdLibClientService(
-                    client,
-                    accountRateLimiter,
-                    accountCircuitBreaker,
-                    meterRegistry,
-                    chatFolderState,
-                    messageSendTracker,
+                service = authGate.gate(
+                    TdLibClientService(
+                        client,
+                        accountRateLimiter,
+                        accountCircuitBreaker,
+                        meterRegistry,
+                        chatFolderState,
+                        messageSendTracker,
+                    ),
                 ),
                 close = factory::close,
             )
@@ -317,17 +330,15 @@ class TdLibConfig(
     private fun handleAuthState(
         label: String,
         update: TdApi.UpdateAuthorizationState,
-        authReady: CountDownLatch,
-        authError: AtomicReference<String>,
+        authGate: TelegramAuthGate,
     ) {
         when (val state = update.authorizationState) {
             is TdApi.AuthorizationStateReady -> {
                 log.info("TDLib account '{}' is ready", label)
-                authReady.countDown()
+                authGate.markReady()
             }
             is TdApi.AuthorizationStateClosed -> {
-                authError.compareAndSet(null, "TDLib session closed before reaching READY")
-                authReady.countDown()
+                authGate.markFailed("TDLib session for account '$label' closed before reaching READY")
             }
             is TdApi.AuthorizationStateWaitOtherDeviceConfirmation ->
                 log.info("TDLib account '{}' needs QR confirmation", label)
@@ -336,6 +347,30 @@ class TdLibConfig(
                 log.warn("TDLib account '{}' requires email verification", label)
             else -> log.debug("TDLib account '{}' auth state: {}", label, state.javaClass.simpleName)
         }
+    }
+
+    /**
+     * Handles TDLib errors that arrive outside the authorization-state machine.
+     *
+     * A locked binlog means another live process owns this session, so nothing
+     * the server can do will make it usable: it says so where the user will see
+     * it and ends the process instead of idling until the client gives up.
+     */
+    private fun handleClientError(
+        config: RuntimeAccountConfig,
+        error: Throwable,
+        authGate: TelegramAuthGate,
+    ) {
+        if (TdLibSessionLock.isSessionLocked(error)) {
+            val message = TdLibSessionLock.describe(config.label, config.databaseDirectory)
+            // The stdio profile logs to stderr, which is where an MCP client
+            // collects server output; stdout carries JSON-RPC only.
+            log.error(message)
+            authGate.markFailed(message)
+            ServerShutdown.INSTANCE.requestShutdown(message, exitCode = SESSION_LOCKED_EXIT_CODE)
+            return
+        }
+        log.warn("TDLib error for account '{}': {}", config.label, error.message, error)
     }
 
     @PreDestroy
@@ -361,8 +396,13 @@ class TdLibConfig(
         val deviceModel: String,
         val proxy: TdApi.Proxy?,
         val logVerbosityLevel: Int,
+        val authReadyTimeout: Duration,
     )
 
+    private companion object {
+        /** Exit code for "another process owns this TDLib session". */
+        const val SESSION_LOCKED_EXIT_CODE = 2
+    }
 }
 
 internal data class AccountStorage(

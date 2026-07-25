@@ -56,6 +56,11 @@ tdlib:
     password-file: ${TDLIB_2FA_PASSWORD_FILE:}
     code: ${TDLIB_AUTH_CODE:}
     code-file: ${TDLIB_AUTH_CODE_FILE:}
+    # Startup never blocks on authentication (the MCP handshake must answer
+    # immediately); a tool call waits this long for the session to become ready
+    # and then fails with a readable error. Keep it below the client's own
+    # timeout — Claude Desktop drops a stdio server after 60s.
+    ready-timeout: ${TDLIB_AUTH_READY_TIMEOUT:45s}
   database:
     # Blank picks the platform app-data directory (Windows/macOS/Linux).
     # Set an absolute path for containers or a managed server volume.

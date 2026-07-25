@@ -36,6 +36,24 @@ stderr.
 }
 ```
 
+### Lifecycle
+
+The client owns the session: when it closes stdin, the server closes the Spring
+context and exits. The exit is not optional — TDLib runs non-daemon threads, and
+under `docker run -i --rm` a process that lingers keeps the container alive and
+the TDLib session (`td.binlog`) locked, so the next start cannot authenticate.
+A graceful close that takes longer than five seconds is cut short by a hard halt.
+
+Startup never waits for Telegram authentication, so `initialize` is answered
+immediately. Tool calls wait instead: `tdlib.auth.ready-timeout`
+(`TDLIB_AUTH_READY_TIMEOUT`, 45s by default) bounds that wait and must stay below
+the client's own handshake/tool timeout. An unauthenticated account therefore
+shows up as a readable tool error rather than a connector that never appears.
+
+If another process still holds the session, the server does not wait for a login
+that cannot happen: it reports the locked `td.binlog` on stderr and exits with
+code 2. Stop the other instance (`docker ps` → `docker stop <id>`) and start again.
+
 Prepare the TDLib session before enabling the MCP entry:
 
 ```bash

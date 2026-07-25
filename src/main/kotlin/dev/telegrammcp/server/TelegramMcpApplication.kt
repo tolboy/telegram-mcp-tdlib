@@ -2,6 +2,7 @@
 
 import dev.telegrammcp.server.cli.SessionMaintenanceCli
 import dev.telegrammcp.server.cli.TelegramMcpCli
+import dev.telegrammcp.server.runtime.ServerShutdown
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan
 import org.springframework.boot.runApplication
@@ -19,5 +20,7 @@ class TelegramMcpApplication
 fun main(args: Array<String>) {
     if (SessionMaintenanceCli.tryRun(args)) return
     if (TelegramMcpCli.run(args)) return
-    runApplication<TelegramMcpApplication>(*args)
+    // The legacy no-command startup gets the same exit path as `serve`, so an
+    // unrecoverable TDLib failure can still close the context before halting.
+    ServerShutdown.INSTANCE.attach(runApplication<TelegramMcpApplication>(*args))
 }

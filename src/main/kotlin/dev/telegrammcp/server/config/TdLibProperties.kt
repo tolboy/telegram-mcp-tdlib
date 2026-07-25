@@ -2,6 +2,7 @@
 
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.validation.annotation.Validated
+import java.time.Duration
 
 /**
  * Typed configuration for TDLib (Telegram Database Library) connectivity.
@@ -48,6 +49,15 @@ data class TdLibProperties(
         val code: String = "",
         /** Mounted secret-file alternative to [code]. */
         val codeFile: String = "",
+        /**
+         * How long a tool call waits for the account to finish authenticating.
+         *
+         * Startup never waits — that would delay the MCP `initialize` response
+         * past the handshake timeout of a stdio client (60 s in Claude Desktop)
+         * and the connector would be dropped. The wait happens on the first
+         * tool call instead, so keep this comfortably below the client's limit.
+         */
+        val readyTimeout: Duration = Duration.ofSeconds(45),
     )
 
     /**
