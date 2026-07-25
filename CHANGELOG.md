@@ -3,6 +3,40 @@
 Notable changes to Telegram MCP Server are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.10.0 - 2026-07-25
+
+### Fixed
+
+- The STDIO server now exits when its client closes stdin. A stdio client ends
+  a session by closing the stream without sending a signal, and `docker run` is
+  only a CLI client to the daemon — its death does not stop the container. The
+  server kept running, held the TDLib session (`td.binlog`) locked, and every
+  subsequent start failed to authenticate. Stdin is wrapped, never read by the
+  server itself, so the MCP transport keeps exclusive ownership of the stream;
+  end-of-stream closes the Spring context and, because TDLib runs non-daemon
+  threads that would otherwise keep the process alive, a five-second deadline
+  then halts the JVM. HTTP deployments are unaffected.
+- Startup no longer blocks on Telegram authentication, so `initialize` is
+  answered immediately. Waiting for a login could exceed a client's handshake
+  timeout (60s in Claude Desktop), which marked the server failed and dropped
+  the connector. The wait moved to the first tool call and is bounded by the
+  new `tdlib.auth.ready-timeout` (`TDLIB_AUTH_READY_TIMEOUT`, 45s); an account
+  that is not ready now surfaces as a readable tool error.
+- A TDLib session locked by another process fails fast with an actionable
+  message on stderr and exit code 2. TDLib reports the locked binlog outside
+  the authorization-state machine, so it previously surfaced only as
+  `WARN Unhandled exception!` while the server waited out its 90-second
+  authentication timeout.
+
+### Changed
+
+- README and `docs/CLI_AND_STDIO.md` document the stdio lifecycle contract, and
+  the Claude Desktop instructions note that Microsoft Store (MSIX) builds keep
+  `claude_desktop_config.json` under
+  `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\`
+  rather than `%APPDATA%\Claude`. Settings → Developer → Edit Config opens the
+  right file for either build.
+
 ## 1.9.0 - 2026-07-08
 
 ### Security
