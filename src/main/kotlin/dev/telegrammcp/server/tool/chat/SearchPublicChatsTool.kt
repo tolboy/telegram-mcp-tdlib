@@ -72,5 +72,6 @@ class SearchPublicChatsTool(
             log.withTool(TOOL_NAME).info("Searching public chats for '{}'", query)
             guardrailService.validateInput(query)
             telegramClient.searchPublicChats(query, limit)
+                .filter { guardrailService.isChatAllowed(it.chatId) }
         }
 }

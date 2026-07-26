@@ -35,6 +35,7 @@ import java.util.concurrent.TimeUnit
 @Component
 class AntiSpamNotifier(
     private val antiSpamGuardService: AntiSpamGuardService,
+    private val guardrailService: GuardrailService,
     private val accountRegistry: TelegramAccountRegistry,
     private val accountContext: TelegramAccountContext,
     private val props: AntiSpamProperties,
@@ -52,6 +53,10 @@ class AntiSpamNotifier(
 
     @PostConstruct
     fun start() {
+        val disallowedStaticTargets = props.internalChatIds.count { !guardrailService.isChatAllowed(it) }
+        require(disallowedStaticTargets == 0) {
+            "ANTI_SPAM_INTERNAL_CHAT_IDS must be a subset of TELEGRAM_ALLOWED_CHAT_IDS"
+        }
         if (!props.enabled || !props.notifier.enabled) {
             log.info("Anti-spam notifier disabled (enabled={}, notifier.enabled={})", props.enabled, props.notifier.enabled)
             return
@@ -85,8 +90,16 @@ class AntiSpamNotifier(
         accountRegistry.labels().forEach(::dispatchAccountDigest)
     }
 
-    private fun dispatchAccountDigest(account: String) {
-        val targets = antiSpamGuardService.internalChatIds(account)
+    internal fun dispatchAccountDigest(account: String) {
+        val configuredTargets = antiSpamGuardService.internalChatIds(account)
+        val targets = configuredTargets.filter(guardrailService::isChatAllowed)
+        if (targets.size != configuredTargets.size) {
+            log.warn(
+                "Skipped {} anti-spam notifier target(s) outside the configured chat allow-list for account '{}'",
+                configuredTargets.size - targets.size,
+                account,
+            )
+        }
         if (targets.isEmpty()) return // Keep the matching account's events queued.
 
         val events = antiSpamGuardService.popPendingEvents(account, props.notifier.maxEventsPerNotification)

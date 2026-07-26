@@ -3,7 +3,9 @@
 import dev.telegrammcp.server.client.TelegramAccountContext
 import dev.telegrammcp.server.client.TelegramAccountRegistry
 import dev.telegrammcp.server.exception.ReadOnlyModeException
+import dev.telegrammcp.server.model.AuditOutcome
 import dev.telegrammcp.server.security.AccountAccessPolicy
+import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.service.ToolSurfacePolicy
 import dev.telegrammcp.server.tool.AccountAgnosticMcpToolHandler
@@ -40,6 +42,7 @@ class McpConfig {
         accountAccessPolicy: AccountAccessPolicy,
         serverMode: ServerModeProperties,
         toolSurfacePolicy: ToolSurfacePolicy,
+        auditService: AuditService,
     ): List<SyncToolSpecification> {
         val definitions = handlers.map { handler -> handler to handler.definition() }
         val duplicateNames = definitions
@@ -70,20 +73,49 @@ class McpConfig {
                     // tools at registration, but a client may replay a cached
                     // tool list. Execution must fail closed regardless.
                     serverMode.readOnly && tool.name() in OperationGuardService.WRITE_TOOLS ->
-                        ToolSupport.errorResult(ReadOnlyModeException(tool.name()))
+                        auditService.executeWithFallbackAudit(
+                            toolName = tool.name(),
+                            arguments = arguments,
+                            errorOutcome = AuditOutcome.BLOCKED_READONLY,
+                        ) {
+                            ToolSupport.errorResult(ReadOnlyModeException(tool.name()))
+                        }
 
                     handler is AccountAgnosticMcpToolHandler ->
-                        handler.execute(exchange, arguments)
+                        auditService.executeWithFallbackAudit(tool.name(), arguments) {
+                            handler.execute(exchange, arguments)
+                        }
 
                     else -> {
-                        val account = accountAccessPolicy.selectAccount(arguments)
+                        val routedArguments = arguments - AccountAccessPolicy.ACCOUNT_ARGUMENT
+                        val selectionStarted = System.nanoTime()
+                        val account = try {
+                            accountAccessPolicy.selectAccount(arguments)
+                        } catch (error: Exception) {
+                            auditService.record(
+                                toolName = tool.name(),
+                                arguments = routedArguments,
+                                outcome = AuditService.outcomeFor(error),
+                                error = error.message,
+                                durationMs = (System.nanoTime() - selectionStarted) / 1_000_000,
+                                accountOverride = requestedKnownAccount(arguments, registry),
+                            )
+                            throw error
+                        }
                         accountContext.withAccount(account) {
-                            handler.execute(exchange, arguments - AccountAccessPolicy.ACCOUNT_ARGUMENT)
+                            auditService.executeWithFallbackAudit(tool.name(), routedArguments) {
+                                handler.execute(exchange, routedArguments)
+                            }
                         }
                     }
                 }
             }
         }.also {
+            if (!serverMode.readOnly && toolSurfacePolicy.profile == McpToolProfile.ALL) {
+                log.warn(
+                    "FULL WRITE SURFACE ENABLED: MCP_TOOL_PROFILE=all with MCP_READ_ONLY=false exposes every registered Telegram operation",
+                )
+            }
             log.info(
                 "Registered {} MCP tool(s) for {} profile; hid {} tool(s) by surface policy",
                 it.size,
@@ -92,6 +124,19 @@ class McpConfig {
             )
         }
     }
+
+    private fun requestedKnownAccount(
+        arguments: Map<String, Any>,
+        registry: TelegramAccountRegistry,
+    ): String? = arguments[AccountAccessPolicy.ACCOUNT_ARGUMENT]
+        ?.toString()
+        ?.trim()
+        ?.takeIf(String::isNotEmpty)
+        ?.let { requested ->
+            runCatching { TelegramAccountRegistry.normalizeLabel(requested) }
+                .getOrNull()
+                ?.takeIf(registry::has)
+        }
 
     private fun withBehaviorAnnotations(
         tool: McpSchema.Tool,

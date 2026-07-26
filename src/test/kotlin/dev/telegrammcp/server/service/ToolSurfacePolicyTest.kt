@@ -10,6 +10,14 @@ import kotlin.test.assertTrue
 class ToolSurfacePolicyTest {
 
     @Test
+    fun `reader is the safe default profile`() {
+        val policy = ToolSurfacePolicy(McpSecurityProperties())
+
+        assertTrue(policy.isVisible("get_history", readOnly = false))
+        assertFalse(policy.isVisible("send_message", readOnly = false))
+    }
+
+    @Test
     fun `reader profile never exposes mutating or quota consuming tools`() {
         val policy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.READER))
 
@@ -17,6 +25,24 @@ class ToolSurfacePolicyTest {
         assertFalse(policy.isVisible("send_message", readOnly = false))
         assertFalse(policy.isVisible("transcribe_voice_note", readOnly = false))
         assertFalse(policy.isVisible("download_media", readOnly = false))
+    }
+
+    @Test
+    fun `inbox profile covers the summarize inbox recipe`() {
+        val policy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.INBOX))
+        val recipeTools = setOf(
+            "list_chats",
+            "get_chat",
+            "get_history",
+            "get_drafts",
+            "list_chat_folders",
+            "get_chat_folder",
+        )
+
+        recipeTools.forEach { tool ->
+            assertTrue(policy.isVisible(tool, readOnly = true), "$tool must remain available in the read-only inbox profile")
+        }
+        assertFalse(policy.isVisible("create_group", readOnly = false))
     }
 
     @Test

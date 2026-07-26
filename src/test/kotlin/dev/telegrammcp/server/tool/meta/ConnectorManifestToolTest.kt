@@ -4,6 +4,7 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.config.McpSecurityProperties
 import dev.telegrammcp.server.config.McpToolProfile
 import dev.telegrammcp.server.config.ServerModeProperties
+import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.ToolSurfacePolicy
 import dev.telegrammcp.server.tool.McpToolHandler
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
@@ -26,7 +27,8 @@ class ConnectorManifestToolTest {
         val tool = ConnectorManifestTool(
             handlersProvider = handlersProvider(emptyList()),
             serverMode = ServerModeProperties(),
-            toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties()),
+            toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.ALL)),
+            auditService = mockk<AuditService>(relaxed = true),
             objectMapper = objectMapper,
             meterRegistry = SimpleMeterRegistry(),
         )
@@ -58,7 +60,8 @@ class ConnectorManifestToolTest {
         val manifestTool = ConnectorManifestTool(
             handlersProvider = handlersProvider(listOf(sendMessage, listChats, createTopic, setForumTopicsEnabled)),
             serverMode = ServerModeProperties(),
-            toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties()),
+            toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.ALL)),
+            auditService = mockk<AuditService>(relaxed = true),
             objectMapper = objectMapper,
             meterRegistry = SimpleMeterRegistry(),
         )
@@ -82,7 +85,8 @@ class ConnectorManifestToolTest {
         val manifestTool = ConnectorManifestTool(
             handlersProvider = handlersProvider(listOf(fakeTool("get_history", "Read history"), fakeTool("send_message", "Send"))),
             serverMode = ServerModeProperties(readOnly = true),
-            toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties()),
+            toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.ALL)),
+            auditService = mockk<AuditService>(relaxed = true),
             objectMapper = objectMapper,
             meterRegistry = SimpleMeterRegistry(),
         )
@@ -99,6 +103,7 @@ class ConnectorManifestToolTest {
             handlersProvider = handlersProvider(listOf(fakeTool("get_history", "Read"), fakeTool("send_message", "Send"), fakeTool("create_group", "Create"))),
             serverMode = ServerModeProperties(),
             toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.INBOX)),
+            auditService = mockk<AuditService>(relaxed = true),
             objectMapper = objectMapper,
             meterRegistry = SimpleMeterRegistry(),
         )

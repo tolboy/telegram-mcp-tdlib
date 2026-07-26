@@ -5,6 +5,7 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.model.ChatInfo
 import dev.telegrammcp.server.model.ChatType
+import dev.telegrammcp.server.service.GuardrailService
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.mockk.every
 import io.mockk.mockk
@@ -17,6 +18,7 @@ import kotlin.test.assertTrue
 class ListChatsToolTest {
 
     private lateinit var telegramClient: TelegramClientService
+    private lateinit var guardrailService: GuardrailService
     private lateinit var objectMapper: ObjectMapper
     private lateinit var tool: ListChatsTool
     private lateinit var exchange: McpSyncServerExchange
@@ -24,11 +26,14 @@ class ListChatsToolTest {
     @BeforeEach
     fun setUp() {
         telegramClient = mockk()
+        guardrailService = mockk(relaxed = true)
+        every { guardrailService.isChatAllowed(any()) } returns true
         objectMapper = jacksonObjectMapper().findAndRegisterModules()
         exchange = mockk(relaxed = true)
 
         tool = ListChatsTool(
             telegramClient = telegramClient,
+            guardrailService = guardrailService,
             objectMapper = objectMapper,
             meterRegistry = SimpleMeterRegistry(),
         )
@@ -79,6 +84,24 @@ class ListChatsToolTest {
         val text = (result.content.first() as io.modelcontextprotocol.spec.McpSchema.TextContent).text()
         assertTrue(text.contains("Unread"))
         assertFalse(text.contains("\"Read\""))
+    }
+
+    @Test
+    fun `omits chats outside the configured allow-list`() {
+        val chats = listOf(
+            ChatInfo(chatId = 1, title = "Allowed", type = ChatType.PRIVATE),
+            ChatInfo(chatId = 2, title = "Private", type = ChatType.PRIVATE),
+        )
+        every { telegramClient.getChats(50) } returns chats
+        every { guardrailService.isChatAllowed(1) } returns true
+        every { guardrailService.isChatAllowed(2) } returns false
+
+        val result = tool.execute(exchange, emptyMap())
+
+        assertFalse(result.isError)
+        val text = (result.content.first() as io.modelcontextprotocol.spec.McpSchema.TextContent).text()
+        assertTrue(text.contains("Allowed"))
+        assertFalse(text.contains("Private"))
     }
 }
 

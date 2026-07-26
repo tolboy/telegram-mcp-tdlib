@@ -5,6 +5,7 @@ import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.exception.InvalidToolInputException
 import dev.telegrammcp.server.model.AuditOutcome
 import dev.telegrammcp.server.service.AuditService
+import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
@@ -25,6 +26,7 @@ import org.springframework.stereotype.Component
 @Component
 class SubscribePublicChannelTool(
     private val telegramClient: TelegramClientService,
+    private val entityResolver: EntityResolverService,
     private val guardrailService: GuardrailService,
     private val operationGuardService: OperationGuardService,
     private val auditService: AuditService,
@@ -68,9 +70,11 @@ class SubscribePublicChannelTool(
                 ?: throw InvalidToolInputException("channel is required")
 
             guardrailService.validateInput(channel)
+            val targetChatId = entityResolver.resolve(channel)
+            guardrailService.validateDerivedChatAccess(targetChatId)
             log.withTool(TOOL_NAME).info("Subscribing to public channel @{}", channel.removePrefix("@"))
 
-            val chatInfo = telegramClient.joinPublicChat(channel)
+            val chatInfo = telegramClient.joinPublicChat(channel, targetChatId)
             auditService.record(TOOL_NAME, arguments, AuditOutcome.SUCCESS)
 
             val json = objectMapper.writeValueAsString(chatInfo)
@@ -87,7 +91,7 @@ class SubscribePublicChannelTool(
                 dev.telegrammcp.server.tool.ToolSupport.textResult(json)
             } else {
                 log.withTool(TOOL_NAME).error("Failed to subscribe to channel: {}", msg, ex)
-                auditService.record(TOOL_NAME, arguments, AuditOutcome.ERROR, error = msg)
+                auditService.record(TOOL_NAME, arguments, AuditService.outcomeFor(ex), error = msg)
                 dev.telegrammcp.server.tool.ToolSupport.errorText("Error: $msg")
             }
         } finally {

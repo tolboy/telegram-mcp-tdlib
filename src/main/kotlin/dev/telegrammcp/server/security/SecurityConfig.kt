@@ -2,6 +2,7 @@ package dev.telegrammcp.server.security
 
 import dev.telegrammcp.server.config.McpAuthMode
 import dev.telegrammcp.server.config.McpSecurityProperties
+import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -46,14 +47,12 @@ class SecurityConfig(
                     .requestMatchers("/auth/**").access { authentication, ctx ->
                         val req = ctx.request
                         AuthorizationDecision(
-                            isLoopbackRequest(req.remoteAddr, req.getHeader("X-Forwarded-For")) ||
+                            isDirectLoopbackRequest(req) ||
                                 authentication.get() !is AnonymousAuthenticationToken,
                         )
                     }
                     .requestMatchers("/setup", "/setup/**").access { _, ctx ->
-                        AuthorizationDecision(
-                            isLoopbackRequest(ctx.request.remoteAddr, ctx.request.getHeader("X-Forwarded-For")),
-                        )
+                        AuthorizationDecision(isDirectLoopbackRequest(ctx.request))
                     }
                     .requestMatchers("/mcp", "/mcp/**").authenticated()
                     .requestMatchers("/actuator/**").authenticated()
@@ -82,16 +81,36 @@ class SecurityConfig(
     }
 
     companion object {
+        private val FORWARDING_HEADERS = setOf(
+            "Forwarded",
+            "Forwarded-For",
+            "X-Forwarded-For",
+            "X-Forwarded-Host",
+            "X-Forwarded-Port",
+            "X-Forwarded-Proto",
+            "X-Forwarded-Server",
+            "X-Original-Forwarded-For",
+            "X-Real-IP",
+            "X-Client-IP",
+            "Proxy-Client-IP",
+            "WL-Proxy-Client-IP",
+            "True-Client-IP",
+            "CF-Connecting-IP",
+        )
+
         internal fun oauthMetadataUri(resourceUri: String): String {
             val uri = URI(resourceUri)
             return URI(uri.scheme, uri.authority, "/.well-known/oauth-protected-resource", null, null).toString()
         }
 
-        fun isLoopbackRequest(remoteAddr: String, xForwardedFor: String?): Boolean {
-            if (!isLoopbackAddress(remoteAddr)) return false
-            if (xForwardedFor.isNullOrBlank()) return true
-            val clientIp = extractFirstForwardedIp(xForwardedFor) ?: return false
-            return isLoopbackAddress(clientIp)
+        fun isDirectLoopbackRequest(request: HttpServletRequest): Boolean {
+            // Loopback-only endpoints are a direct same-machine boundary. The
+            // application has no configured trusted-proxy list, so accepting
+            // any proxy-origin metadata would make that boundary spoofable
+            // through a local reverse proxy. Header presence is enough to
+            // reject, including blank or duplicate values.
+            return isLoopbackAddress(request.remoteAddr) &&
+                FORWARDING_HEADERS.none { request.getHeaders(it).hasMoreElements() }
         }
 
         fun isLoopbackAddress(remoteAddr: String): Boolean {
@@ -103,17 +122,6 @@ class SecurityConfig(
             val normalized = normalizeIpCandidate(value) ?: return null
             if (!isIpLiteral(normalized)) return null
             return runCatching { InetAddress.getByName(normalized) }.getOrNull()
-        }
-
-        private fun extractFirstForwardedIp(xForwardedFor: String): String? {
-            val chain = xForwardedFor
-                .split(',')
-                .map { it.trim() }
-                .map { normalizeIpCandidate(it) ?: return null }
-
-            if (chain.isEmpty()) return null
-            if (chain.any { !isIpLiteral(it) }) return null
-            return chain.first()
         }
 
         private fun normalizeIpCandidate(value: String): String? {

@@ -99,6 +99,12 @@ jobs:
             }
 
             & ./scripts/mcp-streamable-http-smoke.ps1 -Endpoint "$baseUrl/mcp" -RequiredTool ($env:REQUIRED_TOOLS -split ',') -ForbiddenTool ($env:FORBIDDEN_TOOLS -split ',')
+            if ($env:RUNNER_OS -ne 'Windows') {
+              & bash ./scripts/mcp-streamable-http-smoke.sh `
+                --endpoint "$baseUrl/mcp" `
+                --require $env:REQUIRED_TOOLS `
+                --forbid $env:FORBIDDEN_TOOLS
+            }
           } finally {
             if ($null -ne $process -and -not $process.HasExited) { Stop-Process -Id $process.Id -Force }
           }
@@ -106,11 +112,16 @@ jobs:
       - name: Smoke STDIO transport
         shell: pwsh
         env:
-          MCP_TOOL_PROFILE: ${{ matrix.profile }}
-          REQUIRED_TOOLS: ${{ matrix.required }}
-          FORBIDDEN_TOOLS: ${{ matrix.forbidden }}
+          REQUIRED_TOOLS: get_history,search_public_messages
+          FORBIDDEN_TOOLS: send_message,transcribe_voice_note,create_group
         run: |
           ./scripts/mcp-stdio-smoke.ps1 `
             -Jar build/libs/telegram-mcp-server.jar `
             -RequiredTool ($env:REQUIRED_TOOLS -split ',') `
             -ForbiddenTool ($env:FORBIDDEN_TOOLS -split ',')
+          if ($env:RUNNER_OS -ne 'Windows') {
+            & bash ./scripts/mcp-stdio-smoke.sh `
+              --jar build/libs/telegram-mcp-server.jar `
+              --require $env:REQUIRED_TOOLS `
+              --forbid $env:FORBIDDEN_TOOLS
+          }

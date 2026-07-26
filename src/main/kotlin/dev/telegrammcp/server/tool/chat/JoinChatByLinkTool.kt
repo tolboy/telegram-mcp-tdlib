@@ -71,6 +71,7 @@ class JoinChatByLinkTool(
                 ?: throw InvalidToolInputException("link is required")
 
             guardrailService.validateInput(link)
+            guardrailService.requireUnrestrictedChatScope(TOOL_NAME)
             log.withTool(TOOL_NAME).info("Joining chat via invite link")
 
             val chatInfo = telegramClient.joinChatByInviteLink(link)
@@ -80,7 +81,7 @@ class JoinChatByLinkTool(
             dev.telegrammcp.server.tool.ToolSupport.textResult(json)
         } catch (ex: Exception) {
             log.withTool(TOOL_NAME).error("Failed to join chat by link: {}", ex.message, ex)
-            auditService.record(TOOL_NAME, arguments, AuditOutcome.ERROR, error = ex.message)
+            auditService.record(TOOL_NAME, arguments, AuditService.outcomeFor(ex), error = ex.message)
             dev.telegrammcp.server.tool.ToolSupport.errorText("Error: ${ex.message}")
         } finally {
             sample.stop(Timer.builder("mcp.tool.execution").tag("tool", TOOL_NAME).register(meterRegistry))

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.model.AuditOutcome
 import dev.telegrammcp.server.service.AuditService
+import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.tool.McpToolHandler
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Component
 @Component
 class GetDraftsTool(
     private val telegramClient: TelegramClientService,
+    private val guardrailService: GuardrailService,
     private val auditService: AuditService,
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
@@ -50,13 +52,14 @@ class GetDraftsTool(
         return try {
             log.withTool(TOOL_NAME).info("Collecting drafts across chats")
             val drafts = telegramClient.getDrafts()
+                .filter { guardrailService.isChatAllowed(it.chatId) }
             auditService.record(TOOL_NAME, arguments, AuditOutcome.SUCCESS)
 
             val json = objectMapper.writeValueAsString(drafts)
             dev.telegrammcp.server.tool.ToolSupport.textResult(json)
         } catch (ex: Exception) {
             log.withTool(TOOL_NAME).error("Failed to list drafts: {}", ex.message, ex)
-            auditService.record(TOOL_NAME, arguments, AuditOutcome.ERROR, error = ex.message)
+            auditService.record(TOOL_NAME, arguments, AuditService.outcomeFor(ex), error = ex.message)
             dev.telegrammcp.server.tool.ToolSupport.errorText("Error: ${ex.message}")
         } finally {
             sample.stop(Timer.builder("mcp.tool.execution").tag("tool", TOOL_NAME).register(meterRegistry))

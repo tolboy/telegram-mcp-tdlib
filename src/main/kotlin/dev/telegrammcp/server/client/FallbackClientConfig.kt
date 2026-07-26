@@ -139,7 +139,7 @@ private class NoOpTelegramClientService : TelegramClientService {
     override fun getChatInviteLinks(chatId: Long, includeRevoked: Boolean, limit: Int) = unavailable()
     override fun revokeChatInviteLink(chatId: Long, inviteLink: String) = unavailable()
     override fun joinChatByInviteLink(link: String) = unavailable()
-    override fun joinPublicChat(usernameOrLink: String) = unavailable()
+    override fun joinPublicChat(usernameOrLink: String, expectedChatId: Long) = unavailable()
     override fun getChatAdmins(chatId: Long, limit: Int) = unavailable()
     override fun getBannedChatMembers(chatId: Long, limit: Int) = unavailable()
     override fun sendVoice(chatId: Long, filePath: String, duration: Int, caption: String?) = unavailable()

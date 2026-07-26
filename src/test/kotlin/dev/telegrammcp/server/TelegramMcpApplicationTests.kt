@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.ApplicationContext
+import org.springframework.core.env.Environment
 import org.springframework.test.context.ActiveProfiles
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -29,9 +30,17 @@ class TelegramMcpApplicationTests {
     @Autowired
     private lateinit var handlers: List<McpToolHandler>
 
+    @Autowired
+    private lateinit var environment: Environment
+
     @Test
     fun contextLoads() {
         // The injected dependencies verify that the full application boots.
+    }
+
+    @Test
+    fun `raw HTTP binds to loopback by default`() {
+        assertEquals("127.0.0.1", environment.getProperty("server.address"))
     }
 
     @Test

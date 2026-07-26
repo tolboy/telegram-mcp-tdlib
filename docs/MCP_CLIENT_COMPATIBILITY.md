@@ -10,8 +10,8 @@ after `initialize`. API-key deployments accept `Authorization: Bearer <key>`;
 
 | Client | Connection data | Verification | Status |
 |---|---|---|---|
-| STDIO | Command `telegram-mcp serve --transport stdio`; secrets supplied through the client's secret/env mechanism | `scripts/mcp-stdio-smoke.ps1` verifies JSON-only stdout, lifecycle and `tools/list` | Automated in CI/release images |
-| Streamable HTTP | URL `http(s)://host/mcp`, optional API-key header | `scripts/mcp-streamable-http-smoke.ps1` sends `initialize`, `notifications/initialized`, and `tools/list` | Automated in CI/local checks |
+| STDIO | Command `telegram-mcp serve --transport stdio`; secrets supplied through the client's secret/env mechanism | `scripts/mcp-stdio-smoke.ps1` and `.sh` verify JSON-only stdout, lifecycle and `tools/list` | Automated in CI/release images |
+| Streamable HTTP | URL `http(s)://host/mcp`, optional API-key header | `scripts/mcp-streamable-http-smoke.ps1` and `.sh` send `initialize`, `notifications/initialized`, and `tools/list` | Automated in CI/local checks |
 | MCP Inspector | Select **Streamable HTTP**, enter the endpoint and API-key header | Run the smoke script first, then use Inspector's Tools pane to list the same surface | Reproducible manual check |
 | Claude Desktop | Add the endpoint and `Authorization` header through the version's MCP/connector UI | Run the smoke script against the same endpoint before enabling the connector | Reproducible manual check |
 | Cursor | Add a remote Streamable HTTP MCP server with the endpoint and header | Run the smoke script, then refresh the MCP server and inspect its tool list | Reproducible manual check |
@@ -21,6 +21,12 @@ Client configuration file formats and UI labels evolve independently. The stable
 connection data above intentionally avoids pinning an outdated vendor-specific
 snippet. Do not place an API key in a committed client configuration file; use
 that client's secret/input-variable mechanism.
+
+STDIO is a one-client/one-child-process transport. When several clients need
+the same Telegram account, use one shared Streamable HTTP process instead of
+letting every client compete for the same TDLib session lock. The topology and
+operational rules are in
+[Multi-client deployment](MULTI_CLIENT_DEPLOYMENT.md).
 
 ## MCP Inspector Via Docker Compose
 
@@ -49,6 +55,22 @@ Start the server, then run from PowerShell:
 ./scripts/mcp-streamable-http-smoke.ps1 -Endpoint http://127.0.0.1:8080/mcp `
   -RequiredTool get_history,send_message -ForbiddenTool create_group
 ```
+
+On Linux or macOS, the Bash equivalent requires `curl` and `python3`:
+
+```bash
+./scripts/mcp-streamable-http-smoke.sh \
+  --endpoint http://127.0.0.1:8080/mcp
+
+# Optional assertion for a focused surface.
+./scripts/mcp-streamable-http-smoke.sh \
+  --endpoint http://127.0.0.1:8080/mcp \
+  --require get_history,send_message \
+  --forbid create_group
+```
+
+The Bash script reads `MCP_API_KEY` from the environment by default;
+`--api-key` is available for parity with the PowerShell parameter.
 
 The script makes no Telegram tool call. It verifies the full protocol
 handshake, session propagation, `tools/list`, and the portable input-schema

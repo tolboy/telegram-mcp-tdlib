@@ -1,6 +1,8 @@
 package dev.telegrammcp.server.client
 
+import it.tdlight.client.TelegramError
 import java.nio.file.Path
+import java.util.Locale
 
 /**
  * Recognises the one TDLib startup failure that no amount of waiting can fix:
@@ -13,15 +15,24 @@ import java.nio.file.Path
  */
 internal object TdLibSessionLock {
 
-    private const val LOCK_MARKER = "can't lock file"
-    private const val IN_USE_MARKER = "already in use"
+    /*
+     * tdlight preserves TDLib errors as TelegramError, including the numeric
+     * code and the unprefixed TDLib message. TDLib does not expose a dedicated
+     * binlog-lock code (the failure uses the generic 400 code), so the narrowest
+     * stable discriminator is the typed error/code plus the database filename
+     * and one of TDLib's ownership phrases.
+     */
+    private const val TD_ERROR_BAD_REQUEST = 400
+    private const val BINLOG_FILENAME = "td.binlog"
+    private val LOCK_PHRASES = listOf("can't lock file", "cannot lock file")
+    private val OWNERSHIP_PHRASES = listOf("already in use", "another program instance")
     private const val MAX_CAUSE_DEPTH = 10
 
     /** True when [error] (or any of its causes) is TDLib's binlog lock error. */
     fun isSessionLocked(error: Throwable?): Boolean =
-        causes(error).any { throwable ->
-            val message = throwable.message?.lowercase() ?: return@any false
-            LOCK_MARKER in message && IN_USE_MARKER in message
+        causes(error).filterIsInstance<TelegramError>().any { telegramError ->
+            telegramError.errorCode == TD_ERROR_BAD_REQUEST &&
+                isBinlogLockMessage(telegramError.errorMessage)
         }
 
     /** The message shown on stderr and to the MCP client. */
@@ -34,4 +45,11 @@ internal object TdLibSessionLock {
     private fun causes(error: Throwable?): Sequence<Throwable> =
         generateSequence(error) { previous -> previous.cause.takeIf { it !== previous } }
             .take(MAX_CAUSE_DEPTH)
+
+    private fun isBinlogLockMessage(rawMessage: String?): Boolean {
+        val message = rawMessage?.lowercase(Locale.ROOT) ?: return false
+        return BINLOG_FILENAME in message &&
+            LOCK_PHRASES.any(message::contains) &&
+            OWNERSHIP_PHRASES.any(message::contains)
+    }
 }

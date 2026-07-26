@@ -399,23 +399,29 @@ Docker, mount the secret file into the container and set the container path.
 | `TELEGRAM_BOT_TOKEN`       | No       | —               | Legacy Bot API token (fallback only)     |
 | `TELEGRAM_BOT_USERNAME`    | No       | —               | Bot username (for logging)               |
 | `TELEGRAM_ALLOWED_CHAT_IDS`| No       | (all allowed)   | Comma-separated chat IDs to allow        |
-| `MCP_API_KEY`              | Yes*     | —               | API key for MCP endpoint auth            |
+| `MCP_API_KEY`              | Remote API-key mode* | —       | API key for MCP endpoint auth            |
 | `MCP_API_KEY_FILE`         | No       | —               | Secret-file alternative to `MCP_API_KEY` |
 | `MCP_AUTH_HEADER`          | No       | `Authorization` | Header name for API key                  |
 | `MCP_READ_ONLY`            | No       | `true`          | Block all write/mutating tools until explicitly disabled |
-| `MCP_TOOL_PROFILE`         | No       | `all`           | `all`, `reader`, `inbox`, `community-admin`, or `research` |
+| `MCP_TOOL_PROFILE`         | No       | `reader`        | `all`, `reader`, `inbox`, `community-admin`, or `research` |
 | `MCP_TOOL_ALLOW`           | No       | (profile tools) | Exact comma-separated names to retain after profile filtering |
 | `MCP_TOOL_DENY`            | No       | —               | Exact comma-separated names to hide after the allow-list |
 | `MCP_TRANSPORT`            | No       | `streamable-http` | `streamable-http` or `stdio`; CLI `--transport` wins |
-| `MCP_CONFIRMATION_REQUIRED`| No       | `true`          | Require `"confirmed": true` for destructive tools |
+| `MCP_CONFIRMATION_REQUIRED`| No       | `true`          | Require caller acknowledgement (`"confirmed": true`) for destructive tools; not proof of human approval |
 | `MCP_FILE_ROOTS`           | No       | (deny all)      | Allowed root dirs for file operations    |
 | `MCP_AUDIT_ENABLED`        | No       | `true`          | Enable audit logging                     |
 | `MCP_AUDIT_LOG_ARGS`       | No       | `false`         | Include tool arguments in audit logs     |
+| `MCP_AUDIT_FILE`           | No       | —               | Optional append-only JSONL audit trail; use a persistent encrypted volume |
 | `MCP_BIND_HOST`            | No       | `127.0.0.1`     | Host interface used by docker-compose port publishing |
 | `MCP_AUTH_MODE`            | No       | `api-key`       | `api-key` or opt-in external `oauth` for HTTP deployments |
 | `SERVER_PORT`              | No       | `8080`          | HTTP port                                |
+| `SERVER_ADDRESS`           | No       | `127.0.0.1`     | Embedded HTTP bind address; set a non-loopback value only with API-key or OAuth protection |
 
-\* When blank, authentication is disabled (local development only).
+\* When blank in API-key mode, protected endpoints accept only direct loopback
+requests. Non-loopback requests to `/mcp`, `/actuator/metrics`, and
+`/actuator/prometheus` are rejected. Container images bind inside their network
+namespace and therefore require either a configured API key or OAuth bearer
+protection for MCP access through a published port or Docker bridge.
 
 Compose-only convenience variables:
 - `MCP_UPLOADS_DIR` controls the host directory mounted into the container as `/data/uploads`.
@@ -495,6 +501,11 @@ Interactive `/auth/**` endpoints are keyless only from loopback. Requests from
 a Docker bridge, reverse proxy, or private LAN must include the configured MCP
 API key; private IP space is not treated as a trusted identity.
 
+The same fail-closed rule applies to `/mcp` and protected Actuator endpoints
+when API-key mode has no configured key. Raw HTTP binds to `127.0.0.1` by
+default; a remote deployment must deliberately change `SERVER_ADDRESS` and
+configure an API key or OAuth.
+
 ## Orchestration And Tool Binding
 
 This repository is an MCP connector (tool server), not an autonomous agent runtime.
@@ -512,7 +523,22 @@ If you use a multi-connector router, prefer explicit connector scoping per chat 
 
 ## Safety Model
 
-Telegram account credentials and TDLib session data are sensitive. Start with a test account where practical, bind the service to localhost, use a long random `MCP_API_KEY`, and keep `MCP_READ_ONLY=true` until you intentionally need writes. In read-only mode write and quota-consuming tools are absent from the MCP tool list; the execution guard remains as defense in depth. Use `MCP_CONFIRMATION_REQUIRED=true` for an additional explicit confirmation step on destructive actions.
+Telegram account credentials and TDLib session data are sensitive. Start with a test account where practical, bind the service to localhost, use a long random `MCP_API_KEY`, and keep `MCP_READ_ONLY=true` until you intentionally need writes. In read-only mode write and quota-consuming tools are absent from the MCP tool list; the execution guard remains as defense in depth. `MCP_CONFIRMATION_REQUIRED=true` adds a caller-acknowledgement step for destructive actions, but the server cannot prove that `"confirmed": true` came from a human. The MCP host must provide any required human-in-the-loop approval UX.
+
+An empty `TELEGRAM_ALLOWED_CHAT_IDS` grants the connector visibility across the
+whole selected Telegram account. Remote or model-facing deployments should set
+an explicit chat allow-list whenever the workflow has a narrower scope.
+The setting governs chat/message/folder data and chat-targeted side effects; it
+is not a complete account sandbox. Account, profile, and contact metadata tools
+remain controlled by account scopes, tool profiles, and `MCP_TOOL_ALLOW` /
+`MCP_TOOL_DENY`, so narrow those surfaces separately when required.
+
+Audit summaries and JSONL records contain no argument values unless
+`MCP_AUDIT_LOG_ARGS=true`; when enabled, recognized credential fields are
+redacted. Set `MCP_AUDIT_FILE` to append forced JSONL records for a durable
+local trail. The directory is created automatically; symlink targets are
+rejected and POSIX files are restricted to their owner. Place the trail on a
+persistent encrypted volume and apply normal log retention and access controls.
 
 The server never writes API hashes, bot tokens, 2FA passwords, auth codes, or MCP API keys to disk. Supply them through the environment or `*_FILE` mounted secrets. Secret files must be regular files (not symlinks), are size-limited, and may not be writable by group or others. Encrypt TDLib session storage at the OS/volume layer: BitLocker on Windows, FileVault on macOS, and LUKS/fscrypt or an encrypted volume on Linux.
 

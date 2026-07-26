@@ -19,6 +19,7 @@ import org.springframework.stereotype.Component
 @Component
 class ListChatFoldersTool(
     private val telegramClient: TelegramClientService,
+    private val guardrailService: GuardrailService,
     private val auditService: AuditService,
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
@@ -35,7 +36,27 @@ class ListChatFoldersTool(
 
     override fun execute(exchange: McpSyncServerExchange, arguments: Map<String, Any>): McpSchema.CallToolResult =
         ToolSupport.execute(TOOL_NAME, arguments, objectMapper, meterRegistry, log, "Failed to list chat folders", auditService) {
-            telegramClient.listChatFolders()
+            val listing = telegramClient.listChatFolders()
+            if (!guardrailService.hasChatAllowList()) {
+                listing
+            } else {
+                listing.copy(
+                    folders = listing.folders.filter { folder ->
+                        runCatching {
+                            ChatFolderInputs.isDerivedFolderAllowed(
+                                telegramClient.getChatFolder(folder.id).definition,
+                                guardrailService,
+                            )
+                        }.onFailure { error ->
+                            log.warn(
+                                "Omitting chat folder {} because its membership could not be validated: {}",
+                                folder.id,
+                                error.message,
+                            )
+                        }.getOrDefault(false)
+                    },
+                )
+            }
         }
 }
 
@@ -60,7 +81,7 @@ class GetChatFolderTool(
     override fun execute(exchange: McpSyncServerExchange, arguments: Map<String, Any>): McpSchema.CallToolResult =
         ToolSupport.execute(TOOL_NAME, arguments, objectMapper, meterRegistry, log, "Failed to get chat folder", auditService) {
             val details = telegramClient.getChatFolder(ChatFolderInputs.requiredPositiveInt(arguments, "folder_id"))
-            ChatFolderInputs.validateFolderChatAccess(details.definition, guardrailService)
+            ChatFolderInputs.validateDerivedFolderChatAccess(details.definition, guardrailService)
             details
         }
 }
@@ -119,6 +140,7 @@ class ConfigureChatFolderTool(
 @Component
 class DeleteChatFolderTool(
     private val telegramClient: TelegramClientService,
+    private val guardrailService: GuardrailService,
     private val operationGuardService: OperationGuardService,
     private val auditService: AuditService,
     private val objectMapper: ObjectMapper,
@@ -138,6 +160,10 @@ class DeleteChatFolderTool(
         ToolSupport.execute(TOOL_NAME, arguments, objectMapper, meterRegistry, log, "Failed to delete chat folder", auditService) {
             operationGuardService.checkPermission(TOOL_NAME, arguments)
             val folderId = ChatFolderInputs.requiredPositiveInt(arguments, "folder_id")
+            ChatFolderInputs.validateDerivedFolderChatAccess(
+                telegramClient.getChatFolder(folderId).definition,
+                guardrailService,
+            )
             telegramClient.deleteChatFolder(folderId)
             mapOf("folder_id" to folderId, "deleted" to true)
         }
@@ -147,6 +173,7 @@ class DeleteChatFolderTool(
 @Component
 class ReorderChatFoldersTool(
     private val telegramClient: TelegramClientService,
+    private val guardrailService: GuardrailService,
     private val operationGuardService: OperationGuardService,
     private val auditService: AuditService,
     private val objectMapper: ObjectMapper,
@@ -189,6 +216,12 @@ class ReorderChatFoldersTool(
             val mainListPosition = (arguments["main_list_position"] as? Number)?.toInt() ?: 0
             if (mainListPosition < 0) throw InvalidToolInputException("main_list_position must be non-negative")
 
+            folderIds.forEach { folderId ->
+                ChatFolderInputs.validateDerivedFolderChatAccess(
+                    telegramClient.getChatFolder(folderId).definition,
+                    guardrailService,
+                )
+            }
             telegramClient.reorderChatFolders(folderIds, mainListPosition)
             mapOf("folder_ids" to folderIds, "main_list_position" to mainListPosition, "reordered" to true)
         }
@@ -225,8 +258,32 @@ private object ChatFolderInputs {
     }
 
     fun validateFolderChatAccess(folder: ChatFolderDefinition, guardrailService: GuardrailService) {
-        (folder.pinnedChatIds + folder.includedChatIds + folder.excludedChatIds).distinct().forEach(guardrailService::validateChatAccess)
+        folderChatIds(folder).forEach(guardrailService::validateChatAccess)
+        if (guardrailService.hasChatAllowList() && folder.hasDynamicMembership()) {
+            throw InvalidToolInputException(
+                "Dynamic folder membership is unavailable while a static chat allow-list is configured",
+            )
+        }
     }
+
+    fun folderChatIds(folder: ChatFolderDefinition): List<Long> =
+        (folder.pinnedChatIds + folder.includedChatIds + folder.excludedChatIds).distinct()
+
+    fun validateDerivedFolderChatAccess(folder: ChatFolderDefinition, guardrailService: GuardrailService) {
+        folderChatIds(folder).forEach(guardrailService::validateDerivedChatAccess)
+        if (guardrailService.hasChatAllowList() && folder.hasDynamicMembership()) {
+            throw InvalidToolInputException(
+                "Dynamic folder membership is unavailable while a static chat allow-list is configured",
+            )
+        }
+    }
+
+    fun isDerivedFolderAllowed(folder: ChatFolderDefinition, guardrailService: GuardrailService): Boolean =
+        folderChatIds(folder).all(guardrailService::isChatAllowed) &&
+            (!guardrailService.hasChatAllowList() || !folder.hasDynamicMembership())
+
+    private fun ChatFolderDefinition.hasDynamicMembership(): Boolean =
+        includeContacts || includeNonContacts || includeBots || includeGroups || includeChannels
 
     fun requiredPositiveInt(arguments: Map<String, Any>, name: String): Int =
         optionalPositiveInt(arguments, name) ?: throw InvalidToolInputException("$name is required")

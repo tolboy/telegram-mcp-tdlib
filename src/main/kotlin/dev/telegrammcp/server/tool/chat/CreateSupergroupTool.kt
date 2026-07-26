@@ -130,6 +130,7 @@ class CreateSupergroupTool(
         auditService = auditService,
     ) {
         operationGuardService.checkPermission(TOOL_NAME, arguments)
+        guardrailService.requireUnrestrictedChatScope(TOOL_NAME)
 
         val title = arguments["title"]?.toString()?.takeIf { it.isNotBlank() }
             ?: throw InvalidToolInputException("title is required")

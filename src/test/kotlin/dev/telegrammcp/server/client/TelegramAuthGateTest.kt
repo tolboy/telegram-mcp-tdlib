@@ -80,6 +80,55 @@ class TelegramAuthGateTest {
     }
 
     @Test
+    fun `an unexpected failure after ready blocks later calls`() {
+        val gate = gate()
+
+        gate.markReady()
+        gate.markFailed("session closed unexpectedly")
+
+        assertFalse(gate.isReady())
+        val error = assertFailsWith<TdLibAuthException> { gate.awaitReady() }
+        assertTrue(error.message.contains("session closed unexpectedly"), error.message)
+    }
+
+    @Test
+    fun `ready after failure cannot erase the original failure`() {
+        val gate = gate()
+
+        gate.markFailed("original failure")
+        gate.markReady()
+
+        assertFalse(gate.isReady())
+        val error = assertFailsWith<TdLibAuthException> { gate.awaitReady() }
+        assertTrue(error.message.contains("original failure"), error.message)
+    }
+
+    @Test
+    fun `concurrent ready and failure signals always fail closed`() {
+        repeat(100) {
+            val gate = gate()
+            val start = CountDownLatch(1)
+            val readySignal = thread(isDaemon = true) {
+                start.await()
+                gate.markReady()
+            }
+            val failureSignal = thread(isDaemon = true) {
+                start.await()
+                gate.markFailed("concurrent failure")
+            }
+
+            start.countDown()
+            readySignal.join()
+            failureSignal.join()
+
+            assertFalse(gate.isReady())
+            gate.markReady()
+            val error = assertFailsWith<TdLibAuthException> { gate.awaitReady() }
+            assertTrue(error.message.contains("concurrent failure"), error.message)
+        }
+    }
+
+    @Test
     fun `a waiting call resumes as soon as authentication completes`() {
         val gate = gate(Duration.ofSeconds(10))
         val service = mockk<TelegramClientService>(relaxed = true)

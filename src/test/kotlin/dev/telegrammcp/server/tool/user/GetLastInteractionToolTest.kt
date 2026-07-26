@@ -62,7 +62,7 @@ class GetLastInteractionToolTest {
         val result = tool.execute(exchange, mapOf("contact_id" to 99))
 
         assertFalse(result.isError)
-        verify { guardrailService.validateChatAccess(99L) }
+        verify(exactly = 2) { guardrailService.validateDerivedChatAccess(99L) }
     }
 
     @Test
@@ -73,7 +73,7 @@ class GetLastInteractionToolTest {
         val result = tool.execute(exchange, mapOf("contact_id" to 99))
 
         assertFalse(result.isError)
-        verify(exactly = 0) { guardrailService.validateChatAccess(any()) }
+        verify(exactly = 1) { guardrailService.validateDerivedChatAccess(99L) }
     }
 
     @Test

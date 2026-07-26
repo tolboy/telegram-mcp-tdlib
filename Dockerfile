@@ -45,6 +45,8 @@ RUN mkdir -p /data/tdlib-data /data/downloads \
 USER mcp
 
 ENV JAVA_TOOL_OPTIONS="-XX:+UseZGC -XX:MaxRAMPercentage=75.0 -Djava.security.egd=file:/dev/./urandom --enable-native-access=ALL-UNNAMED" \
+    SERVER_ADDRESS=0.0.0.0 \
+    TELEGRAM_MCP_DATA_DIR=/data/tdlib-data \
     TDLIB_DATA_DIR=/data/tdlib-data \
     TDLIB_DOWNLOADS_DIR=/data/downloads
 VOLUME ["/data/tdlib-data", "/data/downloads"]

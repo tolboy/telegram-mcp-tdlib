@@ -76,7 +76,7 @@ class DeleteContactTool(
             dev.telegrammcp.server.tool.ToolSupport.textResult(json)
         } catch (ex: Exception) {
             log.withTool(TOOL_NAME).error("Failed to delete contact: {}", ex.message, ex)
-            auditService.record(TOOL_NAME, arguments, AuditOutcome.ERROR, error = ex.message)
+            auditService.record(TOOL_NAME, arguments, AuditService.outcomeFor(ex), error = ex.message)
             dev.telegrammcp.server.tool.ToolSupport.errorText("Error: ${ex.message}")
         } finally {
             sample.stop(Timer.builder("mcp.tool.execution").tag("tool", TOOL_NAME).register(meterRegistry))

@@ -1,10 +1,13 @@
 package dev.telegrammcp.server.config
 
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramAccountContext
 import dev.telegrammcp.server.client.TelegramAccountRegistry
 import dev.telegrammcp.server.security.AccountAccessPolicy
+import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.ToolSurfacePolicy
 import dev.telegrammcp.server.tool.AccountAgnosticMcpToolHandler
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.mockk.every
 import io.mockk.mockk
 import io.modelcontextprotocol.server.McpSyncServerExchange
@@ -37,7 +40,8 @@ class McpConfigReadOnlyTest {
             accountContext = TelegramAccountContext(registry),
             accountAccessPolicy = AccountAccessPolicy(registry),
             serverMode = ServerModeProperties(readOnly = true),
-            toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties()),
+            toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.ALL)),
+            auditService = auditService(),
         )
 
         assertEquals(listOf("get_history"), specifications.map { it.tool().name() })
@@ -52,7 +56,8 @@ class McpConfigReadOnlyTest {
             accountContext = TelegramAccountContext(registry),
             accountAccessPolicy = AccountAccessPolicy(registry),
             serverMode = ServerModeProperties(readOnly = false),
-            toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties()),
+            toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.ALL)),
+            auditService = auditService(),
         )
 
         assertEquals(listOf("get_history", "send_message"), specifications.map { it.tool().name() })
@@ -62,15 +67,34 @@ class McpConfigReadOnlyTest {
     fun `inbox profile hides community administration tools`() {
         val registry = TelegramAccountRegistry()
         val specifications = McpConfig().syncToolSpecifications(
-            handlers = listOf(TestHandler("get_history"), TestHandler("send_message"), TestHandler("create_group")),
+            handlers = listOf(
+                TestHandler("list_chats"),
+                TestHandler("get_chat"),
+                TestHandler("list_chat_folders"),
+                TestHandler("get_chat_folder"),
+                TestHandler("get_history"),
+                TestHandler("send_message"),
+                TestHandler("create_group"),
+            ),
             registry = registry,
             accountContext = TelegramAccountContext(registry),
             accountAccessPolicy = AccountAccessPolicy(registry),
             serverMode = ServerModeProperties(readOnly = false),
             toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.INBOX)),
+            auditService = auditService(),
         )
 
-        assertEquals(listOf("get_history", "send_message"), specifications.map { it.tool().name() })
+        assertEquals(
+            listOf(
+                "list_chats",
+                "get_chat",
+                "list_chat_folders",
+                "get_chat_folder",
+                "get_history",
+                "send_message",
+            ),
+            specifications.map { it.tool().name() },
+        )
     }
 
     @Test
@@ -87,7 +111,8 @@ class McpConfigReadOnlyTest {
             accountContext = TelegramAccountContext(registry),
             accountAccessPolicy = AccountAccessPolicy(registry),
             serverMode = ServerModeProperties(readOnly = false),
-            toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties()),
+            toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.ALL)),
+            auditService = auditService(),
         ).associateBy { it.tool().name() }
 
         val readAnnotations = specifications.getValue("get_history").tool().annotations()
@@ -123,6 +148,7 @@ class McpConfigReadOnlyTest {
             accountAccessPolicy = AccountAccessPolicy(registry),
             serverMode = ServerModeProperties(readOnly = true),
             toolSurfacePolicy = brokenSurfacePolicy,
+            auditService = auditService(),
         ).single()
 
         val result = specification.callHandler().apply(
@@ -146,10 +172,19 @@ class McpConfigReadOnlyTest {
                 accountContext = TelegramAccountContext(registry),
                 accountAccessPolicy = AccountAccessPolicy(registry),
                 serverMode = ServerModeProperties(),
-                toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties()),
+                toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.ALL)),
+                auditService = auditService(),
             )
         }
     }
+
+    private fun auditService(): AuditService = AuditService(
+        props = ServerModeProperties(
+            audit = ServerModeProperties.AuditProps(enabled = false),
+        ),
+        meterRegistry = SimpleMeterRegistry(),
+        objectMapper = jacksonObjectMapper().findAndRegisterModules(),
+    )
 
     private class TestHandler(private val name: String) : AccountAgnosticMcpToolHandler {
         override fun definition(): McpSchema.Tool = McpSchema.Tool(

@@ -76,6 +76,37 @@ architectural ideas beyond the Telegram-server competitor set:
 | `@McpTool`/`@Tool` annotation-scanned registration | **Decline** — schema inferred from method signatures suits demos; this server keeps explicit JSON Schemas tied to guard, profile, and annotation policy tables. |
 | Hand-rolled `<tool_call>` prompt protocol for models without native tool support | **Not applicable** — host-side concern; this repository is a connector, not a host. |
 
+## 2026-07-26 Review — better-telegram-mcp 4.x
+
+This targeted follow-up is separate from the star-ranked 2026-06-28 snapshot.
+It reviewed the currently published `better-telegram-mcp` 4.x line at
+**v4.17.0** using its pinned
+[PyPI release](https://pypi.org/project/better-telegram-mcp/4.17.0/),
+[README](https://github.com/n24q02m/better-telegram-mcp/blob/v4.17.0/README.md),
+and
+[tool registration source](https://github.com/n24q02m/better-telegram-mcp/blob/v4.17.0/src/better_telegram_mcp/server.py).
+
+| Verifiable 4.x design | Comparison and decision |
+|---|---|
+| Seven advertised tools: five action-dispatch domains (`message`, `chat`, `media`, `contact`, `config`) plus `help` and `config__open_relay` | The compact advertised list is useful evidence for lower tool-list/schema volume. That is an architectural inference, not a measured model-quality result. Keep granular tools as the policy source of truth and use focused profiles today; consider a facade only after harness evaluations show a material gain. |
+| Dual Bot API and Telethon user-account modes; STDIO is bot mode, while HTTP supports bot and user mode | Different trust/deployment split from this TDLib server. Preserve local TDLib user sessions and do not treat the Bot API path as a like-for-like replacement. |
+| HTTP browser relay for phone, OTP and 2FA; optional multi-user OAuth branch keyed by the authenticated user | Useful onboarding and hosted-deployment reference. This server keeps account authentication local and uses scoped API keys or an external OAuth resource server, so copying the relay would change the credential boundary. |
+| A fixed MCP annotation set is attached to each action-dispatch tool; for example, `message` and `chat` are marked mutating/destructive even though they also contain read actions | Compact dispatch makes discovery smaller but annotations and schemas are necessarily coarser at the MCP boundary. Preserve per-operation annotations, read-only hiding, confirmation policy and audit categories on the granular surface. |
+
+No composite tool was added in this review. Item 12 remains a measured,
+non-breaking option rather than an implementation commitment.
+
+## 2026-07-26 Follow-up — Harness DX
+
+- Added Bash equivalents for both no-Telegram MCP protocol smoke scripts:
+  `scripts/mcp-stdio-smoke.sh` and
+  `scripts/mcp-streamable-http-smoke.sh`.
+- Documented the shared-session topology in
+  `MULTI_CLIENT_DEPLOYMENT.md`: several clients use one long-lived HTTP daemon,
+  not several STDIO processes pointed at one TDLib database.
+- Updated the competitor benchmark with the pinned better-telegram-mcp v4.17.0
+  action-dispatch and HTTP/OAuth design above.
+
 ## Current Differentiators To Preserve
 
 - TDLib user-account support, instead of a Bot API-only integration.
@@ -100,6 +131,7 @@ a six-per-minute / sixty-per-day anti-spam policy.
 | Priority | Change | Benefit | Cost | Status / why it fits without a rewrite |
 |---|---|---|---|---|
 | P1 | **Tool-surface read-only policy**: register only non-mutating tools when `MCP_READ_ONLY=true`, rather than exposing all tools and rejecting writes at invocation time | High | Small | Implemented. `OperationGuardService` remains the shared classifier and invocation-time defense; `McpConfig` now filters the advertised surface. |
+| P1 | **Out-of-band or host approval for destructive tools**: add an approval artifact that a tool-call argument cannot self-assert, initially for `leave_chat`, `ban_user`, `delete_message`, `join_chat_by_link`, and `register_internal_chat` | High | Medium | Planned as a non-breaking, opt-in layer. The existing `confirmed: true` check is caller acknowledgement and defense in depth, not proof of human consent. Evaluate host-native approval where interoperable; otherwise use a local out-of-band token/approval endpoint with expiry and operation binding. |
 | P1 | **MCP client compatibility matrix**: Inspector, Claude Desktop, Cursor, VS Code and Streamable HTTP smoke checks; document any JSON-Schema constraints | High | Small | Implemented as a reproducible Streamable HTTP smoke, a conservative schema contract test, and client-facing connection matrix. Client UI acceptance remains a version-specific manual check. |
 | P1 | **Telegram proxy configuration**: SOCKS5, HTTP CONNECT and MTProxy with per-account overrides and `*_FILE` password/secret support | High for restricted networks | Medium | Implemented with isolated TDLib account startup. Invalid, partial, or mismatched proxy credentials fail before Telegram networking; each named account configures its own proxy. |
 | P2 | **Session doctor and maintenance CLI**: report OS data directory, registered account labels, TDLib lock ownership, and safe logout/clear instructions without printing secrets | Medium | Small | Implemented as an offline `session doctor/logout/clear` JAR command. It reports configured labels and portable lock availability without starting TDLib; clearing is explicit, lock-gated, and limited to standard per-account storage. |

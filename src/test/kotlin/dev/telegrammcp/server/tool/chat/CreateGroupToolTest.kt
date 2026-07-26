@@ -6,6 +6,7 @@ import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.model.ChatInfo
 import dev.telegrammcp.server.model.ChatType
 import dev.telegrammcp.server.service.AuditService
+import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.mockk.every
@@ -22,6 +23,7 @@ import kotlin.test.assertTrue
 class CreateGroupToolTest {
 
     private lateinit var telegramClient: TelegramClientService
+    private lateinit var guardrailService: GuardrailService
     private lateinit var operationGuardService: OperationGuardService
     private lateinit var auditService: AuditService
     private lateinit var objectMapper: ObjectMapper
@@ -31,6 +33,7 @@ class CreateGroupToolTest {
     @BeforeEach
     fun setUp() {
         telegramClient = mockk()
+        guardrailService = mockk(relaxed = true)
         operationGuardService = mockk(relaxed = true)
         auditService = mockk(relaxed = true)
         objectMapper = jacksonObjectMapper().findAndRegisterModules()
@@ -38,6 +41,7 @@ class CreateGroupToolTest {
 
         tool = CreateGroupTool(
             telegramClient = telegramClient,
+            guardrailService = guardrailService,
             operationGuardService = operationGuardService,
             auditService = auditService,
             objectMapper = objectMapper,
@@ -62,6 +66,7 @@ class CreateGroupToolTest {
 
         assertFalse(result.isError)
         verify { operationGuardService.checkPermission("create_group", any()) }
+        verify { guardrailService.requireUnrestrictedChatScope("create_group") }
     }
 
     @Test

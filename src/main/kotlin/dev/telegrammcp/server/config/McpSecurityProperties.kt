@@ -9,8 +9,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties
 data class McpSecurityProperties(
     val security: SecurityProps = SecurityProps(),
     val guardrails: GuardrailProps = GuardrailProps(),
-    /** Curated MCP surface for a specific user job; ALL exposes every tool. */
-    val toolProfile: McpToolProfile = McpToolProfile.ALL,
+    /** Curated MCP surface for a specific user job; READER is the safe default. */
+    val toolProfile: McpToolProfile = McpToolProfile.READER,
     /** Optional exact-name allow-list, applied after [toolProfile]. Empty means all profile tools. */
     val toolAllow: List<String> = emptyList(),
     /** Optional exact-name deny-list, applied after [toolAllow]. */

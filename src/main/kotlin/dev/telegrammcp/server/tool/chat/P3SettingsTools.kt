@@ -28,6 +28,7 @@ import org.springframework.stereotype.Component
 @Component
 class GetPrivacySettingsTool(
     private val telegramClient: TelegramClientService,
+    private val guardrailService: GuardrailService,
     private val auditService: AuditService,
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
@@ -44,7 +45,12 @@ class GetPrivacySettingsTool(
 
     override fun execute(exchange: McpSyncServerExchange, arguments: Map<String, Any>): McpSchema.CallToolResult =
         ToolSupport.execute(TOOL_NAME, arguments, objectMapper, meterRegistry, log, "Failed to get privacy settings", auditService) {
-            telegramClient.getPrivacySettingRules(P3ToolInputs.privacySetting(arguments))
+            val rules = telegramClient.getPrivacySettingRules(P3ToolInputs.privacySetting(arguments))
+            rules.copy(
+                rules = rules.rules.map { rule ->
+                    rule.copy(chatIds = rule.chatIds.filter(guardrailService::isChatAllowed))
+                },
+            )
         }
 }
 

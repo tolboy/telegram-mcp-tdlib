@@ -3,6 +3,7 @@ package dev.telegrammcp.server.tool.meta
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.telegrammcp.server.client.TelegramAccountRegistry
 import dev.telegrammcp.server.security.AccountAccessPolicy
+import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.tool.AccountAgnosticMcpToolHandler
 import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.util.StructuredLogger
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Component
 class ListTelegramAccountsTool(
     private val registry: TelegramAccountRegistry,
     private val accountAccessPolicy: AccountAccessPolicy,
+    private val auditService: AuditService,
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
 ) : AccountAgnosticMcpToolHandler {
@@ -37,6 +39,7 @@ class ListTelegramAccountsTool(
             meterRegistry = meterRegistry,
             log = log,
             failureMessage = "Unable to list Telegram accounts",
+            auditService = auditService,
         ) {
             val accounts = accountAccessPolicy.visibleAccounts()
             mapOf(

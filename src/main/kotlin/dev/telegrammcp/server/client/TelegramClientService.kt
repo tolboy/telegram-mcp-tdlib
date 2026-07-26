@@ -585,8 +585,11 @@ interface TelegramClientService {
     /** Joins a chat via an invite link. */
     fun joinChatByInviteLink(link: String): ChatInfo
 
-    /** Joins a public chat by username. */
-    fun joinPublicChat(usernameOrLink: String): ChatInfo
+    /**
+     * Joins a public chat by username only when its freshly resolved ID still
+     * matches the caller-validated [expectedChatId].
+     */
+    fun joinPublicChat(usernameOrLink: String, expectedChatId: Long): ChatInfo
 
     /** Lists administrators of a chat. */
     fun getChatAdmins(chatId: Long, limit: Int = 50): List<ChatMember>

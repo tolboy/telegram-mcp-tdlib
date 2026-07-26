@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import dev.telegrammcp.server.exception.InvalidToolInputException
 import dev.telegrammcp.server.service.AntiSpamGuardService
 import dev.telegrammcp.server.service.AuditService
+import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
 import dev.telegrammcp.server.tool.ToolSupport
@@ -26,6 +27,7 @@ import org.springframework.stereotype.Component
 @Component
 class RegisterInternalChatTool(
     private val antiSpamGuardService: AntiSpamGuardService,
+    private val guardrailService: GuardrailService,
     private val operationGuardService: OperationGuardService,
     private val auditService: AuditService,
     private val objectMapper: ObjectMapper,
@@ -85,13 +87,13 @@ class RegisterInternalChatTool(
             else -> throw InvalidToolInputException("chat_id must be numeric")
         }
 
+        guardrailService.validateChatAccess(chatId)
         antiSpamGuardService.registerInternalChat(chatId)
         log.withTool(TOOL_NAME).info("Registered chat {} as internal", chatId)
 
         mapOf(
             "chat_id" to chatId,
             "internal" to true,
-            "internal_chat_ids" to antiSpamGuardService.internalChatIds(),
         )
     }
 }

@@ -14,6 +14,10 @@ Use this mode for any Windows/macOS/Linux installer or local service bundle that
 Recommended defaults:
 
 - Bind connector services to `127.0.0.1` only.
+- The raw HTTP server already defaults `SERVER_ADDRESS` to `127.0.0.1`.
+- Keyless API-key mode accepts protected endpoints only from direct loopback.
+  Docker bridge and published-port traffic is not loopback, so configure an MCP
+  API key even when the host-side published port is restricted to localhost.
 - Treat Docker networking as an internal process boundary, not an Internet boundary.
 - Prefer OS-native installer/service management over exposing raw container ports.
 - Keep secrets in OS keychain / secret store where possible.
@@ -31,6 +35,9 @@ Recommended defaults:
 - Publish the app behind a dedicated reverse proxy or ingress.
 - Terminate TLS at the proxy.
 - Restrict direct container exposure; do not publish the app port publicly without TLS.
+- Set a non-loopback `SERVER_ADDRESS` only together with a configured scoped API
+  key or OAuth; keyless non-loopback MCP and protected Actuator requests are
+  rejected.
 - Add IP allow-lists, rate limits, request size limits, and centralized access logs at the proxy layer.
 - Assign a distinct scoped MCP key to each remote client and restrict it to the account labels it needs.
 

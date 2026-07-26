@@ -85,13 +85,14 @@ class DiscoverPublicChatsForResearchTool(
         log.withTool(TOOL_NAME).info("Discovering public chats for '{}', limit={}", query, cappedLimit)
 
         val raw = telegramClient.searchPublicChats(query, cappedLimit)
+        val chatScoped = raw.filter { guardrailService.isChatAllowed(it.chatId) }
         val allowlist = publicSearchProps.chatAllowlist
             .map { it.trimStart('@').lowercase() }
             .toSet()
         val filtered = if (allowlist.isEmpty()) {
-            raw
+            chatScoped
         } else {
-            raw.filter { chat ->
+            chatScoped.filter { chat ->
                 val candidates = listOfNotNull(
                     chat.username?.trimStart('@')?.lowercase(),
                     chat.chatId.toString(),
@@ -105,21 +106,6 @@ class DiscoverPublicChatsForResearchTool(
             "allowlist_applied" to allowlist.isNotEmpty(),
             "results" to filtered,
             "filtered_out" to (raw.size - filtered.size),
-            // When the allowlist is active and rejected everything, surface the
-            // raw candidates' public identifiers so operators can spot config
-            // drift (e.g. typo'd username, hyphen vs underscore) without having
-            // to disable the gate. Bounded to keep payloads small.
-            "filtered_candidates" to if (allowlist.isNotEmpty() && filtered.isEmpty()) {
-                raw.take(10).map { chat ->
-                    mapOf(
-                        "chat_id" to chat.chatId,
-                        "title" to chat.title,
-                        "username" to chat.username,
-                    )
-                }
-            } else {
-                emptyList<Map<String, Any?>>()
-            },
         )
     }
 }

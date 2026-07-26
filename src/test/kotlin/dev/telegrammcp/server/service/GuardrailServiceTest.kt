@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertDoesNotThrow
 import org.junit.jupiter.api.assertThrows
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class GuardrailServiceTest {
@@ -82,6 +83,27 @@ class GuardrailServiceTest {
         fun `rejects chat not in the allow-list`() {
             assertThrows<ChatNotAllowedException> {
                 service(allowedChats = listOf(100L)).validateChatAccess(999L)
+            }
+        }
+
+        @Test
+        fun `derived chat rejection does not disclose the resolved identifier`() {
+            val error = assertThrows<ChatNotAllowedException> {
+                service(allowedChats = listOf(100L)).validateDerivedChatAccess(987654321L)
+            }
+
+            assertFalse(error.message.orEmpty().contains("987654321"))
+        }
+
+        @Test
+        fun `unknown-target side effects fail closed under a static allow-list`() {
+            val restricted = service(allowedChats = listOf(100L))
+
+            assertThrows<GuardrailViolationException> {
+                restricted.requireUnrestrictedChatScope("create_group")
+            }
+            assertDoesNotThrow {
+                service().requireUnrestrictedChatScope("create_group")
             }
         }
     }

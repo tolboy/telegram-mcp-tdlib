@@ -19,6 +19,12 @@ STDIO is intended for a local MCP client that starts the server as a child
 process. JSON-RPC is the only data written to stdout; application logs go to
 stderr.
 
+One STDIO child must have exclusive ownership of its TDLib data directory. If
+multiple MCP clients need the same Telegram account, run one long-lived
+Streamable HTTP daemon and point all clients at it; do not start N STDIO
+processes against the same `TDLIB_DATA_DIR`. See
+[Multi-client deployment](MULTI_CLIENT_DEPLOYMENT.md).
+
 ```json
 {
   "mcpServers": {
@@ -87,4 +93,13 @@ Run the no-Telegram protocol smoke against a JAR:
 ```powershell
 ./scripts/mcp-stdio-smoke.ps1 -Jar build/libs/telegram-mcp-server.jar `
   -RequiredTool get_history -ForbiddenTool send_message
+```
+
+The Bash equivalent for Linux and macOS requires `python3`:
+
+```bash
+./scripts/mcp-stdio-smoke.sh \
+  --jar build/libs/telegram-mcp-server.jar \
+  --require get_history \
+  --forbid send_message
 ```

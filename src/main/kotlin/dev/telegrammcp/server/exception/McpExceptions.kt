@@ -30,8 +30,16 @@ class GuardrailViolationException(
 
 /** The requested chat is not in the allow-list. */
 class ChatNotAllowedException(
-    chatId: Long,
-) : McpException("Access to chat $chatId is not allowed by security policy")
+    chatId: Long? = null,
+) : McpException(
+    chatId?.let { "Access to chat $it is not allowed by security policy" }
+        ?: "Access to the resolved chat is not allowed by security policy",
+)
+
+/** The authenticated MCP client is not permitted to route calls to an account. */
+class AccountAccessDeniedException(
+    account: String,
+) : McpException("The authenticated MCP client is not allowed to access Telegram account '$account'")
 
 /** The Telegram circuit breaker is open — service temporarily unavailable. */
 class TelegramUnavailableException(
@@ -59,12 +67,18 @@ class ReadOnlyModeException(
     toolName: String,
 ) : McpException("Tool '$toolName' is blocked: server is in read-only mode")
 
-/** A destructive operation requires user confirmation before execution. */
+/**
+ * A destructive operation requires an explicit caller acknowledgement.
+ *
+ * The MCP server cannot prove that the acknowledgement originated from a
+ * human; an MCP host remains responsible for any human-approval UX.
+ */
 class ConfirmationRequiredException(
     toolName: String,
     description: String,
 ) : McpException(
-    "Tool '$toolName' requires confirmation: $description. Re-invoke with \"confirmed\": true to proceed.",
+    "Tool '$toolName' requires caller acknowledgement: $description. " +
+        "Re-invoke with \"confirmed\": true only after any required human approval.",
 )
 
 /**
@@ -82,4 +96,3 @@ class AntiSpamException(
     "Anti-spam guard blocked '$toolName': $reason" +
         (retryAfterMs?.let { ". Retry after ${it / 1000}s" } ?: ""),
 )
-

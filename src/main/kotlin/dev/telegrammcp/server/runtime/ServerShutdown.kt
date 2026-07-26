@@ -4,7 +4,6 @@ import dev.telegrammcp.server.util.StructuredLogger
 import org.springframework.context.ConfigurableApplicationContext
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 
@@ -21,11 +20,19 @@ import kotlin.concurrent.thread
 class ServerShutdown internal constructor(
     private val graceMillis: Long,
     private val halt: (Int) -> Unit,
+    private val stderr: (String) -> Unit = { line ->
+        System.err.println(line)
+        System.err.flush()
+    },
 ) {
     private val log = StructuredLogger.forClass<ServerShutdown>()
     private val context = AtomicReference<ConfigurableApplicationContext?>()
     private val contextAttached = CountDownLatch(1)
-    private val started = AtomicBoolean(false)
+    private val requestMonitor = Any()
+
+    private var requestedShutdown: ShutdownRequest? = null
+    private var haltStarted = false
+
     private val gracefulCloseFinished = CountDownLatch(1)
 
     /**
@@ -41,33 +48,74 @@ class ServerShutdown internal constructor(
     }
 
     /**
-     * Ends the process. Idempotent: the first caller owns the exit and later
-     * ones return without queueing a second shutdown.
+     * Ends the process. The first caller starts the close and watchdog threads;
+     * later callers never queue another shutdown. A fatal request can still
+     * promote an in-flight clean exit so an EOF race does not hide the failure.
      */
     fun requestShutdown(reason: String, exitCode: Int = 0) {
-        if (!started.compareAndSet(false, true)) return
-        log.info("Shutting down (exit code {}): {}", exitCode, reason)
-        // Never run on the caller's thread: EOF is reported by the MCP transport
-        // reader and TDLib failures by a TDLib update thread, and both must be
-        // free to return immediately.
-        thread(isDaemon = true, name = "server-shutdown") { closeGracefully(exitCode) }
-        thread(isDaemon = true, name = "server-shutdown-watchdog") { haltAfterGrace(exitCode) }
+        synchronized(requestMonitor) {
+            if (haltStarted) return
+
+            val activeRequest = requestedShutdown
+            when {
+                activeRequest == null -> {
+                    requestedShutdown = ShutdownRequest(exitCode, reason)
+                    log.info("Shutting down (exit code {}): {}", exitCode, reason)
+                    // Never run on the caller's thread: EOF is reported by the MCP transport
+                    // reader and TDLib failures by a TDLib update thread, and both must be
+                    // free to return immediately.
+                    thread(isDaemon = true, name = "server-shutdown") { closeGracefully() }
+                    thread(isDaemon = true, name = "server-shutdown-watchdog") { haltAfterGrace() }
+                }
+                activeRequest.exitCode == 0 && exitCode != 0 -> {
+                    requestedShutdown = ShutdownRequest(exitCode, reason)
+                    log.warn("Escalating shutdown (exit code 0 -> {}): {}", exitCode, reason)
+                }
+            }
+        }
     }
 
-    private fun closeGracefully(exitCode: Int) {
+    private fun closeGracefully() {
         awaitQuietly(contextAttached, graceMillis / 2)
         context.get()?.let { applicationContext ->
             runCatching { applicationContext.close() }
                 .onFailure { log.warn("Application context did not close cleanly: {}", it.message) }
         }
         gracefulCloseFinished.countDown()
-        halt(exitCode)
+        haltOnce()
     }
 
-    private fun haltAfterGrace(exitCode: Int) {
+    private fun haltAfterGrace() {
         if (awaitQuietly(gracefulCloseFinished, graceMillis)) return
         log.warn("Graceful shutdown exceeded {} ms; halting the JVM", graceMillis)
-        halt(exitCode)
+        haltOnce()
+    }
+
+    /**
+     * Freezes the final request, writes one machine-readable line to stderr,
+     * and only then invokes the non-returning Runtime.halt path. Keeping this in
+     * one method also prevents the graceful and watchdog threads from issuing
+     * duplicate halts when a test halt implementation returns.
+     */
+    private fun haltOnce() {
+        val finalRequest = synchronized(requestMonitor) {
+            if (haltStarted) {
+                null
+            } else {
+                haltStarted = true
+                requestedShutdown ?: ShutdownRequest(exitCode = 0, reason = "unspecified")
+            }
+        } ?: return
+
+        val oneLineReason = finalRequest.reason
+            .replace('\r', ' ')
+            .replace('\n', ' ')
+            .trim()
+            .ifBlank { "unspecified" }
+        val finalLine = "$FINAL_STDERR_PREFIX exit_code=${finalRequest.exitCode} reason=$oneLineReason"
+        runCatching { stderr(finalLine) }
+            .onFailure { log.warn("Unable to write final shutdown line to stderr: {}", it.message) }
+        halt(finalRequest.exitCode)
     }
 
     private fun awaitQuietly(latch: CountDownLatch, timeoutMillis: Long): Boolean = try {
@@ -78,12 +126,21 @@ class ServerShutdown internal constructor(
     }
 
     companion object {
+        /** Stable prefix used by launchers and smoke tests to identify the final exit reason. */
+        internal const val FINAL_STDERR_PREFIX = "TELEGRAM_MCP_SHUTDOWN"
+
         /** Grace for the graceful close before the JVM is halted. */
         const val DEFAULT_GRACE_MILLIS = 5_000L
 
         /** Process-wide instance: one JVM has one stdin and one exit. */
-        val INSTANCE: ServerShutdown = ServerShutdown(DEFAULT_GRACE_MILLIS) { code ->
-            Runtime.getRuntime().halt(code)
-        }
+        val INSTANCE: ServerShutdown = ServerShutdown(
+            graceMillis = DEFAULT_GRACE_MILLIS,
+            halt = { code -> Runtime.getRuntime().halt(code) },
+        )
     }
+
+    private data class ShutdownRequest(
+        val exitCode: Int,
+        val reason: String,
+    )
 }

@@ -58,7 +58,7 @@ class MessageFromLinkToolTest {
 
         assertFalse(result.isError)
         verify { guardrailService.validateInput("https://t.me/c/123/789") }
-        verify { guardrailService.validateChatAccess(123L) }
+        verify { guardrailService.validateDerivedChatAccess(123L) }
     }
 
     @Test

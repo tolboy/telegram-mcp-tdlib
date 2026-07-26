@@ -24,7 +24,8 @@ import java.security.MessageDigest
  * - `Authorization: Bearer <key>`
  * - `X-MCP-API-Key: <key>`
  *
- * When the configured key is blank the filter is a no-op (useful for local dev).
+ * When no key is configured, protected endpoints accept direct loopback
+ * requests for local development and reject every non-loopback request.
  */
 @Component
 class ApiKeyAuthFilter(
@@ -97,8 +98,19 @@ class ApiKeyAuthFilter(
             return
         }
 
-        // Skip auth when no key is configured (local MCP development only).
+        // Keyless API-key mode is strictly local development. Do not turn an
+        // empty key into a valid remote identity if the HTTP listener is
+        // deliberately exposed beyond loopback.
         if (configuredKeys.isEmpty()) {
+            if (!isDirectLoopbackRequest(request)) {
+                SecurityContextHolder.clearContext()
+                log.warn("Rejected keyless non-loopback request to {}", request.requestURI)
+                response.sendError(
+                    HttpServletResponse.SC_FORBIDDEN,
+                    "Keyless API-key mode is limited to loopback requests",
+                )
+                return
+            }
             SecurityContextHolder.getContext().authentication = ApiKeyAuthToken("local-dev")
             filterChain.doFilter(request, response)
             return
@@ -159,7 +171,15 @@ class ApiKeyAuthFilter(
     }
 
     private fun isLoopbackRequest(request: HttpServletRequest): Boolean =
-        SecurityConfig.isLoopbackRequest(request.remoteAddr, request.getHeader("X-Forwarded-For"))
+        SecurityConfig.isDirectLoopbackRequest(request)
+
+    /**
+     * Keyless MCP access is a direct same-machine development path, never a
+     * reverse-proxy trust decision. Reject any forwarded chain so an external
+     * caller cannot prepend a loopback address to X-Forwarded-For.
+     */
+    private fun isDirectLoopbackRequest(request: HttpServletRequest): Boolean =
+        SecurityConfig.isDirectLoopbackRequest(request)
 
     private fun constantTimeEquals(provided: String, expected: String): Boolean =
         MessageDigest.isEqual(

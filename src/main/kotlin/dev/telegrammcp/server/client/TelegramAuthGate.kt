@@ -27,25 +27,35 @@ class TelegramAuthGate(
     private val label: String,
     private val readyTimeout: Duration,
 ) {
-    private val ready = CountDownLatch(1)
-    private val failure = AtomicReference<String>()
+    private val terminal = CountDownLatch(1)
+    private val state = AtomicReference<AuthState>(AuthState.Pending)
 
-    /** TDLib reached `AuthorizationStateReady`; calls pass through from now on. */
+    /** TDLib reached `AuthorizationStateReady`; calls pass through while the session remains ready. */
     fun markReady() {
-        ready.countDown()
+        if (state.compareAndSet(AuthState.Pending, AuthState.Ready)) {
+            terminal.countDown()
+        }
     }
 
     /**
-     * Records an authentication failure. The first reason wins — it is the one
-     * that describes the original cause rather than its consequences.
+     * Records the first authentication/session failure. Failure is absorbing:
+     * READY cannot erase an earlier startup failure, and an unexpected close
+     * after READY makes later tool calls fail fast instead of reaching a closed
+     * TDLib client.
      */
     fun markFailed(reason: String) {
-        failure.compareAndSet(null, reason)
-        ready.countDown()
+        while (true) {
+            val current = state.get()
+            if (current is AuthState.Failed) return
+            if (state.compareAndSet(current, AuthState.Failed(reason))) {
+                terminal.countDown()
+                return
+            }
+        }
     }
 
-    /** True once TDLib is authenticated and no failure was recorded. */
-    fun isReady(): Boolean = ready.count == 0L && failure.get() == null
+    /** True only while the TDLib session is currently ready. */
+    fun isReady(): Boolean = state.get() === AuthState.Ready
 
     /**
      * Waits until the account is authenticated.
@@ -55,24 +65,29 @@ class TelegramAuthGate(
      * the MCP client, so it names the account and the way out.
      */
     fun awaitReady() {
-        failure.get()?.let { throw authError(it) }
-        val authenticated = if (ready.count == 0L) {
-            true
-        } else {
-            try {
-                ready.await(readyTimeout.toMillis(), TimeUnit.MILLISECONDS)
-            } catch (interrupted: InterruptedException) {
-                Thread.currentThread().interrupt()
-                throw authError("Interrupted while waiting for Telegram account '$label' to authenticate")
-            }
+        when (val current = state.get()) {
+            AuthState.Ready -> return
+            is AuthState.Failed -> throw authError(current.reason)
+            AuthState.Pending -> Unit
         }
-        failure.get()?.let { throw authError(it) }
-        if (!authenticated) {
-            throw authError(
-                "Telegram account '$label' is not authenticated yet (waited ${readyTimeout.toSeconds()}s). " +
-                    "Complete the login with 'telegram-mcp auth', or supply TDLIB_AUTH_CODE / " +
-                    "TDLIB_2FA_PASSWORD for a headless start.",
-            )
+
+        try {
+            terminal.await(readyTimeout.toMillis(), TimeUnit.MILLISECONDS)
+        } catch (interrupted: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw authError("Interrupted while waiting for Telegram account '$label' to authenticate")
+        }
+
+        when (val finalState = state.get()) {
+            AuthState.Ready -> return
+            is AuthState.Failed -> throw authError(finalState.reason)
+            AuthState.Pending -> {
+                throw authError(
+                    "Telegram account '$label' is not authenticated yet (waited ${readyTimeout.toSeconds()}s). " +
+                        "Complete the login with 'telegram-mcp auth', or supply TDLIB_AUTH_CODE / " +
+                        "TDLIB_2FA_PASSWORD for a headless start.",
+                )
+            }
         }
     }
 
@@ -84,6 +99,12 @@ class TelegramAuthGate(
     ) as TelegramClientService
 
     private fun authError(reason: String) = TdLibAuthException(reason)
+
+    private sealed interface AuthState {
+        data object Pending : AuthState
+        data object Ready : AuthState
+        data class Failed(val reason: String) : AuthState
+    }
 
     private class AuthGateInvocationHandler(
         private val gate: TelegramAuthGate,

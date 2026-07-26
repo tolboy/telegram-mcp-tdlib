@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.exception.InvalidToolInputException
 import dev.telegrammcp.server.model.ChatType
+import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.tool.McpToolHandler
 import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.util.StructuredLogger
@@ -30,6 +31,7 @@ import org.springframework.stereotype.Component
 @Component
 class ListChatsTool(
     private val telegramClient: TelegramClientService,
+    private val guardrailService: GuardrailService,
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
 ) : McpToolHandler {
@@ -90,6 +92,7 @@ class ListChatsTool(
             )
 
             var chats = telegramClient.getChats(limit)
+                .filter { guardrailService.isChatAllowed(it.chatId) }
 
             // Apply type filter
             if (filter != null) {

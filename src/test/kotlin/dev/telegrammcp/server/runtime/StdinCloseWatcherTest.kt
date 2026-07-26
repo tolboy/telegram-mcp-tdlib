@@ -67,7 +67,10 @@ class StdinCloseWatcherTest {
     fun `the installed watcher wraps stdin and ends the process at EOF`() {
         val originalStdin = System.`in`
         val halted = CountDownLatch(1)
-        val shutdown = ServerShutdown(200) { halted.countDown() }
+        val shutdown = ServerShutdown(
+            graceMillis = 200,
+            halt = { halted.countDown() },
+        )
         try {
             System.setIn(ByteArrayInputStream(ByteArray(0)))
             installStdinCloseWatcher(shutdown)

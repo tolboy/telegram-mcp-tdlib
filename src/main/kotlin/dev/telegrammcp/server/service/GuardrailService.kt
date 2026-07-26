@@ -77,4 +77,31 @@ class GuardrailService(
         val allowed = telegramProps.security.allowedChatIds
         return allowed.isEmpty() || chatId in allowed
     }
+
+    /** True when the operator restricted the connector to explicit chat IDs. */
+    fun hasChatAllowList(): Boolean = telegramProps.security.allowedChatIds.isNotEmpty()
+
+    /**
+     * Validates a chat ID learned from Telegram without echoing the rejected ID
+     * back to the caller.
+     */
+    fun validateDerivedChatAccess(chatId: Long) {
+        if (!isChatAllowed(chatId)) {
+            log.warn("Resolved chat {} is not in the allow-list", chatId)
+            throw ChatNotAllowedException()
+        }
+    }
+
+    /**
+     * Operations whose target chat cannot be known before a side effect must
+     * fail closed while a static allow-list is configured.
+     */
+    fun requireUnrestrictedChatScope(operation: String) {
+        if (hasChatAllowList()) {
+            log.warn("Blocked '{}' because its target cannot be pre-validated against the chat allow-list", operation)
+            throw GuardrailViolationException(
+                "Operation '$operation' is unavailable while a static chat allow-list is configured",
+            )
+        }
+    }
 }

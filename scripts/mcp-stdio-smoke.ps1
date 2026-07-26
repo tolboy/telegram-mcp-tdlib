@@ -9,6 +9,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$shutdownTimeoutMilliseconds = 10000
 $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
 $startInfo.FileName = if ($PSCmdlet.ParameterSetName -eq 'Jar') {
     'java'
@@ -27,6 +28,9 @@ if ($PSCmdlet.ParameterSetName -eq 'Jar') {
 $startInfo.ArgumentList.Add('serve')
 $startInfo.ArgumentList.Add('--transport')
 $startInfo.ArgumentList.Add('stdio')
+@($startInfo.Environment.Keys) |
+    Where-Object { $_ -like 'TELEGRAM_ACCOUNTS_*' -or $_ -like 'TDLIB_*' } |
+    ForEach-Object { [void]$startInfo.Environment.Remove($_) }
 $startInfo.Environment['MCP_READ_ONLY'] = 'true'
 $startInfo.Environment['MCP_TOOL_PROFILE'] = 'reader'
 $startInfo.Environment['TDLIB_API_ID'] = '0'
@@ -112,15 +116,44 @@ try {
         throw "Invalid stdio tool contracts: $($invalid.name -join ', ')"
     }
 
-    [ordered]@{
+    $result = [ordered]@{
         transport = 'stdio'
         protocolVersion = $initialize.result.protocolVersion
         toolCount = $tools.Count
         outputSchemas = $true
         stdoutJsonOnly = $true
-    } | ConvertTo-Json -Compress
+    }
+
+    $process.StandardInput.Close()
+    if (-not $process.WaitForExit($shutdownTimeoutMilliseconds)) {
+        $process.Kill($true)
+        if (-not $process.WaitForExit(5000)) {
+            throw "STDIO server did not exit within $($shutdownTimeoutMilliseconds)ms after stdin closed and could not be terminated"
+        }
+        $forcedExitCode = $process.ExitCode
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        throw "STDIO server did not exit within $($shutdownTimeoutMilliseconds)ms after stdin closed; " +
+            "forced exit code ${forcedExitCode}. STDERR: $stderr"
+    }
+
+    $exitCode = $process.ExitCode
+    $stderr = $stderrTask.GetAwaiter().GetResult()
+    if ($exitCode -ne 0) {
+        throw "STDIO server exited with code ${exitCode} after stdin closed. STDERR: $stderr"
+    }
+
+    $result['lifecycleExit'] = $true
+    $result['exitCode'] = $exitCode
+    $result | ConvertTo-Json -Compress
 } finally {
     try { $process.StandardInput.Close() } catch {}
-    if (-not $process.WaitForExit(3000)) { $process.Kill($true) }
+    if (-not $process.HasExited) {
+        try {
+            $process.Kill($true)
+            [void]$process.WaitForExit(5000)
+        } catch {
+            if (-not $process.HasExited) { throw }
+        }
+    }
     $process.Dispose()
 }

@@ -3,6 +3,7 @@
 The server can advertise a small, task-focused MCP surface instead of its full
 tool inventory. Set `MCP_TOOL_PROFILE` before starting the server; changing it
 requires a restart so the MCP client receives a consistent `tools/list` result.
+The default is `reader`; selecting `all` is always explicit.
 
 | Profile | Intended use | Write tools advertised? |
 |---|---|---|
@@ -16,6 +17,11 @@ Profiles compose with the safety model. `MCP_READ_ONLY=true` always removes
 write and quota-consuming operations, even from `inbox` and `community-admin`.
 Chat allow-lists, account scopes, confirmation requirements, audit logging,
 and anti-spam checks still run when an advertised tool is invoked.
+
+`MCP_CONFIRMATION_REQUIRED=true` is a server-side caller-acknowledgement gate:
+destructive calls must include `"confirmed": true`. It does not prove that a
+human supplied that value. MCP hosts should show destructive calls to the user
+and obtain approval according to their own human-in-the-loop policy.
 
 For a custom surface, apply exact-name `MCP_TOOL_ALLOW` and `MCP_TOOL_DENY`
 filters. They run after the profile and before read-only filtering. Unknown

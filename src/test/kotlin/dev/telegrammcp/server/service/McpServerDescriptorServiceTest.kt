@@ -34,7 +34,7 @@ class McpServerDescriptorServiceTest {
             accountRegistry = TelegramAccountRegistry(),
             handlers = listOf(fakeHandler("z_tool"), fakeHandler("a_tool")),
             serverMode = ServerModeProperties(),
-            toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties()),
+            toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.ALL)),
             environment = MockEnvironment()
                 .withProperty("spring.ai.mcp.server.version", "0.1.0")
                 .withProperty("spring.ai.mcp.server.streamable-http.mcp-endpoint", "/mcp"),
@@ -60,7 +60,7 @@ class McpServerDescriptorServiceTest {
             accountRegistry = TelegramAccountRegistry(),
             handlers = listOf(fakeHandler("only_tool")),
             serverMode = ServerModeProperties(),
-            toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties()),
+            toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.ALL)),
             environment = MockEnvironment(),
         )
 
@@ -78,7 +78,7 @@ class McpServerDescriptorServiceTest {
             accountRegistry = TelegramAccountRegistry(),
             handlers = listOf(fakeHandler("get_history"), fakeHandler("send_message")),
             serverMode = ServerModeProperties(readOnly = true),
-            toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties()),
+            toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.ALL)),
             environment = MockEnvironment(),
         )
 

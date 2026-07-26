@@ -68,8 +68,9 @@ class GetLastInteractionTool(
             )
 
             log.withTool(TOOL_NAME).info("Fetching last interaction with contact {}", contactId)
+            guardrailService.validateDerivedChatAccess(contactId)
             val message = telegramClient.getLastInteractionWithContact(contactId)
-            message?.let { guardrailService.validateChatAccess(it.chatId) }
+            message?.let { guardrailService.validateDerivedChatAccess(it.chatId) }
             message ?: mapOf("contact_id" to contactId, "message" to null)
         }
 }

@@ -72,6 +72,7 @@ class ToolSurfacePolicy(
         )
 
         private val INBOX_TOOL_NAMES = META_TOOLS + MESSAGE_TOOLS + MEDIA_TOOLS + setOf(
+            "list_chats", "get_chat", "list_chat_folders", "get_chat_folder",
             "get_me", "list_contacts", "search_contacts", "resolve_username", "get_user_status",
             "get_user_photos", "get_last_interaction", "add_contact", "delete_contact",
             "block_user", "unblock_user", "get_blocked_users", "update_profile",

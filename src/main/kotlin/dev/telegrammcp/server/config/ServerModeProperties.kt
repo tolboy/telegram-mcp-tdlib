@@ -13,7 +13,7 @@ data class ServerModeProperties(
     /** When true, all write/mutating tools are blocked. */
     val readOnly: Boolean = false,
 
-    /** Configuration for destructive operation confirmation. */
+    /** Configuration for destructive-operation caller acknowledgement. */
     val confirmation: ConfirmationProps = ConfirmationProps(),
 
     /** File system security settings. */
@@ -23,7 +23,10 @@ data class ServerModeProperties(
     val audit: AuditProps = AuditProps(),
 ) {
     data class ConfirmationProps(
-        /** When true, destructive tools require "confirmed": true in arguments. */
+        /**
+         * When true, destructive tools require "confirmed": true in arguments.
+         * This is a caller acknowledgement, not cryptographic proof of human approval.
+         */
         val enabled: Boolean = false,
 
         /**
@@ -56,5 +59,11 @@ data class ServerModeProperties(
 
         /** When true, tool arguments are included in audit entries (may contain PII). */
         val logArguments: Boolean = false,
+
+        /**
+         * Optional append-only JSONL file for a durable local audit trail.
+         * Blank keeps console logging, metrics, and the in-memory ring only.
+         */
+        val file: String = "",
     )
 }

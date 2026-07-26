@@ -32,6 +32,7 @@ class SearchGlobalToolTest {
     fun setUp() {
         telegramClient = mockk()
         guardrailService = mockk(relaxed = true)
+        every { guardrailService.isChatAllowed(any()) } returns true
         auditService = mockk(relaxed = true)
         objectMapper = jacksonObjectMapper().findAndRegisterModules()
         exchange = mockk(relaxed = true)
@@ -70,6 +71,23 @@ class SearchGlobalToolTest {
         val result = tool.execute(exchange, mapOf("query" to "test", "limit" to 5))
 
         assertFalse(result.isError)
+    }
+
+    @Test
+    fun `omits search results outside the configured allow-list`() {
+        every { telegramClient.searchGlobal("private", 20) } returns listOf(
+            TelegramMessage(messageId = 1, chatId = 10, chatTitle = "Allowed", senderName = "User", text = "allowed result", date = Instant.now()),
+            TelegramMessage(messageId = 2, chatId = 20, chatTitle = "Private", senderName = "User", text = "private result", date = Instant.now()),
+        )
+        every { guardrailService.isChatAllowed(10L) } returns true
+        every { guardrailService.isChatAllowed(20L) } returns false
+
+        val result = tool.execute(exchange, mapOf("query" to "private"))
+
+        assertFalse(result.isError)
+        val text = (result.content.first() as McpSchema.TextContent).text()
+        assertTrue(text.contains("allowed result"))
+        assertFalse(text.contains("private result"))
     }
 
     @Test

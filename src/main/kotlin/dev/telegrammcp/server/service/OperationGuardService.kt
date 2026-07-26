@@ -11,8 +11,9 @@ import org.springframework.stereotype.Service
  * Guards tool execution based on server operational policies:
  *
  * 1. **Read-only mode** — blocks all write/mutating tools
- * 2. **Confirmation mode** — requires explicit `"confirmed": true` argument
- *    for destructive operations (delete, ban, leave, etc.)
+ * 2. **Caller-acknowledgement mode** — requires explicit `"confirmed": true`
+ *    for destructive operations (delete, ban, leave, etc.). The MCP host is
+ *    responsible for obtaining human approval when its policy requires it.
  *
  * This service is called at the start of every tool execution before any
  * Telegram API call is made.
@@ -147,7 +148,7 @@ class OperationGuardService(
      * @param toolName  the MCP tool being invoked
      * @param arguments the tool input arguments (checked for "confirmed" key)
      * @throws ReadOnlyModeException if server is in read-only mode and tool is a write operation
-     * @throws ConfirmationRequiredException if tool is destructive and not confirmed
+     * @throws ConfirmationRequiredException if a destructive tool lacks caller acknowledgement
      */
     fun checkPermission(toolName: String, arguments: Map<String, Any>) {
         // 1. Read-only mode check
@@ -160,7 +161,7 @@ class OperationGuardService(
         if (props.confirmation.enabled && toolName in destructiveTools) {
             val confirmed = arguments["confirmed"]
             if (confirmed != true && confirmed?.toString()?.lowercase() != "true") {
-                log.info("Destructive tool '{}' requires confirmation", toolName)
+                log.info("Destructive tool '{}' requires caller acknowledgement", toolName)
                 throw ConfirmationRequiredException(
                     toolName,
                     getDestructiveDescription(toolName),
@@ -184,7 +185,7 @@ class OperationGuardService(
     fun isWriteTool(toolName: String): Boolean = toolName in WRITE_TOOLS
 
     /**
-     * Whether the given tool requires confirmation.
+     * Whether the given tool requires caller acknowledgement.
      */
     @Suppress("unused")
     fun requiresConfirmation(toolName: String): Boolean =

@@ -1,6 +1,7 @@
 package dev.telegrammcp.server.security
 
 import org.junit.jupiter.api.Test
+import org.springframework.mock.web.MockHttpServletRequest
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.test.assertEquals
@@ -37,15 +38,34 @@ class SecurityConfigTest {
     }
 
     @Test
-    fun `accepts loopback reverse proxy only for a loopback client`() {
-        assertTrue(SecurityConfig.isLoopbackRequest("127.0.0.1", "127.0.0.1"))
-        assertTrue(SecurityConfig.isLoopbackRequest("::1", "[::1]"))
+    fun `accepts only direct loopback requests`() {
+        val ipv4 = MockHttpServletRequest().also { it.remoteAddr = "127.0.0.1" }
+        val ipv6 = MockHttpServletRequest().also { it.remoteAddr = "::1" }
+
+        assertTrue(SecurityConfig.isDirectLoopbackRequest(ipv4))
+        assertTrue(SecurityConfig.isDirectLoopbackRequest(ipv6))
     }
 
     @Test
-    fun `rejects untrusted or malformed forwarded chain`() {
-        assertFalse(SecurityConfig.isLoopbackRequest("172.17.0.1", "127.0.0.1"))
-        assertFalse(SecurityConfig.isLoopbackRequest("127.0.0.1", "192.168.1.99"))
-        assertFalse(SecurityConfig.isLoopbackRequest("127.0.0.1", "127.0.0.1, not-an-ip"))
+    fun `rejects any forwarding header presence without a trusted proxy policy`() {
+        listOf(
+            "Forwarded" to "for=127.0.0.1",
+            "X-Forwarded-For" to "",
+            "X-Real-IP" to "127.0.0.1",
+            "CF-Connecting-IP" to "127.0.0.1",
+        ).forEach { (header, value) ->
+            val request = MockHttpServletRequest().also {
+                it.remoteAddr = "127.0.0.1"
+                it.addHeader(header, value)
+            }
+            assertFalse(SecurityConfig.isDirectLoopbackRequest(request), "Accepted forwarding header $header")
+        }
+
+        val duplicateXff = MockHttpServletRequest().also {
+            it.remoteAddr = "127.0.0.1"
+            it.addHeader("X-Forwarded-For", "")
+            it.addHeader("X-Forwarded-For", "203.0.113.50")
+        }
+        assertFalse(SecurityConfig.isDirectLoopbackRequest(duplicateXff))
     }
 }

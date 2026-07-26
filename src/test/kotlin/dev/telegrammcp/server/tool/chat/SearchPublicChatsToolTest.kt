@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import io.modelcontextprotocol.spec.McpSchema
 
 class SearchPublicChatsToolTest {
 
@@ -54,12 +55,32 @@ class SearchPublicChatsToolTest {
         val chats = listOf(
             ChatInfo(1L, "Kotlin", ChatType.CHANNEL, 5000, username = "kotlin"),
         )
+        every { guardrailService.isChatAllowed(1L) } returns true
         every { telegramClient.searchPublicChats("kotlin", 20) } returns chats
 
         val result = tool.execute(exchange, mapOf("query" to "kotlin"))
 
         assertFalse(result.isError)
         verify { guardrailService.validateInput("kotlin") }
+    }
+
+    @Test
+    fun `filters chats rejected by the static allow-list`() {
+        every {
+            telegramClient.searchPublicChats("kotlin", 20)
+        } returns listOf(
+            ChatInfo(1L, "Allowed", ChatType.CHANNEL, username = "allowed"),
+            ChatInfo(2L, "Forbidden sentinel", ChatType.CHANNEL, username = "forbidden"),
+        )
+        every { guardrailService.isChatAllowed(1L) } returns true
+        every { guardrailService.isChatAllowed(2L) } returns false
+
+        val result = tool.execute(exchange, mapOf("query" to "kotlin"))
+
+        assertFalse(result.isError)
+        val text = (result.content.first() as McpSchema.TextContent).text()
+        assertTrue(text.contains("Allowed"))
+        assertFalse(text.contains("Forbidden sentinel"))
     }
 
     @Test

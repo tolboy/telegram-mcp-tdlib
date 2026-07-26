@@ -46,6 +46,12 @@ enum class AuditCategory {
 
     /** Read-only discovery and query-based search over public chats. */
     PUBLIC_SEARCH_READ,
+
+    /** Server/connector capability metadata that does not access Telegram content. */
+    SERVER_METADATA,
+
+    /** Safety fallback; production tool inventory tests reject this for registered tools. */
+    UNCLASSIFIED,
 }
 
 /**

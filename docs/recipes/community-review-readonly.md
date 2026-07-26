@@ -39,7 +39,8 @@ When you trust the reports, enable writes deliberately:
 1. Set `MCP_READ_ONLY=false` — moderation tools (`ban_user`, `pin_message`,
    `delete_message`, …) appear.
 2. Keep `MCP_CONFIRMATION_REQUIRED=true` (the default): destructive actions
-   still require an explicit `"confirmed": true` on each call, and everything
-   is audit-logged.
+   still require an explicit caller acknowledgement (`"confirmed": true`) on
+   each call, and everything is audit-logged. The MCP host must obtain any
+   required human approval; the argument alone does not prove who supplied it.
 3. Consider a chat allow-list so the surface only covers the communities you
    moderate.

@@ -1,5 +1,6 @@
 ﻿package dev.telegrammcp.server.client
 
+import dev.telegrammcp.server.exception.ChatNotAllowedException
 import dev.telegrammcp.server.exception.TelegramUnavailableException
 import dev.telegrammcp.server.model.*
 import dev.telegrammcp.server.util.StructuredLogger
@@ -44,6 +45,11 @@ class TdLibClientService(
             0xFF93B2,
             0xFB6F5F,
         )
+
+        internal fun requireExpectedPublicChatId(actualChatId: Long, expectedChatId: Long) {
+            if (actualChatId != expectedChatId) throw ChatNotAllowedException()
+        }
+
         private const val CREATE_CHAT_REFRESH_ATTEMPTS = 6
         private const val CREATE_CHAT_REFRESH_DELAY_MS = 250L
         private const val SPEECH_RECOGNITION_TIMEOUT_MS = 30_000L
@@ -1466,13 +1472,16 @@ class TdLibClientService(
         }
     }
 
-    override fun joinPublicChat(usernameOrLink: String): ChatInfo {
+    override fun joinPublicChat(usernameOrLink: String, expectedChatId: Long): ChatInfo {
         log.info("Joining public chat @{}", usernameOrLink)
 
         val normalized = usernameOrLink.removePrefix("@").trim()
         val chat = withResilience("searchPublicChat") {
             send<TdApi.Chat>(TdApi.SearchPublicChat(normalized))
         }
+        // The username may have been reassigned since a cached resolution.
+        // Never join a different chat than the one the allow-list checked.
+        requireExpectedPublicChatId(chat.id, expectedChatId)
         withResilience("joinChat") { send<TdApi.Ok>(TdApi.JoinChat(chat.id)) }
         return chat.toChatInfo()
     }

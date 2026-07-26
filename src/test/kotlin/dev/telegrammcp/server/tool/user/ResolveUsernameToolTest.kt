@@ -8,9 +8,11 @@ import dev.telegrammcp.server.model.ChatType
 import dev.telegrammcp.server.model.UserInfo
 import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.EntityResolverService
+import dev.telegrammcp.server.service.GuardrailService
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import io.modelcontextprotocol.server.McpSyncServerExchange
 import io.modelcontextprotocol.spec.McpSchema
 import org.junit.jupiter.api.BeforeEach
@@ -23,6 +25,7 @@ class ResolveUsernameToolTest {
 
     private lateinit var telegramClient: TelegramClientService
     private lateinit var entityResolver: EntityResolverService
+    private lateinit var guardrailService: GuardrailService
     private lateinit var auditService: AuditService
     private lateinit var objectMapper: ObjectMapper
     private lateinit var tool: ResolveUsernameTool
@@ -32,6 +35,7 @@ class ResolveUsernameToolTest {
     fun setUp() {
         telegramClient = mockk()
         entityResolver = mockk()
+        guardrailService = mockk(relaxed = true)
         auditService = mockk(relaxed = true)
         objectMapper = jacksonObjectMapper().findAndRegisterModules()
         exchange = mockk(relaxed = true)
@@ -39,6 +43,7 @@ class ResolveUsernameToolTest {
         tool = ResolveUsernameTool(
             telegramClient = telegramClient,
             entityResolver = entityResolver,
+            guardrailService = guardrailService,
             auditService = auditService,
             objectMapper = objectMapper,
             meterRegistry = SimpleMeterRegistry(),
@@ -63,6 +68,7 @@ class ResolveUsernameToolTest {
         val text = (result.content.first() as McpSchema.TextContent).text()
         assertTrue(text.contains("testuser"))
         assertTrue(text.contains("42"))
+        verify { guardrailService.validateDerivedChatAccess(42L) }
     }
 
     @Test
@@ -77,6 +83,7 @@ class ResolveUsernameToolTest {
         assertFalse(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
         assertTrue(text.contains("My Channel"))
+        verify { guardrailService.validateDerivedChatAccess(-100123L) }
     }
 
     @Test

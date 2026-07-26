@@ -15,6 +15,9 @@ telegram:
     allowed-chat-ids: []
 
 mcp:
+  # Keep the complete inventory visible in application integration tests even
+  # when the production default is a focused profile.
+  tool-profile: all
   security:
     api-key: ""  # no auth in tests
   guardrails:

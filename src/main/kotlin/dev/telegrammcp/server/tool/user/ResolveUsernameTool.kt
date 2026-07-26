@@ -5,6 +5,7 @@ import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.exception.InvalidToolInputException
 import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.EntityResolverService
+import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.model.AuditOutcome
 import dev.telegrammcp.server.tool.McpToolHandler
 import dev.telegrammcp.server.util.StructuredLogger
@@ -34,6 +35,7 @@ import org.springframework.stereotype.Component
 class ResolveUsernameTool(
     private val telegramClient: TelegramClientService,
     private val entityResolver: EntityResolverService,
+    private val guardrailService: GuardrailService,
     private val auditService: AuditService,
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
@@ -76,6 +78,7 @@ class ResolveUsernameTool(
             log.withTool(TOOL_NAME).info("Resolving identifier: {}", raw)
 
             val resolvedId = entityResolver.resolve(raw)
+            guardrailService.validateDerivedChatAccess(resolvedId)
 
             // Try to get user info if it's a user ID (positive), otherwise chat info
             val result: Any = if (resolvedId > 0) {
@@ -103,7 +106,7 @@ class ResolveUsernameTool(
             dev.telegrammcp.server.tool.ToolSupport.textResult(json)
         } catch (ex: Exception) {
             log.withTool(TOOL_NAME).error("Failed to resolve identifier: {}", ex.message, ex)
-            auditService.record(TOOL_NAME, arguments, AuditOutcome.ERROR, error = ex.message)
+            auditService.record(TOOL_NAME, arguments, AuditService.outcomeFor(ex), error = ex.message)
             dev.telegrammcp.server.tool.ToolSupport.errorText("Error: ${ex.message}")
         } finally {
             sample.stop(Timer.builder("mcp.tool.execution").tag("tool", TOOL_NAME).register(meterRegistry))

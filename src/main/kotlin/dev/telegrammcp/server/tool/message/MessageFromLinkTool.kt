@@ -74,7 +74,7 @@ class MessageFromLinkTool(
 
             log.withTool(TOOL_NAME).info("Resolving message from link")
             val message = telegramClient.getMessageByLink(link)
-            guardrailService.validateChatAccess(message.chatId)
+            guardrailService.validateDerivedChatAccess(message.chatId)
             message
         }
 }

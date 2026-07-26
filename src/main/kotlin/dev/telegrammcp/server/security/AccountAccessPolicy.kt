@@ -2,6 +2,7 @@ package dev.telegrammcp.server.security
 
 import dev.telegrammcp.server.client.TelegramAccountRegistry
 import dev.telegrammcp.server.config.McpSecurityProperties
+import dev.telegrammcp.server.exception.AccountAccessDeniedException
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken
 import org.springframework.stereotype.Component
@@ -29,8 +30,8 @@ class AccountAccessPolicy(
             "Unknown Telegram account '$account'. Available accounts: ${registry.labels().joinToString()}"
         }
         val allowed = allowedAccounts()
-        require(allowed == null || account in allowed) {
-            "The authenticated MCP client is not allowed to access Telegram account '$account'"
+        if (allowed != null && account !in allowed) {
+            throw AccountAccessDeniedException(account)
         }
         return account
     }

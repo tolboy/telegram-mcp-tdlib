@@ -6,6 +6,7 @@ import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.model.ChatInfo
 import dev.telegrammcp.server.model.ChatType
 import dev.telegrammcp.server.service.AuditService
+import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
@@ -23,6 +24,7 @@ import kotlin.test.assertTrue
 class SubscribePublicChannelToolTest {
 
     private lateinit var telegramClient: TelegramClientService
+    private lateinit var entityResolver: EntityResolverService
     private lateinit var guardrailService: GuardrailService
     private lateinit var operationGuardService: OperationGuardService
     private lateinit var auditService: AuditService
@@ -33,6 +35,7 @@ class SubscribePublicChannelToolTest {
     @BeforeEach
     fun setUp() {
         telegramClient = mockk()
+        entityResolver = mockk()
         guardrailService = mockk(relaxed = true)
         operationGuardService = mockk(relaxed = true)
         auditService = mockk(relaxed = true)
@@ -41,6 +44,7 @@ class SubscribePublicChannelToolTest {
 
         tool = SubscribePublicChannelTool(
             telegramClient = telegramClient,
+            entityResolver = entityResolver,
             guardrailService = guardrailService,
             operationGuardService = operationGuardService,
             auditService = auditService,
@@ -57,19 +61,22 @@ class SubscribePublicChannelToolTest {
     @Test
     fun `subscribes to channel successfully`() {
         val chat = ChatInfo(chatId = 300L, title = "PublicChannel", type = ChatType.CHANNEL)
-        every { telegramClient.joinPublicChat("public_channel") } returns chat
+        every { entityResolver.resolve("public_channel" as Any) } returns 300L
+        every { telegramClient.joinPublicChat("public_channel", 300L) } returns chat
 
         val result = tool.execute(exchange, mapOf("channel" to "public_channel"))
 
         assertFalse(result.isError)
-        verify { telegramClient.joinPublicChat("public_channel") }
+        verify { guardrailService.validateDerivedChatAccess(300L) }
+        verify { telegramClient.joinPublicChat("public_channel", 300L) }
         val text = (result.content.first() as McpSchema.TextContent).text()
         assertTrue(text.contains("PublicChannel"))
     }
 
     @Test
     fun `returns already_member when already subscribed`() {
-        every { telegramClient.joinPublicChat("public_channel") } throws
+        every { entityResolver.resolve("public_channel" as Any) } returns 300L
+        every { telegramClient.joinPublicChat("public_channel", 300L) } throws
             RuntimeException("USER_ALREADY_PARTICIPANT")
 
         val result = tool.execute(exchange, mapOf("channel" to "public_channel"))
@@ -77,6 +84,19 @@ class SubscribePublicChannelToolTest {
         assertFalse(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
         assertTrue(text.contains("already") || text.contains("already_member"), "Expected already-member indicator in: $text")
+    }
+
+    @Test
+    fun `does not join a channel rejected by the static allow-list`() {
+        every { entityResolver.resolve("public_channel" as Any) } returns 300L
+        every {
+            guardrailService.validateDerivedChatAccess(300L)
+        } throws dev.telegrammcp.server.exception.ChatNotAllowedException()
+
+        val result = tool.execute(exchange, mapOf("channel" to "public_channel"))
+
+        assertTrue(result.isError)
+        verify(exactly = 0) { telegramClient.joinPublicChat(any(), any()) }
     }
 
     @Test

@@ -32,6 +32,10 @@ spring:
     timeout-per-shutdown-phase: 30s
 
 server:
+  # Raw HTTP runs local-only unless an operator deliberately overrides it.
+  # Container images set SERVER_ADDRESS=0.0.0.0 inside the container and rely
+  # on port publishing plus MCP authentication for the external boundary.
+  address: ${SERVER_ADDRESS:127.0.0.1}
   port: ${SERVER_PORT:8080}
   shutdown: graceful
 
@@ -116,7 +120,7 @@ telegram:
 # ── MCP Security ──────────────────────────────────────────────────────────────
 mcp:
   # Curate tools for a common workflow: all, reader, inbox, community-admin, research.
-  tool-profile: ${MCP_TOOL_PROFILE:all}
+  tool-profile: ${MCP_TOOL_PROFILE:reader}
   # Optional exact-name filters, evaluated profile -> allow -> deny -> read-only.
   # Unknown names fail startup so misspellings cannot silently weaken policy.
   tool-allow: ${MCP_TOOL_ALLOW:}
@@ -157,7 +161,8 @@ server-mode:
   # When true, all write/mutating tools are blocked (messages, contacts, media upload)
   read-only: ${MCP_READ_ONLY:true}
   confirmation:
-    # When true, destructive tools (delete, ban, leave) require "confirmed": true
+    # Caller acknowledgement for destructive tools. This does not prove that
+    # a human supplied "confirmed": true; MCP hosts own human-approval UX.
     enabled: ${MCP_CONFIRMATION_REQUIRED:true}
     # Override default destructive tool list (empty = use built-in defaults)
     destructive-tools: []
@@ -173,6 +178,8 @@ server-mode:
     enabled: ${MCP_AUDIT_ENABLED:true}
     # When true, tool arguments are included in audit entries (may contain PII)
     log-arguments: ${MCP_AUDIT_LOG_ARGS:false}
+    # Optional append-only JSONL trail. Put it on a persistent encrypted volume.
+    file: ${MCP_AUDIT_FILE:}
 
 # ── Actuator ──────────────────────────────────────────────────────────────────
 management:

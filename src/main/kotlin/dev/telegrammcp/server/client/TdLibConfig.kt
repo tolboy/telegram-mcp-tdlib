@@ -338,7 +338,7 @@ class TdLibConfig(
                 authGate.markReady()
             }
             is TdApi.AuthorizationStateClosed -> {
-                authGate.markFailed("TDLib session for account '$label' closed before reaching READY")
+                authGate.markFailed("TDLib session for account '$label' closed")
             }
             is TdApi.AuthorizationStateWaitOtherDeviceConfirmation ->
                 log.info("TDLib account '{}' needs QR confirmation", label)

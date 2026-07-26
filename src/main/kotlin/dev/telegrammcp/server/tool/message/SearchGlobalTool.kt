@@ -85,5 +85,6 @@ class SearchGlobalTool(
 
             guardrailService.validateInput(query)
             telegramClient.searchGlobal(query, limit)
+                .filter { guardrailService.isChatAllowed(it.chatId) }
         }
 }

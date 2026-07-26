@@ -5,6 +5,7 @@ import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.exception.InvalidToolInputException
 import dev.telegrammcp.server.model.AuditOutcome
 import dev.telegrammcp.server.service.AuditService
+import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
 import dev.telegrammcp.server.util.StructuredLogger
@@ -22,6 +23,7 @@ import org.springframework.stereotype.Component
 @Component
 class CreateGroupTool(
     private val telegramClient: TelegramClientService,
+    private val guardrailService: GuardrailService,
     private val operationGuardService: OperationGuardService,
     private val auditService: AuditService,
     private val objectMapper: ObjectMapper,
@@ -70,6 +72,7 @@ class CreateGroupTool(
 
         return try {
             operationGuardService.checkPermission(TOOL_NAME, arguments)
+            guardrailService.requireUnrestrictedChatScope(TOOL_NAME)
 
             val title = arguments["title"]?.toString()
                 ?: throw InvalidToolInputException("title is required")
@@ -90,7 +93,7 @@ class CreateGroupTool(
             dev.telegrammcp.server.tool.ToolSupport.textResult(json)
         } catch (ex: Exception) {
             log.withTool(TOOL_NAME).error("Failed to create group: {}", ex.message, ex)
-            auditService.record(TOOL_NAME, arguments, AuditOutcome.ERROR, error = ex.message)
+            auditService.record(TOOL_NAME, arguments, AuditService.outcomeFor(ex), error = ex.message)
             dev.telegrammcp.server.tool.ToolSupport.errorText("Error: ${ex.message}")
         } finally {
             sample.stop(Timer.builder("mcp.tool.execution").tag("tool", TOOL_NAME).register(meterRegistry))

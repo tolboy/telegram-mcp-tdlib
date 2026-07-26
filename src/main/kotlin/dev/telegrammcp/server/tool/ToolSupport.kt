@@ -1,12 +1,6 @@
 ﻿package dev.telegrammcp.server.tool
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import dev.telegrammcp.server.exception.AntiSpamException
-import dev.telegrammcp.server.exception.ChatNotAllowedException
-import dev.telegrammcp.server.exception.ConfirmationRequiredException
-import dev.telegrammcp.server.exception.FileSecurityException
-import dev.telegrammcp.server.exception.GuardrailViolationException
-import dev.telegrammcp.server.exception.ReadOnlyModeException
 import dev.telegrammcp.server.model.AuditOutcome
 import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.util.StructuredLogger
@@ -98,7 +92,7 @@ object ToolSupport {
             auditService?.record(
                 toolName,
                 arguments,
-                outcome = auditOutcomeFor(ex),
+                outcome = AuditService.outcomeFor(ex),
                 error = ex.message,
                 durationMs = durationMs,
             )
@@ -175,17 +169,6 @@ object ToolSupport {
             text,
             mapOf("io.github.tolboy/untrusted-content" to true),
         )
-
-    private fun auditOutcomeFor(ex: Exception): AuditOutcome = when (ex) {
-        is ReadOnlyModeException -> AuditOutcome.BLOCKED_READONLY
-        is ConfirmationRequiredException -> AuditOutcome.BLOCKED_CONFIRMATION
-        is AntiSpamException -> AuditOutcome.BLOCKED_ANTISPAM
-        is GuardrailViolationException,
-        is ChatNotAllowedException,
-        is FileSecurityException,
-        -> AuditOutcome.BLOCKED_GUARDRAIL
-        else -> AuditOutcome.ERROR
-    }
 
     private fun elapsedMillis(startNanos: Long): Long = (System.nanoTime() - startNanos) / 1_000_000
 }

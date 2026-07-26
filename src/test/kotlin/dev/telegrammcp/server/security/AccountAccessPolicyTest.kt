@@ -4,6 +4,7 @@ import dev.telegrammcp.server.client.TelegramAccountRegistry
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.config.McpAuthMode
 import dev.telegrammcp.server.config.McpSecurityProperties
+import dev.telegrammcp.server.exception.AccountAccessDeniedException
 import io.mockk.mockk
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
@@ -39,7 +40,7 @@ class AccountAccessPolicyTest {
         SecurityContextHolder.getContext().authentication = ApiKeyAuthToken("work-agent", setOf("work"))
 
         assertEquals("work", policy.selectAccount(mapOf("account" to "WORK")))
-        assertThrows<IllegalArgumentException> {
+        assertThrows<AccountAccessDeniedException> {
             policy.selectAccount(mapOf("account" to "personal"))
         }
         assertEquals(listOf("work"), policy.visibleAccounts())
@@ -66,7 +67,7 @@ class AccountAccessPolicyTest {
         val policy = AccountAccessPolicy(registry, properties)
 
         assertEquals("work", policy.selectAccount(mapOf("account" to "work")))
-        assertThrows<IllegalArgumentException> {
+        assertThrows<AccountAccessDeniedException> {
             policy.selectAccount(mapOf("account" to "personal"))
         }
         assertEquals(listOf("work"), policy.visibleAccounts())

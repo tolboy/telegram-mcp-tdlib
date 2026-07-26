@@ -3,6 +3,66 @@
 Notable changes to Telegram MCP Server are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.11.0 - 2026-07-26
+
+### Security
+
+- Keyless API-key mode is now loopback-only. Raw HTTP binds to `127.0.0.1` by
+  default, and non-loopback requests to MCP or protected Actuator endpoints are
+  rejected unless an API key or OAuth is configured. Requests carrying any
+  recognized forwarding header cannot use the keyless local-development path.
+- `TELEGRAM_ALLOWED_CHAT_IDS` is now enforced across account-wide and
+  result-derived chat surfaces: inbox/global/public search, drafts, folders,
+  privacy rules, username/link resolution, last-interaction reads, and
+  anti-spam notifier targets. Create/join operations whose target cannot be
+  pre-validated fail closed while a static chat allow-list is active, and a
+  public username is freshly rechecked against its validated numeric ID before
+  joining.
+- Public research discovery no longer returns rejected candidate metadata, and
+  `register_internal_chat` no longer exposes the complete internal-chat set.
+  Contract tests inventory the non-direct chat paths so future additions fail
+  CI until their allow-list behavior is explicit.
+
+### Added
+
+- `MCP_AUDIT_FILE` optionally appends forced JSONL records to a persistent local
+  audit trail. Arguments remain absent unless explicitly enabled and recognized
+  credential fields are then redacted. Dispatch-level fallback auditing and
+  explicit categories cover all 110 registered tools, including account-routing
+  denials and consistent policy-block outcomes.
+- Bash protocol smokes now mirror the PowerShell STDIO and Streamable HTTP
+  checks, and the multi-client guide documents one shared HTTP daemon for
+  clients that use the same TDLib session.
+
+### Changed
+
+- The default tool profile is now `reader`; exposing the complete administration
+  surface requires an explicit `MCP_TOOL_PROFILE=all`. Startup emits a prominent
+  warning when that full profile is combined with `MCP_READ_ONLY=false`.
+- Destructive-operation documentation now calls `confirmed: true` a caller
+  acknowledgement. It is not proof of human approval; MCP hosts remain
+  responsible for human-in-the-loop UX.
+- The public benchmark now covers better-telegram-mcp 4.17.0's compact
+  action-dispatch and HTTP/OAuth trade-offs using pinned primary sources.
+
+### Fixed
+
+- The `inbox` profile now exposes `list_chats`, `get_chat`,
+  `list_chat_folders`, and `get_chat_folder`, matching the documented inbox
+  summarization recipe.
+- STDIO shutdown can promote an in-flight clean exit to a fatal exit code,
+  freezes one final reason, and emits a stable stderr line before one halt. The
+  smoke tests now fail unless stdin closure produces a natural exit within the
+  lifecycle deadline.
+- Authentication readiness fails closed: an initial failure cannot be erased
+  by a late READY signal, while an unexpected session close after READY blocks
+  later calls instead of forwarding them to a closed client. Session-lock
+  recognition now requires a typed TDLib error, code 400, the `td.binlog`
+  target, and known ownership wording.
+- Container images now set both the single-account TDLib path and the
+  multi-account application-data root to the persistent `/data/tdlib-data`
+  volume.
+
 ## 1.10.0 - 2026-07-25
 
 ### Fixed
