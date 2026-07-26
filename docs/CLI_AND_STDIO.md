@@ -50,6 +50,12 @@ under `docker run -i --rm` a process that lingers keeps the container alive and
 the TDLib session (`td.binlog`) locked, so the next start cannot authenticate.
 A graceful close that takes longer than five seconds is cut short by a hard halt.
 
+A termination signal takes the same bounded path. `docker stop`, `compose down`,
+systemd and Kubernetes all stop the server with SIGTERM rather than by closing
+stdin, and they escalate to SIGKILL when the process outlasts their grace period
+— which would stop TDLib mid-write. The same five-second deadline applies, so a
+default ten-second grace period is comfortably enough.
+
 Startup never waits for Telegram authentication, so `initialize` is answered
 immediately. Tool calls wait instead: `tdlib.auth.ready-timeout`
 (`TDLIB_AUTH_READY_TIMEOUT`, 45s by default) bounds that wait and must stay below

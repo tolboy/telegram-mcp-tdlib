@@ -8,6 +8,7 @@ import dev.telegrammcp.server.auth.TelegramAuthStateHolder
 import dev.telegrammcp.server.auth.TelegramAuthOrchestrator
 import dev.telegrammcp.server.client.TelegramAccountRegistry
 import dev.telegrammcp.server.runtime.ServerShutdown
+import dev.telegrammcp.server.runtime.installSignalShutdownHook
 import dev.telegrammcp.server.runtime.installStdinCloseWatcher
 import org.springframework.boot.WebApplicationType
 import org.springframework.boot.builder.SpringApplicationBuilder
@@ -75,6 +76,13 @@ object TelegramMcpCli {
         // hand-off is what lets that shutdown close the context instead of only
         // halting the JVM.
         ServerShutdown.INSTANCE.attach(context)
+        // Only once the server is actually running. Every transport can be
+        // stopped by a signal — it is the only way a container or service
+        // manager ends an HTTP deployment — and that exit needs the same
+        // deadline as the stdin one. Registering it earlier would also make a
+        // failed startup halt with this hook's clean exit code, reporting
+        // success for a server that never started.
+        installSignalShutdownHook(ServerShutdown.INSTANCE)
     }
 
     internal fun resolveServerInvocation(

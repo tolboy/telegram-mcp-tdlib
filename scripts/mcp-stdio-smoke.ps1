@@ -144,6 +144,11 @@ try {
 
     $result['lifecycleExit'] = $true
     $result['exitCode'] = $exitCode
+    # The Bash smoke also asserts a bounded exit on a termination signal. That
+    # check has no honest equivalent here: Windows has no SIGTERM, and .NET's
+    # Kill() is the forceful stop the check exists to rule out. The deployments
+    # that stop the server with a signal — Docker, systemd, Kubernetes — are
+    # covered where they actually run.
     $result | ConvertTo-Json -Compress
 } finally {
     try { $process.StandardInput.Close() } catch {}

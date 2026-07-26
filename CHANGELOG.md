@@ -62,6 +62,12 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 - Container images now set both the single-account TDLib path and the
   multi-account application-data root to the persistent `/data/tdlib-data`
   volume.
+- A termination signal now ends the process under the same deadline as stdin
+  EOF. Spring's shutdown hook has none, and closing the context runs TDLib's
+  `@PreDestroy`, which can block — so `docker stop`, `compose down`, systemd and
+  Kubernetes all waited out their grace period and escalated to SIGKILL,
+  stopping TDLib mid-write. Measured against 1.10.0: `docker stop` took the full
+  timeout and exited 137.
 - The container health probe now matches the transport it was started with. A
   STDIO container owns no listener, so probing the actuator reported every
   healthy stdio container as unhealthy for its whole lifetime and buried a real

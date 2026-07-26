@@ -228,7 +228,7 @@ def read_response(expected_id, timeout_seconds=30):
 
 
 try:
-    send({
+    initialize_request = {
         "jsonrpc": "2.0",
         "id": 1,
         "method": "initialize",
@@ -240,7 +240,8 @@ try:
                 "version": "1.0.0",
             },
         },
-    })
+    }
+    send(initialize_request)
     initialize = read_response(1)
     if initialize.get("error") is not None:
         raise RuntimeError(
@@ -304,6 +305,57 @@ try:
             f"STDERR: {stderr_text()}"
         )
 
+    # A container or service manager stops the server with a signal, never by
+    # closing stdin. That path closes the same TDLib session, so it needs the
+    # same bounded exit: without one the supervisor waits out its grace period
+    # and escalates to SIGKILL, killing TDLib mid-write.
+    signal_process = subprocess.Popen(
+        command,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        bufsize=1,
+        env=environment,
+    )
+    try:
+        # Complete a handshake rather than sleeping: the signal has to arrive at
+        # a server that finished starting, and a fixed wait would race a slow
+        # cold start into a false failure.
+        signal_process.stdin.write(
+            json.dumps(initialize_request, separators=(",", ":")) + "\n"
+        )
+        signal_process.stdin.flush()
+        handshake = queue.Queue()
+        threading.Thread(
+            target=lambda: handshake.put(signal_process.stdout.readline()),
+            daemon=True,
+        ).start()
+        try:
+            if not json.loads(handshake.get(timeout=60)).get("result"):
+                raise RuntimeError("STDIO server did not answer initialize before the signal")
+        except queue.Empty as exc:
+            raise RuntimeError(
+                "STDIO server did not answer initialize within 60000ms before the signal"
+            ) from exc
+
+        signal_process.terminate()
+        try:
+            signal_exit = signal_process.wait(timeout=15)
+        except subprocess.TimeoutExpired as exc:
+            signal_process.kill()
+            signal_process.wait(timeout=5)
+            raise RuntimeError(
+                "STDIO server did not exit within 15000ms of a termination signal. "
+                "A supervisor would escalate to SIGKILL."
+            ) from exc
+    finally:
+        if signal_process.poll() is None:
+            signal_process.kill()
+            signal_process.wait(timeout=5)
+
     print(json.dumps({
         "transport": "stdio",
         "protocolVersion": initialize.get("result", {}).get("protocolVersion"),
@@ -312,6 +364,8 @@ try:
         "stdoutJsonOnly": True,
         "lifecycleExit": True,
         "exitCode": exit_code,
+        "signalExit": True,
+        "signalExitCode": signal_exit,
     }, separators=(",", ":")))
 finally:
     if process.stdin and not process.stdin.closed:
