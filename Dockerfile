@@ -39,8 +39,10 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY --from=build /app/build/libs/telegram-mcp-server.jar app.jar
+COPY docker/healthcheck.sh /usr/local/bin/telegram-mcp-healthcheck
 
-RUN mkdir -p /data/tdlib-data /data/downloads \
+RUN chmod 0555 /usr/local/bin/telegram-mcp-healthcheck \
+    && mkdir -p /data/tdlib-data /data/downloads \
     && chown -R mcp:mcp /app /data
 USER mcp
 
@@ -51,9 +53,10 @@ ENV JAVA_TOOL_OPTIONS="-XX:+UseZGC -XX:MaxRAMPercentage=75.0 -Djava.security.egd
     TDLIB_DOWNLOADS_DIR=/data/downloads
 VOLUME ["/data/tdlib-data", "/data/downloads"]
 
-# Actuator health check
+# Actuator health check for the HTTP transport; a no-op under STDIO, which has
+# no listener to probe and would otherwise report unhealthy for its whole life.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD ["curl", "-fsS", "http://localhost:8080/actuator/health"]
+    CMD ["/usr/local/bin/telegram-mcp-healthcheck"]
 
 EXPOSE 8080
 

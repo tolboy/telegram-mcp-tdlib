@@ -62,6 +62,16 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 - Container images now set both the single-account TDLib path and the
   multi-account application-data root to the persistent `/data/tdlib-data`
   volume.
+- The container health probe now matches the transport it was started with. A
+  STDIO container owns no listener, so probing the actuator reported every
+  healthy stdio container as unhealthy for its whole lifetime and buried a real
+  failure among permanent ones.
+- Running the server as a STDIO container is now documented with a pinned
+  `-stdio` tag. `docker run` never re-pulls an image the machine already has, so
+  a client configured against a floating tag keeps starting the build it first
+  cached — including builds predating the 1.10.0 lifecycle fix, whose orphaned
+  containers hold `td.binlog` and make every later start fail to lock the
+  session.
 
 ## 1.10.0 - 2026-07-25
 

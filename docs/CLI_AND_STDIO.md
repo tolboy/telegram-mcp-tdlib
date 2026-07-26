@@ -60,6 +60,58 @@ If another process still holds the session, the server does not wait for a login
 that cannot happen: it reports the locked `td.binlog` on stderr and exits with
 code 2. Stop the other instance (`docker ps` → `docker stop <id>`) and start again.
 
+### Docker as a STDIO server
+
+Run the `-stdio` image variant and pin the version explicitly:
+
+```json
+{
+  "mcpServers": {
+    "telegram": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "-v", "/absolute/path/to/session:/data/tdlib-data",
+        "-e", "TDLIB_API_ID",
+        "-e", "TDLIB_API_HASH",
+        "-e", "MCP_READ_ONLY=true",
+        "-e", "MCP_TOOL_PROFILE=reader",
+        "ghcr.io/tolboy/telegram-mcp-tdlib:1.11.0-stdio"
+      ]
+    }
+  }
+}
+```
+
+Two details decide whether this stays working:
+
+- **Pin the tag.** `docker run` only pulls an image it does not already have, so
+  a config that says `:latest` keeps starting whatever build the machine cached
+  on first use — potentially many releases behind, with none of the lifecycle
+  fixes that make the connector survive a restart. A pinned tag makes the version
+  a deliberate choice, and `docker pull` upgrades it when you decide to.
+- **Use the `-stdio` variant.** The plain tag defaults to Streamable HTTP.
+  It still speaks STDIO when given `serve --transport stdio`, but it is built for
+  the other transport, and the registry entry for MCP clients is the `-stdio` one.
+
+Upgrade by editing the tag and pulling once:
+
+```bash
+docker pull ghcr.io/tolboy/telegram-mcp-tdlib:1.11.0-stdio
+```
+
+Before a release older than 1.10.0, a server whose client had gone away could
+outlive it and hold `td.binlog`, so every later start failed to lock the session
+and the connector never appeared. Containers left behind by such a build do not
+exit on their own — list and stop them once:
+
+```bash
+docker ps --filter ancestor=ghcr.io/tolboy/telegram-mcp-tdlib --format '{{.ID}} {{.Status}}'
+```
+
+`telegram-mcp session doctor` reports the same thing from the session side: it
+prints `tdlib_lock` and `lock_owner` for each configured account.
+
 Prepare the TDLib session before enabling the MCP entry:
 
 ```bash
