@@ -2,6 +2,13 @@ name: Platform MCP Surface Smoke
 
 on:
   workflow_dispatch:
+  # The STDIO lifecycle contract — stdin close, a signal while running, and a
+  # signal during startup — is only checked here. Leaving that manual is how a
+  # release shipped a termination path that could not be exercised by any
+  # automatic gate.
+  push:
+    tags:
+      - 'v*.*.*'
 
 permissions:
   contents: read

@@ -3,6 +3,26 @@
 Notable changes to Telegram MCP Server are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Changed
+
+- Releases now verify the published image before announcing it. `1.11.0` passed
+  every local gate and still shipped a termination path that failed when a
+  container was stopped mid-startup, because nothing ran against the artifact
+  users pull, from a session directory with no existing login.
+  `scripts/verify-published-image.sh` checks that contract — initialize, stdin
+  close, a signal while running, and a signal during startup — and runs between
+  signing the image and publishing it to the MCP Registry, so a broken image
+  cannot reach the registry or a release page. Signals go through `docker stop`
+  rather than by killing the `docker run` client, which only detaches.
+- The STDIO smoke now also signals the server *during* startup. Its existing
+  signal phase waits for `initialize` precisely so the server is ready, which is
+  why it could not have caught the 1.11.0 defect.
+- `platform-smoke.yml` runs on release tags instead of only on demand. The STDIO
+  lifecycle contract is checked nowhere else, and leaving it manual is what let
+  an untested termination path reach a release.
+
 ## 1.11.1 - 2026-07-27
 
 ### Fixed

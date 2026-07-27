@@ -289,6 +289,18 @@ jobs:
         shell: bash
         run: cosign sign --yes "${IMAGE}@${DIGEST}"
 
+      # Deliberately between publishing the image and announcing it. Every local
+      # gate passed for 1.11.0 and the published image still could not be
+      # stopped cleanly while starting, because no local check ran against the
+      # artifact from a cold session. A broken image must not reach the registry
+      # or a release page.
+      - name: Verify the published stdio image
+        shell: bash
+        run: |
+          ./scripts/verify-published-image.sh \
+            --image "${REGISTRY}/${GITHUB_REPOSITORY_OWNER}/${IMAGE_NAME}:${{ steps.version.outputs.version }}-stdio" \
+            --expect-version '${{ steps.version.outputs.version }}'
+
       - name: Publish metadata to the official MCP Registry
         if: github.event.repository.visibility == 'public'
         shell: bash

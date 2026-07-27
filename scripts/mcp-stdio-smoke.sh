@@ -356,6 +356,58 @@ try:
             signal_process.kill()
             signal_process.wait(timeout=5)
 
+    # The same signal, but delivered before startup finishes. That window is
+    # wide -- startup loads TDLib's native libraries -- and it is not covered by
+    # the phase above, which waits for `initialize` precisely so the server is
+    # ready. 1.11.0 shipped a signal path that worked once running and threw
+    # `IllegalStateException: Shutdown in progress` out of main when the signal
+    # landed first, leaving the close unbounded until the supervisor gave up.
+    startup_process = subprocess.Popen(
+        command,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=environment,
+    )
+    startup_stderr = []
+    startup_drain = threading.Thread(
+        target=lambda: startup_stderr.extend(startup_process.stderr),
+        daemon=True,
+    )
+    startup_drain.start()
+    try:
+        # Long enough for the JVM to install its signal handler, far short of a
+        # finished Spring context.
+        time.sleep(1.5)
+        if startup_process.poll() is not None:
+            raise RuntimeError(
+                f"STDIO server exited before the startup signal: {startup_process.returncode}"
+            )
+        startup_process.terminate()
+        try:
+            startup_signal_exit = startup_process.wait(timeout=30)
+        except subprocess.TimeoutExpired as exc:
+            startup_process.kill()
+            startup_process.wait(timeout=5)
+            raise RuntimeError(
+                "STDIO server did not exit within 30000ms of a termination signal "
+                "delivered during startup. A supervisor would escalate to SIGKILL."
+            ) from exc
+        startup_drain.join(timeout=2)
+        startup_stderr_text = "".join(startup_stderr)
+        if "Shutdown in progress" in startup_stderr_text:
+            raise RuntimeError(
+                "STDIO server failed to register its shutdown path during startup: "
+                "the JVM refused the hook and the close was left unbounded."
+            )
+    finally:
+        if startup_process.poll() is None:
+            startup_process.kill()
+            startup_process.wait(timeout=5)
+
     print(json.dumps({
         "transport": "stdio",
         "protocolVersion": initialize.get("result", {}).get("protocolVersion"),
@@ -366,6 +418,8 @@ try:
         "exitCode": exit_code,
         "signalExit": True,
         "signalExitCode": signal_exit,
+        "startupSignalExit": True,
+        "startupSignalExitCode": startup_signal_exit,
     }, separators=(",", ":")))
 finally:
     if process.stdin and not process.stdin.closed:
