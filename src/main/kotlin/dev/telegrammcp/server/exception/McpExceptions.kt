@@ -82,6 +82,33 @@ class ConfirmationRequiredException(
 )
 
 /**
+ * A human declined a destructive operation, or the approval never arrived.
+ *
+ * Unlike [ConfirmationRequiredException] this is not something the caller can
+ * satisfy by adding an argument: the answer came from the person operating the
+ * MCP host, over a channel the model does not control.
+ */
+class ApprovalDeniedException(
+    toolName: String,
+    reason: String,
+) : McpException("Tool '$toolName' was not approved: $reason.")
+
+/**
+ * Approval is required but this client cannot ask anyone for it.
+ *
+ * Failing closed is the point: silently downgrading to the caller-asserted
+ * `confirmed: true` would give the operator an approval guarantee the session
+ * cannot actually provide.
+ */
+class ApprovalUnavailableException(
+    toolName: String,
+) : McpException(
+    "Tool '$toolName' requires human approval, but this MCP client did not advertise the " +
+        "elicitation capability, so the server has no way to ask. Connect a client that supports " +
+        "MCP elicitation, or set MCP_DESTRUCTIVE_APPROVAL=off to return to caller acknowledgement.",
+)
+
+/**
  * The anti-spam guard rejected the call (rate limit, daily cap, or duplicate).
  *
  * [retryAfterMs] is the earliest timestamp delta after which a retry might

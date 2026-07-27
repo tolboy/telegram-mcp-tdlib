@@ -34,7 +34,28 @@ data class ServerModeProperties(
          * Defaults are applied in [dev.telegrammcp.server.service.OperationGuardService].
          */
         val destructiveTools: List<String> = emptyList(),
+
+        /**
+         * How a destructive operation obtains human approval. [ApprovalMode.OFF]
+         * keeps the caller acknowledgement above as the only gate.
+         */
+        val approval: ApprovalMode = ApprovalMode.OFF,
     )
+
+    /**
+     * Where the answer to "may this destructive operation proceed?" comes from.
+     */
+    enum class ApprovalMode {
+        /** Only the caller-asserted `confirmed: true`. A model can set that itself. */
+        OFF,
+
+        /**
+         * Ask the person operating the MCP host, over the protocol's elicitation
+         * channel. The model neither sees nor writes the response, so it cannot
+         * approve on the human's behalf.
+         */
+        ELICITATION,
+    }
 
     data class FileSecurityProps(
         /**

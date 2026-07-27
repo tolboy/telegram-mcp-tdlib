@@ -20,8 +20,15 @@ and anti-spam checks still run when an advertised tool is invoked.
 
 `MCP_CONFIRMATION_REQUIRED=true` is a server-side caller-acknowledgement gate:
 destructive calls must include `"confirmed": true`. It does not prove that a
-human supplied that value. MCP hosts should show destructive calls to the user
-and obtain approval according to their own human-in-the-loop policy.
+human supplied that value — the flag is an argument of the call, so the model
+can set it on its own, including when a message it just read told it to.
+
+`MCP_DESTRUCTIVE_APPROVAL=elicitation` obtains the answer from a person
+instead. The server asks the MCP host before running a destructive tool and
+waits; the reply travels over the protocol, not through the model's turn. A
+client that has not advertised the elicitation capability cannot run those
+tools at all, because a silent fall back to the flag would promise an approval
+the session cannot deliver.
 
 For a custom surface, apply exact-name `MCP_TOOL_ALLOW` and `MCP_TOOL_DENY`
 filters. They run after the profile and before read-only filtering. Unknown

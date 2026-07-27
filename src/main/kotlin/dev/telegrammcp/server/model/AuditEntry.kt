@@ -64,4 +64,7 @@ enum class AuditOutcome {
     BLOCKED_CONFIRMATION,
     BLOCKED_GUARDRAIL,
     BLOCKED_ANTISPAM,
+
+    /** A human declined the operation, or approval could not be requested. */
+    BLOCKED_APPROVAL,
 }

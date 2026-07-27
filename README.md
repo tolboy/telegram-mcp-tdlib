@@ -53,19 +53,27 @@ scoop install https://github.com/tolboy/telegram-mcp-tdlib/releases/latest/downl
 telegram-mcp auth --method qr
 ```
 
-**3. Serve a small, read-only surface** over STDIO:
+**3. Check the session** is ready — this reads local state and starts no server:
 
 ```bash
-MCP_TOOL_PROFILE=inbox MCP_READ_ONLY=true telegram-mcp serve --transport stdio
+telegram-mcp session doctor
 ```
 
-Now point an AI client at it (below) and try a first prompt that cannot change anything:
+Do not run `serve --transport stdio` yourself to try it out. With STDIO your AI
+client starts the server and owns its lifetime; a copy you launched in a terminal
+holds the TDLib session, and the client's own copy then exits with code 2 because
+it cannot lock `td.binlog`. Give the command to the client instead (below) and let
+it do the starting.
+
+Then try a first prompt that cannot change anything:
 
 > “Summarize my last 20 conversations. Do not send or modify anything.”
 
 In this mode write and quota-consuming tools are absent from the tool list entirely, so the
 model has nothing destructive to call. Switch to `MCP_READ_ONLY=false` only after you have
-reviewed the surface; destructive actions still require confirmation by default.
+reviewed the surface. When you do, add `MCP_DESTRUCTIVE_APPROVAL=elicitation` so deletes,
+bans and leaves wait for your answer in the client rather than for the model's own
+`"confirmed": true`.
 
 ## Connect your client
 
@@ -408,6 +416,7 @@ Docker, mount the secret file into the container and set the container path.
 | `MCP_TOOL_DENY`            | No       | —               | Exact comma-separated names to hide after the allow-list |
 | `MCP_TRANSPORT`            | No       | `streamable-http` | `streamable-http` or `stdio`; CLI `--transport` wins |
 | `MCP_CONFIRMATION_REQUIRED`| No       | `true`          | Require caller acknowledgement (`"confirmed": true`) for destructive tools; not proof of human approval |
+| `MCP_DESTRUCTIVE_APPROVAL`| No       | `off`           | `elicitation` asks the human through the MCP host before each destructive tool and refuses clients that cannot ask |
 | `MCP_FILE_ROOTS`           | No       | (deny all)      | Allowed root dirs for file operations    |
 | `MCP_AUDIT_ENABLED`        | No       | `true`          | Enable audit logging                     |
 | `MCP_AUDIT_LOG_ARGS`       | No       | `false`         | Include tool arguments in audit logs     |
@@ -523,7 +532,9 @@ If you use a multi-connector router, prefer explicit connector scoping per chat 
 
 ## Safety Model
 
-Telegram account credentials and TDLib session data are sensitive. Start with a test account where practical, bind the service to localhost, use a long random `MCP_API_KEY`, and keep `MCP_READ_ONLY=true` until you intentionally need writes. In read-only mode write and quota-consuming tools are absent from the MCP tool list; the execution guard remains as defense in depth. `MCP_CONFIRMATION_REQUIRED=true` adds a caller-acknowledgement step for destructive actions, but the server cannot prove that `"confirmed": true` came from a human. The MCP host must provide any required human-in-the-loop approval UX.
+Telegram account credentials and TDLib session data are sensitive. Start with a test account where practical, bind the service to localhost, use a long random `MCP_API_KEY`, and keep `MCP_READ_ONLY=true` until you intentionally need writes. In read-only mode write and quota-consuming tools are absent from the MCP tool list; the execution guard remains as defense in depth. `MCP_CONFIRMATION_REQUIRED=true` adds a caller-acknowledgement step for destructive actions, but the server cannot prove that `"confirmed": true` came from a human: that flag travels inside the tool call, so a model acting on a malicious message can set it itself.
+
+`MCP_DESTRUCTIVE_APPROVAL=elicitation` closes that gap where the client supports it. Before each destructive tool the server asks the MCP host, the host asks you, and the answer returns over the protocol rather than through the model's turn — so an injected instruction can make the model *request* a ban, but not approve one. The check runs before any Telegram call, and a client that does not advertise the elicitation capability is refused rather than downgraded to the flag. This is the setting to enable on an account you care about.
 
 An empty `TELEGRAM_ALLOWED_CHAT_IDS` grants the connector visibility across the
 whole selected Telegram account. Remote or model-facing deployments should set

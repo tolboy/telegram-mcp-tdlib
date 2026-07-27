@@ -6,6 +6,7 @@ import dev.telegrammcp.server.exception.ReadOnlyModeException
 import dev.telegrammcp.server.model.AuditOutcome
 import dev.telegrammcp.server.security.AccountAccessPolicy
 import dev.telegrammcp.server.service.AuditService
+import dev.telegrammcp.server.service.DestructiveApprovalService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.service.ToolSurfacePolicy
 import dev.telegrammcp.server.tool.AccountAgnosticMcpToolHandler
@@ -43,6 +44,7 @@ class McpConfig {
         serverMode: ServerModeProperties,
         toolSurfacePolicy: ToolSurfacePolicy,
         auditService: AuditService,
+        approvalService: DestructiveApprovalService,
     ): List<SyncToolSpecification> {
         val definitions = handlers.map { handler -> handler to handler.definition() }
         val duplicateNames = definitions
@@ -83,6 +85,7 @@ class McpConfig {
 
                     handler is AccountAgnosticMcpToolHandler ->
                         auditService.executeWithFallbackAudit(tool.name(), arguments) {
+                            approvalService.requireApproval(exchange, tool.name(), arguments)
                             handler.execute(exchange, arguments)
                         }
 
@@ -104,6 +107,11 @@ class McpConfig {
                         }
                         accountContext.withAccount(account) {
                             auditService.executeWithFallbackAudit(tool.name(), routedArguments) {
+                                // Ahead of the handler, so no Telegram call can
+                                // precede the operator's answer. Central rather
+                                // than per-tool: a new destructive tool inherits
+                                // the gate instead of having to remember it.
+                                approvalService.requireApproval(exchange, tool.name(), routedArguments)
                                 handler.execute(exchange, routedArguments)
                             }
                         }
@@ -114,6 +122,12 @@ class McpConfig {
             if (!serverMode.readOnly && toolSurfacePolicy.profile == McpToolProfile.ALL) {
                 log.warn(
                     "FULL WRITE SURFACE ENABLED: MCP_TOOL_PROFILE=all with MCP_READ_ONLY=false exposes every registered Telegram operation",
+                )
+            }
+            if (approvalService.isEnabled()) {
+                log.info(
+                    "Destructive operations require human approval via MCP elicitation; " +
+                        "clients without that capability cannot run them",
                 )
             }
             log.info(

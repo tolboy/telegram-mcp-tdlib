@@ -5,6 +5,8 @@ import dev.telegrammcp.server.client.TelegramAccountContext
 import dev.telegrammcp.server.client.TelegramAccountRegistry
 import dev.telegrammcp.server.security.AccountAccessPolicy
 import dev.telegrammcp.server.service.AuditService
+import dev.telegrammcp.server.service.OperationGuardService
+import dev.telegrammcp.server.service.DestructiveApprovalService
 import dev.telegrammcp.server.service.ToolSurfacePolicy
 import dev.telegrammcp.server.tool.AccountAgnosticMcpToolHandler
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
@@ -42,6 +44,7 @@ class McpConfigReadOnlyTest {
             serverMode = ServerModeProperties(readOnly = true),
             toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.ALL)),
             auditService = auditService(),
+            approvalService = approvalService(),
         )
 
         assertEquals(listOf("get_history"), specifications.map { it.tool().name() })
@@ -58,6 +61,7 @@ class McpConfigReadOnlyTest {
             serverMode = ServerModeProperties(readOnly = false),
             toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.ALL)),
             auditService = auditService(),
+            approvalService = approvalService(),
         )
 
         assertEquals(listOf("get_history", "send_message"), specifications.map { it.tool().name() })
@@ -82,6 +86,7 @@ class McpConfigReadOnlyTest {
             serverMode = ServerModeProperties(readOnly = false),
             toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.INBOX)),
             auditService = auditService(),
+            approvalService = approvalService(),
         )
 
         assertEquals(
@@ -113,6 +118,7 @@ class McpConfigReadOnlyTest {
             serverMode = ServerModeProperties(readOnly = false),
             toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.ALL)),
             auditService = auditService(),
+            approvalService = approvalService(),
         ).associateBy { it.tool().name() }
 
         val readAnnotations = specifications.getValue("get_history").tool().annotations()
@@ -149,6 +155,7 @@ class McpConfigReadOnlyTest {
             serverMode = ServerModeProperties(readOnly = true),
             toolSurfacePolicy = brokenSurfacePolicy,
             auditService = auditService(),
+            approvalService = approvalService(),
         ).single()
 
         val result = specification.callHandler().apply(
@@ -174,8 +181,15 @@ class McpConfigReadOnlyTest {
                 serverMode = ServerModeProperties(),
                 toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.ALL)),
                 auditService = auditService(),
+            approvalService = approvalService(),
             )
         }
+    }
+
+    /** Approval defaults to off, so these cases exercise the other guards unchanged. */
+    private fun approvalService(): DestructiveApprovalService {
+        val props = ServerModeProperties()
+        return DestructiveApprovalService(props, OperationGuardService(props, mockk(relaxed = true)))
     }
 
     private fun auditService(): AuditService = AuditService(

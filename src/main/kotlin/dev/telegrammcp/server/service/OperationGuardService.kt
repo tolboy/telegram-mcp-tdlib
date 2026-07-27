@@ -191,6 +191,16 @@ class OperationGuardService(
     fun requiresConfirmation(toolName: String): Boolean =
         props.confirmation.enabled && toolName in destructiveTools
 
+    /**
+     * Whether the tool is classified as destructive, regardless of which gates
+     * are switched on.
+     *
+     * Human approval keys off this rather than [requiresConfirmation]: the two
+     * are configured independently, and reusing that predicate would silently
+     * stop asking anyone the moment caller acknowledgement was turned off.
+     */
+    fun isDestructiveTool(toolName: String): Boolean = toolName in destructiveTools
+
     private fun getDestructiveDescription(toolName: String): String {
         return when (toolName) {
             "delete_message" -> "This will permanently delete a message"

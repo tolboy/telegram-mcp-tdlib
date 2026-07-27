@@ -25,6 +25,15 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ### Added
 
+- `MCP_DESTRUCTIVE_APPROVAL=elicitation` gates destructive tools behind a human
+  answer obtained through the MCP host, over a channel the model cannot write
+  to. `confirmed: true` travels inside the tool call, so a prompt-injected model
+  can set it unprompted; an elicited answer comes back from the person instead.
+  The gate runs at the shared dispatch, ahead of the handler, so no Telegram
+  call precedes the decision and a destructive tool added later inherits it.
+  Clients that do not advertise the elicitation capability are refused rather
+  than silently downgraded to the caller-asserted flag. Default is `off`, which
+  keeps the previous behavior exactly.
 - `MCP_AUDIT_FILE` optionally appends forced JSONL records to a persistent local
   audit trail. Arguments remain absent unless explicitly enabled and recognized
   credential fields are then redacted. Dispatch-level fallback auditing and

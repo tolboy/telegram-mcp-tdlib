@@ -5,6 +5,8 @@ import dev.telegrammcp.server.client.TelegramAccountContext
 import dev.telegrammcp.server.config.ServerModeProperties
 import dev.telegrammcp.server.exception.AccountAccessDeniedException
 import dev.telegrammcp.server.exception.AntiSpamException
+import dev.telegrammcp.server.exception.ApprovalDeniedException
+import dev.telegrammcp.server.exception.ApprovalUnavailableException
 import dev.telegrammcp.server.exception.ChatNotAllowedException
 import dev.telegrammcp.server.exception.ConfirmationRequiredException
 import dev.telegrammcp.server.exception.FileSecurityException
@@ -228,6 +230,9 @@ class AuditService(
         internal fun outcomeFor(error: Exception): AuditOutcome = when (error) {
             is ReadOnlyModeException -> AuditOutcome.BLOCKED_READONLY
             is ConfirmationRequiredException -> AuditOutcome.BLOCKED_CONFIRMATION
+            is ApprovalDeniedException,
+            is ApprovalUnavailableException,
+            -> AuditOutcome.BLOCKED_APPROVAL
             is AntiSpamException -> AuditOutcome.BLOCKED_ANTISPAM
             is GuardrailViolationException,
             is AccountAccessDeniedException,
@@ -300,6 +305,7 @@ class AuditService(
             )
             AuditOutcome.BLOCKED_READONLY,
             AuditOutcome.BLOCKED_CONFIRMATION,
+            AuditOutcome.BLOCKED_APPROVAL,
             AuditOutcome.BLOCKED_GUARDRAIL,
             AuditOutcome.BLOCKED_ANTISPAM,
             -> log.warn(
@@ -420,6 +426,7 @@ class AuditService(
                 AuditOutcome.ERROR -> "Tool execution failed; see application logs"
                 AuditOutcome.BLOCKED_READONLY -> "Blocked by read-only policy"
                 AuditOutcome.BLOCKED_CONFIRMATION -> "Blocked by caller-acknowledgement policy"
+                AuditOutcome.BLOCKED_APPROVAL -> "Blocked by human-approval policy"
                 AuditOutcome.BLOCKED_GUARDRAIL -> "Blocked by guardrail policy"
                 AuditOutcome.BLOCKED_ANTISPAM -> "Blocked by anti-spam policy"
                 AuditOutcome.SUCCESS -> null

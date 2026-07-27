@@ -9,6 +9,8 @@ import dev.telegrammcp.server.model.AuditOutcome
 import dev.telegrammcp.server.security.AccountAccessPolicy
 import dev.telegrammcp.server.security.ApiKeyAuthToken
 import dev.telegrammcp.server.service.AuditService
+import dev.telegrammcp.server.service.OperationGuardService
+import dev.telegrammcp.server.service.DestructiveApprovalService
 import dev.telegrammcp.server.service.ToolSurfacePolicy
 import dev.telegrammcp.server.tool.McpToolHandler
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
@@ -54,6 +56,7 @@ class McpConfigMultiAccountTest {
                     meterRegistry = SimpleMeterRegistry(),
                     objectMapper = jacksonObjectMapper().findAndRegisterModules(),
                 ),
+                approvalService(),
             )
             .single()
 
@@ -101,6 +104,7 @@ class McpConfigMultiAccountTest {
             serverMode = ServerModeProperties(),
             toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.ALL)),
             auditService = audit,
+            approvalService = approvalService(),
         ).single()
 
         assertFailsWith<AccountAccessDeniedException> {
@@ -143,6 +147,7 @@ class McpConfigMultiAccountTest {
             serverMode = ServerModeProperties(),
             toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.ALL)),
             auditService = audit,
+            approvalService = approvalService(),
         ).single()
 
         specification.callHandler().apply(
@@ -155,6 +160,12 @@ class McpConfigMultiAccountTest {
         )
 
         assertEquals("work", audit.getRecentEntries().single().account)
+    }
+
+    /** Approval defaults to off, so these cases exercise account routing unchanged. */
+    private fun approvalService(): DestructiveApprovalService {
+        val props = ServerModeProperties()
+        return DestructiveApprovalService(props, OperationGuardService(props, mockk(relaxed = true)))
     }
 
     private class RecordingHandler : McpToolHandler {
