@@ -34,6 +34,10 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   Clients that do not advertise the elicitation capability are refused rather
   than silently downgraded to the caller-asserted flag. Default is `off`, which
   keeps the previous behavior exactly.
+- `telegram-mcp config` prints a ready-to-paste client entry. It emits the key
+  the target client actually reads — VS Code names it `servers`, and an
+  `mcpServers` block there is ignored in a way that looks like a broken server —
+  and `--docker default` pins the running version rather than a floating tag.
 - `MCP_AUDIT_FILE` optionally appends forced JSONL records to a persistent local
   audit trail. Arguments remain absent unless explicitly enabled and recognized
   credential fields are then redacted. Dispatch-level fallback auditing and

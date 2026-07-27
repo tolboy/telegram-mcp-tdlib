@@ -42,6 +42,10 @@ object TelegramMcpCli {
                 runAuthWizard(args.drop(1))
                 true
             }
+            "config" -> {
+                printClientConfig(args.drop(1))
+                true
+            }
             "version", "--version", "-V" -> {
                 println(version())
                 true
@@ -94,6 +98,39 @@ object TelegramMcpCli {
             transport = normalizeTransport(parsed.value ?: environmentTransport ?: "streamable-http"),
             remaining = parsed.remaining,
         )
+    }
+
+    internal fun resolveConfigOptions(arguments: List<String>): ClientConfigPrinter.Options {
+        val clientOption = extractOption(arguments, "--client")
+        val profileOption = extractOption(clientOption.remaining, "--profile")
+        val apiIdOption = extractOption(profileOption.remaining, "--api-id")
+        val dockerOption = extractOption(apiIdOption.remaining, "--docker")
+        val writes = "--writes" in dockerOption.remaining
+        val remaining = dockerOption.remaining.filterNot { it == "--writes" }
+        require(remaining.isEmpty()) { "Unknown config argument(s): ${remaining.joinToString(" ")}" }
+
+        val profile = profileOption.value ?: "reader"
+        require(profile in VALID_PROFILES) {
+            "--profile must be one of ${VALID_PROFILES.joinToString("|")}"
+        }
+        return ClientConfigPrinter.Options(
+            client = clientOption.value?.let(ClientConfigPrinter.Client::parse) ?: ClientConfigPrinter.Client.CLAUDE,
+            profile = profile,
+            readOnly = !writes,
+            apiId = apiIdOption.value ?: "123456",
+            // A generated config pins the version it was generated from, so the
+            // tag never floats to whatever the machine happened to cache.
+            docker = dockerOption.value?.let { image ->
+                if (image == "default") "ghcr.io/tolboy/telegram-mcp-tdlib:${version()}-stdio" else image
+            },
+        )
+    }
+
+    private fun printClientConfig(arguments: List<String>) {
+        val options = resolveConfigOptions(arguments)
+        println(ClientConfigPrinter.render(options))
+        println()
+        ClientConfigPrinter.notes(options).forEach { note -> println("# $note") }
     }
 
     private fun runAuthWizard(arguments: List<String>) {
@@ -318,11 +355,16 @@ object TelegramMcpCli {
         println("Usage:")
         println("  telegram-mcp serve [--transport streamable-http|stdio] [Spring options]")
         println("  telegram-mcp auth [--account <label>] [--method qr|phone] [--no-browser]")
+        println("  telegram-mcp config [--client claude|cursor|vscode] [--profile <name>] [--writes]")
+        println("                      [--api-id <id>] [--docker default|<image>]")
         println("  telegram-mcp session <doctor|logout|clear> [options]")
         println("  telegram-mcp version")
         println()
         println("Running without a command preserves the legacy Streamable HTTP startup.")
     }
+
+    /** Profile names accepted by `MCP_TOOL_PROFILE`, rejected here rather than at startup. */
+    private val VALID_PROFILES = setOf("all", "reader", "inbox", "community-admin", "research")
 
     internal data class ServerInvocation(
         val transport: Transport,

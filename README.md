@@ -77,7 +77,18 @@ bans and leaves wait for your answer in the client rather than for the model's o
 
 ## Connect your client
 
-STDIO is the low-friction path for desktop clients. Minimal entry:
+Generate the entry instead of transcribing one — it fills in the key your client
+actually expects and pins the version it was generated from:
+
+```bash
+telegram-mcp config --client claude
+```
+
+`--client cursor|vscode` switches target, `--writes` enables write tools and the
+approval prompt that guards the destructive ones, and `--docker default` emits a
+container entry with a pinned image instead of a local binary.
+
+STDIO is the low-friction path for desktop clients. The generated entry looks like:
 
 ```json
 {
