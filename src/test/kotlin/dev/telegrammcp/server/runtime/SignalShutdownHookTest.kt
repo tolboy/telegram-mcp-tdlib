@@ -7,6 +7,7 @@ import io.mockk.mockk
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -23,7 +24,9 @@ class SignalShutdownHookTest {
      * it would halt the test JVM when the suite ends.
      */
     private fun withInstalledHook(shutdown: ServerShutdown, body: (Thread) -> Unit) {
-        val hook = installSignalShutdownHook(shutdown)
+        val hook = requireNotNull(installSignalShutdownHook(shutdown)) {
+            "the test JVM is not shutting down, so a hook must have been registered"
+        }
         try {
             body(hook)
         } finally {
@@ -53,6 +56,33 @@ class SignalShutdownHookTest {
 
         assertTrue(halted.await(5, TimeUnit.SECONDS), "a signal must end in a halt")
         assertEquals(0, synchronized(codes) { codes.first() }, "a signal is a clean exit")
+        io.mockk.verify { context.close() }
+    }
+
+    /**
+     * Startup loads TDLib's native libraries, so it is slow enough for a signal
+     * to land before the hook is registered. The JVM then refuses the hook, and
+     * shipping 1.11.0 showed what that costs: an IllegalStateException out of
+     * main, Spring's unbounded hook left to close TDLib alone, and the
+     * supervisor escalating to SIGKILL after its full grace period.
+     */
+    @Test
+    fun `a signal during startup still gets a bounded shutdown`() {
+        val halted = CountDownLatch(1)
+        val context = mockk<ConfigurableApplicationContext>(relaxed = true)
+        val shutdown = ServerShutdown(
+            graceMillis = 500,
+            halt = { halted.countDown() },
+            stderr = {},
+        )
+        shutdown.attach(context)
+
+        val hook = installSignalShutdownHook(shutdown) {
+            throw IllegalStateException("Shutdown in progress")
+        }
+
+        assertNull(hook, "no hook can be registered once the JVM is shutting down")
+        assertTrue(halted.await(5, TimeUnit.SECONDS), "the deadline must still apply")
         io.mockk.verify { context.close() }
     }
 

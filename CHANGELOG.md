@@ -3,6 +3,19 @@
 Notable changes to Telegram MCP Server are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.11.1 - 2026-07-27
+
+### Fixed
+
+- A termination signal that arrived while the server was still starting left the
+  process with no bounded exit. Hook registration happens after startup so a
+  failed startup keeps its own exit code, but startup loads TDLib's native
+  libraries and is not instant, so the signal could land first — and the JVM then
+  refuses a new shutdown hook. 1.11.0 threw `IllegalStateException: Shutdown in
+  progress` out of `main` and left Spring's deadline-free hook to close TDLib
+  alone, so `docker stop` ran out its full grace period and escalated to SIGKILL.
+  That case now requests the bounded shutdown directly.
+
 ## 1.11.0 - 2026-07-26
 
 ### Security
