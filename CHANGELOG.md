@@ -18,11 +18,6 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   second client needs. Claude Desktop is already that case on its own: it starts
   a separate server for Cowork from the same configuration, so one STDIO entry
   there produces two processes competing for a session that admits one.
-
-## 1.12.0 - 2026-07-28
-
-### Added
-
 - `MCP_DESTRUCTIVE_APPROVAL` gains `loopback` and `auto`. Elicitation is the
   tidier route but depends on the client implementing it, and the major host
   does not: Claude Desktop advertises `elicitation=null`, so the `elicitation`
