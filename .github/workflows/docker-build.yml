@@ -312,7 +312,7 @@ jobs:
       - name: Verify the published stdio image
         shell: bash
         run: |
-          ./scripts/verify-published-image.sh \
+          bash ./scripts/verify-published-image.sh \
             --image "${REGISTRY}/${GITHUB_REPOSITORY_OWNER}/${IMAGE_NAME}:${{ steps.version.outputs.version }}-stdio" \
             --expect-version '${{ steps.version.outputs.version }}'
 
