@@ -17,6 +17,10 @@ clients or **Streamable HTTP** at `/mcp` for managed deployments.
 - **Safe by default** — boots in read-only mode with a small `inbox`/`reader` profile;
   write and quota-consuming tools are *hidden from the model*, not merely blocked, until you
   turn them on.
+- **Human approval that does not depend on your client** — destructive tools ask a person
+  first: through the MCP host where elicitation exists, otherwise on a single-use loopback
+  page this server hosts. Either way the question leaves and the answer returns outside the
+  model's turn, so an injected instruction can make the model *request* a ban, not approve one.
 - **Real user accounts, not just bots** — built on **TDLib** (via tdlight-java), so an agent
   can read and act on your actual account, not only a Bot API subset.
 - **Isolated multi-account** — each account gets its own session, mandatory selection, and
@@ -193,8 +197,9 @@ See [TOOL_PROFILES.md](docs/TOOL_PROFILES.md) for the exact intent of each surfa
 - **TDLib via tdlight-java** — real user accounts, not just the Bot API.
 - **Isolated multi-account mode** — independent sessions, mandatory account selection, and
   optional per-key account scopes with no cross-account read fan-out.
-- **Safe by default** — read-only tool surface, confirmation mode for destructive actions,
-  and task-focused profiles (`reader`/`inbox`/`community-admin`/`research`/`all`).
+- **Safe by default** — read-only tool surface, human approval for destructive actions
+  (`MCP_DESTRUCTIVE_APPROVAL`, over the host or a loopback page), and task-focused profiles
+  (`reader`/`inbox`/`community-admin`/`research`/`all`).
 - **Two transports** — STDIO for desktop clients and Streamable HTTP `/mcp`
   (Spring AI 2.0 / MCP SDK 2.0), with API-key auth.
 - **Guardrails** — audit logging, anti-spam via Resilience4j rate limiter (30 req/s) and
@@ -328,9 +333,9 @@ The comparison with the leading public Telegram MCP servers and the prioritized 
 
 ## Releases
 
-CI runs on every pull request and push to `master`. A signed-off release is a Git tag in the `vX.Y.Z` form; the release workflow builds and publishes the corresponding GHCR image tags (`latest`, `X.Y.Z`, `X.Y`, and immutable `sha-<commit>`), plus checked release bundles for Windows x64, Linux x64/ARM64, and macOS ARM64. Public releases include an SPDX SBOM for the runnable JAR, GitHub provenance attestations for release assets, and a keyless Sigstore signature plus provenance for the container digest. See [release-bundle verification](docs/RELEASE_BUNDLES.md#supply-chain-verification).
+CI runs on every pull request and push to `master`. A signed-off release is a Git tag in the `vX.Y.Z` form; the release workflow builds the images, runs the cross-platform tool-surface smoke and the container lifecycle contract **against the pushed digest**, attests and signs it, and only then moves the public tags (`latest`, `X.Y.Z`, `X.Y`, immutable `sha-<commit>`, and the `-stdio` variants) onto that exact digest — verifying afterwards that each tag resolves to it. Release bundles for Windows x64, Linux x64/ARM64, and macOS ARM64 ship alongside. Public releases include an SPDX SBOM for the runnable JAR, GitHub provenance attestations for release assets, and a keyless Sigstore signature plus provenance for the container digest. See [release-bundle verification](docs/RELEASE_BUNDLES.md#supply-chain-verification).
 
-Use a concrete semver tag for reproducible deployments. `v1.0.0` is the first Streamable HTTP / MCP SDK 2.0 public baseline; `v1.1.0` adds account isolation, scoped keys, and cross-platform native packaging; `v1.2.0` adds premium voice-note transcription and the neutral package namespace; `v1.3.0` adds privacy, bot-command, detailed group-permission controls, and verified release bundles; `v1.4.0` adds focused MCP tool profiles; `v1.7.x` adds the STDIO transport, CLI with an interactive auth wizard, structured tool output, optional OAuth resource-server mode, and runtime-inclusive release images. The complete history is in [CHANGELOG.md](CHANGELOG.md).
+Use a concrete semver tag for reproducible deployments. `v1.0.0` is the first Streamable HTTP / MCP SDK 2.0 public baseline; `v1.1.0` adds account isolation, scoped keys, and cross-platform native packaging; `v1.2.0` adds premium voice-note transcription and the neutral package namespace; `v1.3.0` adds privacy, bot-command, detailed group-permission controls, and verified release bundles; `v1.4.0` adds focused MCP tool profiles; `v1.7.x` adds the STDIO transport, CLI with an interactive auth wizard, structured tool output, optional OAuth resource-server mode, and runtime-inclusive release images; `v1.13.0` adds human approval for destructive tools over the host or a loopback page, and `telegram-mcp config` to generate client entries; `v1.14.0` ties every published image tag to the digest that passed verification and signing. The complete history is in [CHANGELOG.md](CHANGELOG.md).
 
 > The current TDLight native release publishes an Apple-silicon macOS binary but not an Intel macOS classifier. The server supports Intel macOS at the JVM/path level, but TDLib-backed Telegram access on that platform requires an upstream native package before it can run.
 
