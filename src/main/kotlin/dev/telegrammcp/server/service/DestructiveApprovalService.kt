@@ -1,12 +1,15 @@
 package dev.telegrammcp.server.service
 
 import dev.telegrammcp.server.config.ServerModeProperties
+import dev.telegrammcp.server.config.ServerModeProperties.ApprovalMode
 import dev.telegrammcp.server.exception.ApprovalDeniedException
 import dev.telegrammcp.server.exception.ApprovalUnavailableException
 import dev.telegrammcp.server.util.StructuredLogger
 import io.modelcontextprotocol.server.McpSyncServerExchange
 import io.modelcontextprotocol.spec.McpSchema
+import jakarta.annotation.PreDestroy
 import org.springframework.stereotype.Service
+import java.util.Collections
 
 /**
  * Obtains human approval for a destructive operation before it runs.
@@ -16,21 +19,67 @@ import org.springframework.stereotype.Service
  * just read told it to. That makes it defense in depth, never evidence that a
  * person agreed.
  *
- * Elicitation closes that gap because it inverts the direction. The server asks
- * the host, the host asks the person, and the answer returns over the protocol
- * rather than through the model's turn. A prompt-injection payload can make the
- * model *request* a ban; it cannot make the human accept one.
+ * Real approval inverts the direction. The question goes out over a channel the
+ * model does not write to and the answer comes back the same way, so a
+ * prompt-injection payload can make the model *request* a ban but cannot accept
+ * one. Two channels do that: the client's own elicitation prompt, and a loopback
+ * page this server hosts. The second exists because the first is not widely
+ * implemented — Claude Desktop advertises no elicitation capability — and an
+ * approval guarantee that only works on some clients is not one worth relying on.
  */
 @Service
 class DestructiveApprovalService(
     private val props: ServerModeProperties,
     private val operationGuardService: OperationGuardService,
+    private val loopbackServer: LoopbackApprovalServer =
+        LoopbackApprovalServer(props.confirmation.approvalTimeout),
 ) {
 
     private val log = StructuredLogger.forClass<DestructiveApprovalService>()
 
+    /** Sessions already told that their client cannot render an elicitation prompt. */
+    private val warnedSessions: MutableSet<String> = Collections.synchronizedSet(mutableSetOf())
+
     /** True when any tool call could be gated, so callers can skip the work entirely. */
-    fun isEnabled(): Boolean = props.confirmation.approval != ServerModeProperties.ApprovalMode.OFF
+    fun isEnabled(): Boolean = props.confirmation.approval != ApprovalMode.OFF
+
+    /**
+     * Where the operator should expect the question, for the startup log.
+     *
+     * Naming the wrong route is worse than naming none: an operator who is told
+     * to watch a host prompt that never appears will read the resulting refusals
+     * as a Telegram fault.
+     */
+    fun describeApprovalRoute(): String = when (props.confirmation.approval) {
+        ApprovalMode.OFF -> "no approval is requested"
+        ApprovalMode.ELICITATION ->
+            "asked through the MCP host; clients without the elicitation capability cannot run them"
+        ApprovalMode.LOOPBACK ->
+            "asked on a loopback page, with the link written to stderr"
+        ApprovalMode.AUTO ->
+            "asked through the MCP host when it supports elicitation, otherwise on a loopback page " +
+                "whose link is written to stderr"
+    }
+
+    /**
+     * Reports a client that cannot answer an elicitation prompt, once per session.
+     *
+     * Without this the operator learns of the mismatch from a failed `ban_user`,
+     * which is both late and easy to misread as a Telegram error rather than a
+     * configuration one.
+     */
+    fun warnIfClientCannotApprove(exchange: McpSyncServerExchange?) {
+        if (props.confirmation.approval != ApprovalMode.ELICITATION) return
+        if (exchange == null || supportsElicitation(exchange)) return
+        val session = runCatching { exchange.sessionId() }.getOrNull() ?: return
+        if (!warnedSessions.add(session)) return
+        log.warn(
+            "Client '{}' did not advertise the elicitation capability, so destructive tools cannot be " +
+                "approved and will be refused. Set MCP_DESTRUCTIVE_APPROVAL=auto to ask over a loopback " +
+                "page instead.",
+            runCatching { exchange.clientInfo?.name() }.getOrNull() ?: "unknown",
+        )
+    }
 
     /**
      * Blocks until the operator answers, and returns normally only on approval.
@@ -46,23 +95,43 @@ class DestructiveApprovalService(
         if (!isEnabled()) return
         if (!operationGuardService.isDestructiveTool(toolName)) return
 
-        // No exchange and no advertised capability are the same situation: this
-        // session has no channel to a human. Fail rather than fall back to the
-        // acknowledgement this mode exists to replace.
-        if (exchange?.clientCapabilities?.elicitation() == null) {
+        val description = describe(arguments)
+        when (props.confirmation.approval) {
+            ApprovalMode.OFF -> return
+            ApprovalMode.ELICITATION -> requireElicitation(exchange, toolName, description)
+            ApprovalMode.LOOPBACK -> requireLoopback(toolName, description)
+            ApprovalMode.AUTO ->
+                if (exchange != null && supportsElicitation(exchange)) {
+                    requireElicitation(exchange, toolName, description)
+                } else {
+                    requireLoopback(toolName, description)
+                }
+        }
+        log.info("Destructive tool '{}' approved by the operator", toolName)
+    }
+
+    private fun requireElicitation(
+        exchange: McpSyncServerExchange?,
+        toolName: String,
+        description: String,
+    ) {
+        if (exchange == null || !supportsElicitation(exchange)) {
             log.warn("Destructive tool '{}' blocked — client cannot be asked for approval", toolName)
             throw ApprovalUnavailableException(toolName)
         }
 
         val result = try {
             exchange.createElicitation(
-                McpSchema.ElicitRequest.builder(
-                    approvalPrompt(toolName, arguments),
+                // The record constructor rather than the builder: both builder
+                // overloads are deprecated in this SDK version.
+                McpSchema.ElicitFormRequest(
+                    approvalPrompt(toolName, description),
                     // No fields to fill in: the accept/decline action is the
                     // entire answer, and an empty schema keeps hosts from
                     // rendering a form where a yes/no belongs.
                     mapOf("type" to "object", "properties" to emptyMap<String, Any>()),
-                ).build(),
+                    emptyMap(),
+                ),
             )
         } catch (error: Exception) {
             // A transport failure, a timeout, or a host that advertised the
@@ -73,8 +142,7 @@ class DestructiveApprovalService(
         }
 
         when (result.action()) {
-            McpSchema.ElicitResult.Action.ACCEPT ->
-                log.info("Destructive tool '{}' approved by the operator", toolName)
+            McpSchema.ElicitResult.Action.ACCEPT -> Unit
             McpSchema.ElicitResult.Action.DECLINE ->
                 throw ApprovalDeniedException(toolName, "the operator declined")
             McpSchema.ElicitResult.Action.CANCEL ->
@@ -84,27 +152,46 @@ class DestructiveApprovalService(
         }
     }
 
-    /**
-     * Describes the operation in the terms the person will be deciding about.
-     *
-     * The prompt names the target rather than only the tool: "ban_user" is not
-     * something an operator can weigh, but a user id in a specific chat is.
-     */
-    private fun approvalPrompt(toolName: String, arguments: Map<String, Any>): String {
-        val target = TARGET_ARGUMENTS
-            .mapNotNull { key -> arguments[key]?.toString()?.trim()?.takeIf(String::isNotEmpty)?.let { key to it } }
-            .joinToString(", ") { (key, value) -> "$key=$value" }
-        val subject = if (target.isEmpty()) toolName else "$toolName ($target)"
-        return "Approve destructive Telegram operation: $subject. " +
+    private fun requireLoopback(toolName: String, description: String) {
+        if (!loopbackServer.requestApproval(toolName, description)) {
+            throw ApprovalDeniedException(
+                toolName,
+                "the operator did not approve it within ${props.confirmation.approvalTimeout.toSeconds()}s",
+            )
+        }
+    }
+
+    private fun supportsElicitation(exchange: McpSyncServerExchange): Boolean =
+        runCatching { exchange.clientCapabilities?.elicitation() != null }.getOrDefault(false)
+
+    private fun approvalPrompt(toolName: String, description: String): String =
+        "Approve destructive Telegram operation: $toolName ($description). " +
             "This was requested by an AI assistant and cannot be undone by this server."
+
+    /**
+     * Describes the target in the terms the person will be deciding about.
+     *
+     * A tool name alone is not something an operator can weigh; a user id in a
+     * specific chat is. Message text is deliberately absent: it can be
+     * attacker-controlled content arriving from the very chat that provoked the
+     * call, and it has no place in the dialog that decides whether to trust it.
+     */
+    private fun describe(arguments: Map<String, Any>): String {
+        val target = TARGET_ARGUMENTS
+            .mapNotNull { key ->
+                arguments[key]?.toString()?.trim()?.takeIf(String::isNotEmpty)?.let { "$key=$it" }
+            }
+            .joinToString(", ")
+        return target.ifEmpty { "no identifying arguments" }
+    }
+
+    @PreDestroy
+    fun shutdown() {
+        loopbackServer.close()
     }
 
     private companion object {
-        /**
-         * Arguments worth showing an operator, most identifying first. Message
-         * text is deliberately absent: it can be attacker-controlled content and
-         * has no place in the dialog that decides whether to trust the call.
-         */
+        /** Arguments worth showing an operator, most identifying first. */
         private val TARGET_ARGUMENTS = listOf("account", "chat_id", "user_id", "message_id", "link")
     }
 }

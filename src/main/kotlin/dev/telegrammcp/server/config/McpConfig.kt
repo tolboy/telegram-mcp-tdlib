@@ -70,6 +70,10 @@ class McpConfig {
             log.info("Registering MCP tool: {} — {}", tool.name(), tool.description())
             SyncToolSpecification(tool) { exchange, request ->
                 val arguments = request.arguments() ?: emptyMap()
+                // Once per session, and on any tool: an operator should learn
+                // that approval cannot be requested before a destructive call
+                // fails, not from the failure itself.
+                approvalService.warnIfClientCannotApprove(exchange)
                 when {
                     // Defense in depth: read-only mode already hides write
                     // tools at registration, but a client may replay a cached
@@ -126,8 +130,9 @@ class McpConfig {
             }
             if (approvalService.isEnabled()) {
                 log.info(
-                    "Destructive operations require human approval via MCP elicitation; " +
-                        "clients without that capability cannot run them",
+                    "Destructive operations require human approval ({} mode): {}",
+                    serverMode.confirmation.approval.name.lowercase(),
+                    approvalService.describeApprovalRoute(),
                 )
             }
             log.info(

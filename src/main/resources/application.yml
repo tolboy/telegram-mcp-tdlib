@@ -166,13 +166,18 @@ server-mode:
     enabled: ${MCP_CONFIRMATION_REQUIRED:true}
     # Override default destructive tool list (empty = use built-in defaults)
     destructive-tools: []
-    # Where approval for a destructive operation comes from.
+    # Where approval for a destructive operation comes from. Every mode except
+    # `off` gets the answer over a channel the model cannot write to.
     #   off         - only the caller-asserted "confirmed": true above
-    #   elicitation - ask the human through the MCP host and wait for the answer,
-    #                 over a channel the model cannot write to. Clients that do
-    #                 not advertise the elicitation capability are refused rather
-    #                 than quietly downgraded.
+    #   elicitation - ask through the MCP host. Clean where the client implements
+    #                 it; clients that do not advertise the capability are
+    #                 refused rather than quietly downgraded.
+    #   loopback    - ask on a page this server hosts on 127.0.0.1. Works with
+    #                 every client, including those without elicitation.
+    #   auto        - elicitation when the client offers it, loopback otherwise.
     approval: ${MCP_DESTRUCTIVE_APPROVAL:off}
+    # How long a person has to answer before the operation is refused.
+    approval-timeout: ${MCP_DESTRUCTIVE_APPROVAL_TIMEOUT:120s}
   file-security:
     # Allowed root directories for file operations (empty = deny all file ops)
     allowed-roots: ${MCP_FILE_ROOTS:}

@@ -3,7 +3,24 @@
 Notable changes to Telegram MCP Server are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 1.12.0 - 2026-07-28
+
+### Added
+
+- `MCP_DESTRUCTIVE_APPROVAL` gains `loopback` and `auto`. Elicitation is the
+  tidier route but depends on the client implementing it, and the major host
+  does not: Claude Desktop advertises `elicitation=null`, so the `elicitation`
+  mode shipped in 1.11.0 refuses every destructive tool there. `loopback` asks
+  on a page the server hosts on `127.0.0.1` — the link goes to stderr, where the
+  host shows server output to its operator, and the decision arrives on a
+  separate connection, so nothing passes through the model. `auto` uses
+  elicitation where the client offers it and loopback otherwise; that is not a
+  downgrade, since both answers come from a person over a channel the model
+  cannot write to. Links are single use, nonce-protected, loopback-only, and
+  expire into a refusal after `MCP_DESTRUCTIVE_APPROVAL_TIMEOUT` (120s default).
+- A client that cannot answer an elicitation prompt is now reported once per
+  session, rather than leaving the operator to infer it from a failed
+  `ban_user` that looks like a Telegram error.
 
 ### Changed
 

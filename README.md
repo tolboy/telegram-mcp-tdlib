@@ -427,7 +427,8 @@ Docker, mount the secret file into the container and set the container path.
 | `MCP_TOOL_DENY`            | No       | —               | Exact comma-separated names to hide after the allow-list |
 | `MCP_TRANSPORT`            | No       | `streamable-http` | `streamable-http` or `stdio`; CLI `--transport` wins |
 | `MCP_CONFIRMATION_REQUIRED`| No       | `true`          | Require caller acknowledgement (`"confirmed": true`) for destructive tools; not proof of human approval |
-| `MCP_DESTRUCTIVE_APPROVAL`| No       | `off`           | `elicitation` asks the human through the MCP host before each destructive tool and refuses clients that cannot ask |
+| `MCP_DESTRUCTIVE_APPROVAL`| No       | `off`           | `auto` asks a human before each destructive tool — through the MCP host where supported, otherwise on a loopback page. Also `elicitation`, `loopback` |
+| `MCP_DESTRUCTIVE_APPROVAL_TIMEOUT`| No | `120s`        | How long a person has to answer before the operation is refused |
 | `MCP_FILE_ROOTS`           | No       | (deny all)      | Allowed root dirs for file operations    |
 | `MCP_AUDIT_ENABLED`        | No       | `true`          | Enable audit logging                     |
 | `MCP_AUDIT_LOG_ARGS`       | No       | `false`         | Include tool arguments in audit logs     |
@@ -545,7 +546,9 @@ If you use a multi-connector router, prefer explicit connector scoping per chat 
 
 Telegram account credentials and TDLib session data are sensitive. Start with a test account where practical, bind the service to localhost, use a long random `MCP_API_KEY`, and keep `MCP_READ_ONLY=true` until you intentionally need writes. In read-only mode write and quota-consuming tools are absent from the MCP tool list; the execution guard remains as defense in depth. `MCP_CONFIRMATION_REQUIRED=true` adds a caller-acknowledgement step for destructive actions, but the server cannot prove that `"confirmed": true` came from a human: that flag travels inside the tool call, so a model acting on a malicious message can set it itself.
 
-`MCP_DESTRUCTIVE_APPROVAL=elicitation` closes that gap where the client supports it. Before each destructive tool the server asks the MCP host, the host asks you, and the answer returns over the protocol rather than through the model's turn — so an injected instruction can make the model *request* a ban, but not approve one. The check runs before any Telegram call, and a client that does not advertise the elicitation capability is refused rather than downgraded to the flag. This is the setting to enable on an account you care about.
+`MCP_DESTRUCTIVE_APPROVAL=auto` closes that gap. Before each destructive tool a person is asked, and the answer comes back over a channel the model does not write to — so an injected instruction can make the model *request* a ban, but not approve one. The check runs before any Telegram call.
+
+Where the question appears depends on the client. Hosts that implement MCP elicitation show their own prompt. Most do not — Claude Desktop advertises no elicitation capability — so `auto` falls back to a page this server hosts on `127.0.0.1`, announcing the link on stderr where your client shows server output. That is not a weaker answer: the link is single use, nonce-protected, reachable only from your machine, and expires into a refusal. Force one route with `elicitation` or `loopback` if you would rather fail than fall back. This is the setting to enable on an account you care about.
 
 An empty `TELEGRAM_ALLOWED_CHAT_IDS` grants the connector visibility across the
 whole selected Telegram account. Remote or model-facing deployments should set
