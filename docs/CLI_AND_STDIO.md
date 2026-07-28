@@ -82,7 +82,7 @@ Run the `-stdio` image variant and pin the version explicitly:
         "-e", "TDLIB_API_HASH",
         "-e", "MCP_READ_ONLY=true",
         "-e", "MCP_TOOL_PROFILE=reader",
-        "ghcr.io/tolboy/telegram-mcp-tdlib:1.13.0-stdio"
+        "ghcr.io/tolboy/telegram-mcp-tdlib:1.14.0-stdio"
       ]
     }
   }
@@ -103,7 +103,7 @@ Two details decide whether this stays working:
 Upgrade by editing the tag and pulling once:
 
 ```bash
-docker pull ghcr.io/tolboy/telegram-mcp-tdlib:1.13.0-stdio
+docker pull ghcr.io/tolboy/telegram-mcp-tdlib:1.14.0-stdio
 ```
 
 Before a release older than 1.10.0, a server whose client had gone away could
