@@ -11,16 +11,13 @@ package dev.telegrammcp.server.runtime
  * which kills TDLib mid-write instead of letting it flush.
  *
  * [ServerShutdown] already bounds exactly this — a graceful close under a hard
- * deadline, then a halt — so a signal only needs to reach it. Both hooks run
- * concurrently and both close the same context; that close is idempotent, and
- * whichever finishes first releases the other.
+ * deadline, then a halt — so a signal only needs to reach it. The hook remains
+ * alive until that halt path is reached because the shutdown workers are
+ * daemon threads and the JVM does not otherwise wait for them.
  *
- * Registration deliberately happens after startup succeeds, so a failed startup
- * keeps its own exit code instead of this hook's clean one. That leaves a window
- * in which the signal arrives first — startup includes loading TDLib's native
- * libraries and is not instant — and the JVM then refuses a new hook because it
- * is already shutting down. That case still needs the deadline, so it requests
- * the shutdown directly rather than letting Spring's unbounded hook run alone.
+ * Registration happens before Spring startup so a signal received during a
+ * blocked initializer is still bounded. Callers remove the hook if startup
+ * fails normally, preserving the original startup exit code.
  *
  * Returns the registered hook, or null when the JVM was already shutting down.
  * A shutdown hook is not a live thread until the JVM starts it, so it cannot be
@@ -28,6 +25,20 @@ package dev.telegrammcp.server.runtime
  */
 fun installSignalShutdownHook(shutdown: ServerShutdown): Thread? =
     installSignalShutdownHook(shutdown, Runtime.getRuntime()::addShutdownHook)
+
+/**
+ * Removes a pre-start hook after an ordinary startup failure. A concurrent
+ * signal may have started JVM shutdown already, in which case removal is no
+ * longer legal and the running hook must finish the bounded shutdown.
+ */
+fun removeSignalShutdownHook(hook: Thread?): Boolean {
+    if (hook == null) return false
+    return try {
+        Runtime.getRuntime().removeShutdownHook(hook)
+    } catch (_: IllegalStateException) {
+        false
+    }
+}
 
 /**
  * Seam for the registration itself, which is the part that behaves differently
@@ -38,14 +49,14 @@ internal fun installSignalShutdownHook(
     register: (Thread) -> Unit,
 ): Thread? {
     val hook = Thread(
-        { shutdown.requestShutdown("received a JVM termination signal") },
+        { shutdown.requestShutdownAndAwait("received a JVM termination signal") },
         "signal-shutdown",
     )
     return try {
         register(hook)
         hook
     } catch (alreadyShuttingDown: IllegalStateException) {
-        shutdown.requestShutdown("termination signal received while the server was still starting")
+        shutdown.requestShutdownAndAwait("termination signal received while the server was still starting")
         null
     }
 }

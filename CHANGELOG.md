@@ -3,6 +3,28 @@
 Notable changes to Telegram MCP Server are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Fixed
+
+- Human approval now binds explicitly to IPv4 loopback, preserves the selected
+  account in the approval description, redacts invite links/control characters,
+  caps request bodies, and has race-safe startup, completion, and shutdown.
+- Signal handling is installed before blocking Spring startup and keeps its JVM
+  hook alive through the bounded halt path, so termination during initialization
+  cannot strand daemon-only cleanup or be mistaken for a clean smoke result.
+- Generated client entries reject unsupported Claude Desktop HTTP and
+  Docker-with-writes combinations, emit VS Code's required transport type, validate
+  and escape caller input, explicitly select STDIO for Docker images, and keep
+  notes off machine-readable stdout.
+- Release verification keeps user-facing tags behind the platform gates,
+  immutable-digest smokes, attestations, and signatures; the smoke scripts
+  cover current profile tools, macOS Bash 3.2, bounded signal exits, and
+  cleanup on failure.
+- Container health checks now match CLI-over-environment transport precedence
+  and custom server ports. Release metadata verification also keeps
+  `server.json`, its OCI tag, and the newest changelog version synchronized.
+
 ## 1.13.0 - 2026-07-28
 
 ### Added
@@ -14,10 +36,10 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   omit. Only shapes checked against a real configuration file are generated —
   clients that read a standard `mcpServers` object take the `cursor` output
   unchanged, and that is now stated instead of guessed at.
-- `--http` emits the entry for the shared-daemon topology, which is what a
-  second client needs. Claude Desktop is already that case on its own: it starts
-  a separate server for Cowork from the same configuration, so one STDIO entry
-  there produces two processes competing for a session that admits one.
+- `--http` emits the entry for the shared-daemon topology used by Claude Code,
+  Cursor, VS Code, and Codex when several clients need the same TDLib session.
+  Claude Desktop remote connectors are configured through Settings →
+  Connectors, not `claude_desktop_config.json`.
 - `MCP_DESTRUCTIVE_APPROVAL` gains `loopback` and `auto`. Elicitation is the
   tidier route but depends on the client implementing it, and the major host
   does not: Claude Desktop advertises `elicitation=null`, so the `elicitation`
@@ -35,15 +57,12 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ### Changed
 
-- Releases now verify the published image before announcing it. `1.11.0` passed
-  every local gate and still shipped a termination path that failed when a
-  container was stopped mid-startup, because nothing ran against the artifact
-  users pull, from a session directory with no existing login.
-  `scripts/verify-published-image.sh` checks that contract — initialize, stdin
-  close, a signal while running, and a signal during startup — and runs between
-  signing the image and publishing it to the MCP Registry, so a broken image
-  cannot reach the registry or a release page. Signals go through `docker stop`
-  rather than by killing the `docker run` client, which only detaches.
+- `scripts/verify-published-image.sh` checks the container lifecycle contract
+  against a pulled image — initialize, stdin close, a signal while running, and
+  a signal during startup. Signals go through `docker stop` rather than by
+  killing the `docker run` client, which only detaches. The post-1.13 release
+  workflow now runs this against immutable candidates before promoting public
+  tags or announcing a release.
 - The STDIO smoke now also signals the server *during* startup. Its existing
   signal phase waits for `initialize` precisely so the server is ready, which is
   why it could not have caught the 1.11.0 defect.

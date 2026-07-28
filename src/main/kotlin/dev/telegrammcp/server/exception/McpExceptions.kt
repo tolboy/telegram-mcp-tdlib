@@ -102,10 +102,15 @@ class ApprovalDeniedException(
  */
 class ApprovalUnavailableException(
     toolName: String,
+    reason: String = "this MCP client did not advertise the elicitation capability",
+    remediation: String =
+        "Connect a client that supports MCP elicitation, or set MCP_DESTRUCTIVE_APPROVAL=auto " +
+            "to use the secure loopback fallback.",
+    cause: Throwable? = null,
 ) : McpException(
-    "Tool '$toolName' requires human approval, but this MCP client did not advertise the " +
-        "elicitation capability, so the server has no way to ask. Connect a client that supports " +
-        "MCP elicitation, or set MCP_DESTRUCTIVE_APPROVAL=off to return to caller acknowledgement.",
+    "Tool '$toolName' requires human approval, but $reason. $remediation " +
+        "MCP_DESTRUCTIVE_APPROVAL=off disables human approval and is unsafe for destructive tools.",
+    cause,
 )
 
 /**

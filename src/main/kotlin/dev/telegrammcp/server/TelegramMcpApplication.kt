@@ -4,6 +4,7 @@ import dev.telegrammcp.server.cli.SessionMaintenanceCli
 import dev.telegrammcp.server.cli.TelegramMcpCli
 import dev.telegrammcp.server.runtime.ServerShutdown
 import dev.telegrammcp.server.runtime.installSignalShutdownHook
+import dev.telegrammcp.server.runtime.removeSignalShutdownHook
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan
 import org.springframework.boot.runApplication
@@ -21,11 +22,14 @@ class TelegramMcpApplication
 fun main(args: Array<String>) {
     if (SessionMaintenanceCli.tryRun(args)) return
     if (TelegramMcpCli.run(args)) return
-    // The legacy no-command startup gets the same exit path as `serve`, so an
-    // unrecoverable TDLib failure or a termination signal can still close the
-    // context before halting. The signal hook waits until startup succeeded:
-    // registering it earlier would halt a failed startup with its own clean
-    // exit code and report success for a server that never started.
-    ServerShutdown.INSTANCE.attach(runApplication<TelegramMcpApplication>(*args))
-    installSignalShutdownHook(ServerShutdown.INSTANCE)
+    // Install before the blocking Spring startup so SIGTERM is bounded even
+    // while an initializer is stuck. On an ordinary startup failure the hook is
+    // removed and the original exception keeps its non-zero process exit code.
+    val signalHook = installSignalShutdownHook(ServerShutdown.INSTANCE)
+    try {
+        ServerShutdown.INSTANCE.attach(runApplication<TelegramMcpApplication>(*args))
+    } catch (startupFailure: Throwable) {
+        removeSignalShutdownHook(signalHook)
+        throw startupFailure
+    }
 }

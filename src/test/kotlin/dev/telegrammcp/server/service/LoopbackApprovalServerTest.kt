@@ -1,14 +1,22 @@
 package dev.telegrammcp.server.service
 
+import com.sun.net.httpserver.HttpServer
+import dev.telegrammcp.server.service.LoopbackApprovalServer.ApprovalResult
 import org.junit.jupiter.api.Test
+import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.Inet4Address
+import java.net.InetSocketAddress
 import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -19,6 +27,15 @@ import kotlin.test.assertTrue
  * refuses rather than waits forever.
  */
 class LoopbackApprovalServerTest {
+
+    @Test
+    fun `approval timeout must be positive`() {
+        listOf(Duration.ZERO, Duration.ofSeconds(-1)).forEach { invalid ->
+            assertFailsWith<IllegalArgumentException> {
+                LoopbackApprovalServer(invalid)
+            }
+        }
+    }
 
     /** Captures the announced link so a test can act as the operator. */
     private class Announcer {
@@ -56,7 +73,7 @@ class LoopbackApprovalServerTest {
         server: LoopbackApprovalServer,
         announcer: Announcer,
         operatorAction: (String) -> Unit,
-    ): Boolean {
+    ): ApprovalResult {
         val result = CompletableFuture.supplyAsync {
             server.requestApproval("ban_user", "chat_id=-100, user_id=42")
         }
@@ -68,11 +85,11 @@ class LoopbackApprovalServerTest {
     fun `approving on the page lets the operation proceed`() {
         val announcer = Announcer()
         LoopbackApprovalServer(Duration.ofSeconds(15), announcer.sink).use { server ->
-            val approved = withPendingApproval(server, announcer) { url ->
+            val result = withPendingApproval(server, announcer) { url ->
                 assertEquals(200, get(url), "the operator must be able to open the page")
                 assertEquals(200, post(url, "approve"))
             }
-            assertTrue(approved)
+            assertEquals(ApprovalResult.APPROVED, result)
         }
     }
 
@@ -80,8 +97,8 @@ class LoopbackApprovalServerTest {
     fun `denying on the page refuses the operation`() {
         val announcer = Announcer()
         LoopbackApprovalServer(Duration.ofSeconds(15), announcer.sink).use { server ->
-            val approved = withPendingApproval(server, announcer) { url -> post(url, "deny") }
-            assertFalse(approved)
+            val result = withPendingApproval(server, announcer) { url -> post(url, "deny") }
+            assertEquals(ApprovalResult.DENIED, result)
         }
     }
 
@@ -90,7 +107,10 @@ class LoopbackApprovalServerTest {
     fun `an unanswered request expires as a refusal`() {
         val announcer = Announcer()
         LoopbackApprovalServer(Duration.ofSeconds(1), announcer.sink).use { server ->
-            assertFalse(server.requestApproval("delete_message", "chat_id=1, message_id=2"))
+            assertEquals(
+                ApprovalResult.TIMED_OUT,
+                server.requestApproval("delete_message", "chat_id=1, message_id=2"),
+            )
         }
     }
 
@@ -117,7 +137,7 @@ class LoopbackApprovalServerTest {
         }
         val url = announcer.url()
         post(url, "approve")
-        assertTrue(result.get(20, TimeUnit.SECONDS))
+        assertEquals(ApprovalResult.APPROVED, result.get(20, TimeUnit.SECONDS))
         return url
     }
 
@@ -138,7 +158,7 @@ class LoopbackApprovalServerTest {
 
             // The real link still works, so the rejection did not consume it.
             post(url, "deny")
-            assertFalse(result.get(20, TimeUnit.SECONDS))
+            assertEquals(ApprovalResult.DENIED, result.get(20, TimeUnit.SECONDS))
         }
     }
 
@@ -153,7 +173,7 @@ class LoopbackApprovalServerTest {
             val port = requireNotNull(server.boundPort())
             assertEquals(404, get("http://127.0.0.1:$port/approve?id=made-up&nonce=made-up"))
             post(url, "deny")
-            assertFalse(result.get(20, TimeUnit.SECONDS))
+            assertEquals(ApprovalResult.DENIED, result.get(20, TimeUnit.SECONDS))
         }
     }
 
@@ -161,13 +181,72 @@ class LoopbackApprovalServerTest {
     @Test
     fun `closing the server refuses an in-flight request`() {
         val announcer = Announcer()
-        val server = LoopbackApprovalServer(Duration.ofSeconds(30), announcer.sink)
+        val factoryCalls = AtomicInteger()
+        val server = LoopbackApprovalServer(
+            Duration.ofSeconds(30),
+            announcer.sink,
+            serverFactory = { address, backlog ->
+                factoryCalls.incrementAndGet()
+                HttpServer.create(address, backlog)
+            },
+        )
         val result = CompletableFuture.supplyAsync {
             server.requestApproval("ban_user", "chat_id=1, user_id=2")
         }
         announcer.url()
         server.close()
-        assertFalse(result.get(20, TimeUnit.SECONDS), "an unanswered request must not become an approval")
+        assertEquals(
+            ApprovalResult.UNAVAILABLE,
+            result.get(20, TimeUnit.SECONDS),
+            "an unanswered request must not become an approval",
+        )
+        assertEquals(
+            ApprovalResult.UNAVAILABLE,
+            server.requestApproval("ban_user", "chat_id=3, user_id=4"),
+            "close must remain terminal after a listener was started",
+        )
+        assertEquals(1, factoryCalls.get(), "a closed server must not recreate its listener")
+    }
+
+    @Test
+    fun `a request after close is refused immediately without restarting the listener`() {
+        val factoryCalls = AtomicInteger()
+        val server = LoopbackApprovalServer(
+            Duration.ofSeconds(30),
+            serverFactory = { address, backlog ->
+                factoryCalls.incrementAndGet()
+                HttpServer.create(address, backlog)
+            },
+        )
+        server.close()
+
+        val startedAt = System.nanoTime()
+        assertEquals(
+            ApprovalResult.UNAVAILABLE,
+            server.requestApproval("ban_user", "chat_id=1, user_id=2"),
+        )
+        val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000
+
+        assertTrue(elapsedMs < 1_000, "closed requests must not wait for the approval timeout: ${elapsedMs}ms")
+        assertEquals(0, factoryCalls.get(), "close is terminal; it must not start a new listener")
+    }
+
+    @Test
+    fun `a listener start failure is surfaced without spinning`() {
+        val server = LoopbackApprovalServer(
+            Duration.ofSeconds(30),
+            serverFactory = { _, _ -> throw IOException("synthetic bind failure") },
+        )
+
+        val startedAt = System.nanoTime()
+        val error = assertFailsWith<ApprovalEndpointException> {
+            server.requestApproval("ban_user", "chat_id=1, user_id=2")
+        }
+        val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000
+
+        assertTrue("synthetic bind failure" in error.message.orEmpty())
+        assertTrue(elapsedMs < 1_000, "a failed bind must not leave callers spinning: ${elapsedMs}ms")
+        server.close()
     }
 
     /** The operator decides from this page, and message text can be hostile input. */
@@ -190,10 +269,37 @@ class LoopbackApprovalServerTest {
     @Test
     fun `the listener binds only to loopback`() {
         val announcer = Announcer()
-        LoopbackApprovalServer(Duration.ofSeconds(5), announcer.sink).use { server ->
-            CompletableFuture.supplyAsync { server.requestApproval("ban_user", "chat_id=1") }
-            announcer.url()
-            assertTrue(announcer.url().startsWith("http://127.0.0.1:"), "the link must be loopback-only")
+        val requestedBind = AtomicReference<InetSocketAddress>()
+        LoopbackApprovalServer(
+            Duration.ofSeconds(5),
+            announcer.sink,
+            serverFactory = { address, backlog ->
+                requestedBind.set(address)
+                HttpServer.create(address, backlog)
+            },
+        ).use { server ->
+            val result = CompletableFuture.supplyAsync { server.requestApproval("ban_user", "chat_id=1") }
+            val url = announcer.url()
+            assertTrue(url.startsWith("http://127.0.0.1:"), "the link must be loopback-only")
+            assertEquals("127.0.0.1", requestedBind.get().address.hostAddress)
+            assertTrue(requestedBind.get().address is Inet4Address, "the bind must not silently select IPv6")
+            post(url, "deny")
+            assertEquals(ApprovalResult.DENIED, result.get(20, TimeUnit.SECONDS))
+        }
+    }
+
+    @Test
+    fun `an oversized post body is rejected without consuming the approval`() {
+        val announcer = Announcer()
+        LoopbackApprovalServer(Duration.ofSeconds(15), announcer.sink).use { server ->
+            val result = CompletableFuture.supplyAsync {
+                server.requestApproval("ban_user", "chat_id=1, user_id=2")
+            }
+            val url = announcer.url()
+
+            assertEquals(413, request(url, "POST", "decision=approve&padding=" + "x".repeat(5_000)))
+            assertEquals(200, post(url, "deny"), "a rejected body must not decide the request")
+            assertEquals(ApprovalResult.DENIED, result.get(20, TimeUnit.SECONDS))
         }
     }
 }

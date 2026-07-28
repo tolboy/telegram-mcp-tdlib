@@ -23,12 +23,13 @@ destructive calls must include `"confirmed": true`. It does not prove that a
 human supplied that value — the flag is an argument of the call, so the model
 can set it on its own, including when a message it just read told it to.
 
-`MCP_DESTRUCTIVE_APPROVAL=elicitation` obtains the answer from a person
-instead. The server asks the MCP host before running a destructive tool and
-waits; the reply travels over the protocol, not through the model's turn. A
-client that has not advertised the elicitation capability cannot run those
-tools at all, because a silent fall back to the flag would promise an approval
-the session cannot deliver.
+`MCP_DESTRUCTIVE_APPROVAL=auto` obtains the answer from a person instead. The
+server asks the MCP host when it advertised elicitation; otherwise it opens a
+single-use, nonce-protected page on IPv4 loopback and prints the link to stderr.
+Both replies travel outside the model's turn. Select `elicitation` or `loopback`
+to require one route and fail closed when it is unavailable. A loopback page
+inside an un-published Docker network namespace is not reachable from the host,
+so generated Docker configs deliberately reject `--writes`.
 
 For a custom surface, apply exact-name `MCP_TOOL_ALLOW` and `MCP_TOOL_DENY`
 filters. They run after the profile and before read-only filtering. Unknown

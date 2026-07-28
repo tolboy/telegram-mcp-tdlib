@@ -176,7 +176,8 @@ server-mode:
     #                 every client, including those without elicitation.
     #   auto        - elicitation when the client offers it, loopback otherwise.
     approval: ${MCP_DESTRUCTIVE_APPROVAL:off}
-    # How long a person has to answer before the operation is refused.
+    # Loopback-page answer deadline. Host elicitation uses the MCP request
+    # deadline negotiated by the SDK/client instead.
     approval-timeout: ${MCP_DESTRUCTIVE_APPROVAL_TIMEOUT:120s}
   file-security:
     # Allowed root directories for file operations (empty = deny all file ops)

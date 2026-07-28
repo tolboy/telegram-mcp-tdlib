@@ -6,7 +6,7 @@ on:
       - 'v*.*.*'
 
 concurrency:
-  group: docker-publish-${{ github.ref }}
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -14,6 +14,12 @@ env:
   IMAGE_NAME: telegram-mcp-tdlib
 
 jobs:
+  platform-smoke:
+    name: Cross-platform MCP surface smoke
+    uses: ./.github/workflows/platform-smoke.yml
+    permissions:
+      contents: read
+
   verify-release:
     name: Full release verification
     runs-on: ubuntu-latest
@@ -54,7 +60,9 @@ jobs:
 
   build-app-images:
     name: Runtime app image — ${{ matrix.target }}
-    needs: verify-release
+    needs:
+      - platform-smoke
+      - verify-release
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -116,7 +124,9 @@ jobs:
           retention-days: 2
 
   publish-release:
-    needs: build-app-images
+    needs:
+      - build-app-images
+      - platform-smoke
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -143,11 +153,13 @@ jobs:
           fi
 
           release_version="${GITHUB_REF_NAME#v}"
-          IFS='.' read -r major minor patch <<< "${release_version}"
+          IFS='.' read -r major minor _ <<< "${release_version}"
 
-          echo "version=${release_version}" >> "${GITHUB_OUTPUT}"
-          echo "major_minor=${major}.${minor}" >> "${GITHUB_OUTPUT}"
-          echo "build_version=${release_version}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "version=${release_version}"
+            echo "major_minor=${major}.${minor}"
+            echo "build_version=${release_version}"
+          } >> "${GITHUB_OUTPUT}"
 
           echo "🚀 Release build for ${release_version}"
 
@@ -187,6 +199,139 @@ jobs:
           upload-artifact: false
           upload-release-assets: false
 
+      # ─── Docker image build and publication ───
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract final runtime image metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          flavor: |
+            latest=false
+          tags: |
+            type=raw,value=latest
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=${{ steps.version.outputs.major_minor }}
+            type=sha,format=short,prefix=sha-
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+
+      - name: Build and push runtime candidate
+        id: image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:candidate-runtime-${{ github.run_id }}-${{ github.run_attempt }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.build_version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Extract final stdio image metadata
+        id: stdio-meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          flavor: |
+            latest=false
+          tags: |
+            type=raw,value=latest-stdio
+            type=raw,value=${{ steps.version.outputs.version }}-stdio
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+
+      - name: Build and push stdio candidate
+        id: stdio-image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          target: stdio-runtime
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:candidate-stdio-${{ github.run_id }}-${{ github.run_attempt }}
+          labels: ${{ steps.stdio-meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.build_version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify runtime candidate health by digest
+        shell: bash
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+
+          label="dev.telegrammcp.runtime-candidate=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-$$"
+          cid=""
+          cleanup() {
+            local cleanup_cid
+            while IFS= read -r cleanup_cid; do
+              [[ -n "$cleanup_cid" ]] && docker rm -f "$cleanup_cid" >/dev/null 2>&1 || true
+            done < <(docker ps --all --quiet --filter "label=${label}" 2>/dev/null || true)
+          }
+          trap cleanup EXIT
+
+          docker pull --quiet "${IMAGE}@${DIGEST}" >/dev/null
+          cid="$(
+            docker run --detach \
+              --label "$label" \
+              --health-interval 2s \
+              --health-timeout 2s \
+              --health-start-period 5s \
+              --health-retries 90 \
+              --env MCP_TRANSPORT=STDIO \
+              "${IMAGE}@${DIGEST}" \
+              serve --transport streamable-http --server.port=18081
+          )"
+
+          deadline=$((SECONDS + 180))
+          while true; do
+            state="$(docker inspect --format '{{.State.Status}}' "$cid")"
+            health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$cid")"
+            if [[ "$health" == "healthy" ]]; then
+              break
+            fi
+            if [[ "$state" != "running" || "$health" == "unhealthy" || $SECONDS -ge $deadline ]]; then
+              docker logs "$cid" >&2 || true
+              echo "Runtime candidate did not become healthy (state=${state}, health=${health})" >&2
+              exit 1
+            fi
+            sleep 2
+          done
+
+          docker stop --time 10 "$cid" >/dev/null
+          exit_code="$(docker inspect --format '{{.State.ExitCode}}' "$cid")"
+          [[ "$exit_code" == "0" ]] || {
+            docker logs "$cid" >&2 || true
+            echo "Runtime candidate exited ${exit_code} after SIGTERM; expected 0" >&2
+            exit 1
+          }
+          docker rm "$cid" >/dev/null
+          cid=""
+
+      # Every earlier local gate passed for 1.11.0, but its published stdio
+      # image still failed the cold-start signal path. Keep user-facing tags,
+      # attestations, signatures, and release metadata untouched until the
+      # exact registry digest passes that contract.
+      - name: Verify the stdio candidate by digest
+        shell: bash
+        run: |
+          bash ./scripts/verify-published-image.sh \
+            --image "${REGISTRY}/${GITHUB_REPOSITORY_OWNER}/${IMAGE_NAME}@${{ steps.stdio-image.outputs.digest }}" \
+            --expect-version '${{ steps.version.outputs.version }}'
+
       - name: Attest release artifact provenance
         if: github.event.repository.visibility == 'public'
         uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4
@@ -204,70 +349,6 @@ jobs:
         with:
           subject-path: release-assets/telegram-mcp-server-${{ steps.version.outputs.version }}.jar
           sbom-path: release-assets/telegram-mcp-server-${{ steps.version.outputs.version }}.spdx.json
-
-      # ─── Docker image build and publication ───
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract image metadata
-        id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
-          flavor: |
-            latest=false
-          tags: |
-            type=raw,value=latest
-            type=raw,value=${{ steps.version.outputs.version }}
-            type=raw,value=${{ steps.version.outputs.major_minor }}
-            type=sha,format=short,prefix=sha-
-          labels: |
-            org.opencontainers.image.version=${{ steps.version.outputs.version }}
-
-      - name: Build and push Docker image
-        id: image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            APP_VERSION=${{ steps.version.outputs.build_version }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Extract stdio image metadata
-        id: stdio-meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest-stdio
-            type=raw,value=${{ steps.version.outputs.version }}-stdio
-          labels: |
-            org.opencontainers.image.version=${{ steps.version.outputs.version }}
-
-      - name: Build and push stdio registry image
-        id: stdio-image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: .
-          target: stdio-runtime
-          push: true
-          tags: ${{ steps.stdio-meta.outputs.tags }}
-          labels: ${{ steps.stdio-meta.outputs.labels }}
-          build-args: |
-            APP_VERSION=${{ steps.version.outputs.build_version }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Attest container image provenance
         if: github.event.repository.visibility == 'public'
@@ -304,17 +385,38 @@ jobs:
         shell: bash
         run: cosign sign --yes "${IMAGE}@${DIGEST}"
 
-      # Deliberately between publishing the image and announcing it. Every local
-      # gate passed for 1.11.0 and the published image still could not be
-      # stopped cleanly while starting, because no local check ran against the
-      # artifact from a cold session. A broken image must not reach the registry
-      # or a release page.
-      - name: Verify the published stdio image
+      # Promotion is deliberately last among the artifact gates. If
+      # attestation or signing fails, only the run-scoped candidate tags exist;
+      # no user-facing tag is left pointing at an incomplete release.
+      - name: Promote verified and signed digests to final tags
         shell: bash
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          RUNTIME_DIGEST: ${{ steps.image.outputs.digest }}
+          RUNTIME_TAGS: ${{ steps.meta.outputs.tags }}
+          STDIO_DIGEST: ${{ steps.stdio-image.outputs.digest }}
+          STDIO_TAGS: ${{ steps.stdio-meta.outputs.tags }}
         run: |
-          bash ./scripts/verify-published-image.sh \
-            --image "${REGISTRY}/${GITHUB_REPOSITORY_OWNER}/${IMAGE_NAME}:${{ steps.version.outputs.version }}-stdio" \
-            --expect-version '${{ steps.version.outputs.version }}'
+          set -euo pipefail
+
+          promote_digest() {
+            local digest="$1"
+            local tags="$2"
+            local tag
+            set --
+            while IFS= read -r tag; do
+              [[ -n "$tag" ]] || continue
+              set -- "$@" --tag "$tag"
+            done <<< "$tags"
+            (($# > 0)) || {
+              echo "No final tags were generated for ${digest}" >&2
+              return 1
+            }
+            docker buildx imagetools create "$@" "${IMAGE}@${digest}"
+          }
+
+          promote_digest "$RUNTIME_DIGEST" "$RUNTIME_TAGS"
+          promote_digest "$STDIO_DIGEST" "$STDIO_TAGS"
 
       - name: Publish metadata to the official MCP Registry
         if: github.event.repository.visibility == 'public'

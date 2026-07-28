@@ -114,8 +114,11 @@ class McpConfig {
                                 // Ahead of the handler, so no Telegram call can
                                 // precede the operator's answer. Central rather
                                 // than per-tool: a new destructive tool inherits
-                                // the gate instead of having to remember it.
-                                approvalService.requireApproval(exchange, tool.name(), routedArguments)
+                                // the gate instead of having to remember it. The
+                                // approval prompt sees the original selector so
+                                // the operator knows which account is affected;
+                                // handlers and audit still receive routed args.
+                                approvalService.requireApproval(exchange, tool.name(), arguments)
                                 handler.execute(exchange, routedArguments)
                             }
                         }

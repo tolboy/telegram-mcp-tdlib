@@ -24,7 +24,7 @@ Pulls the image and checks the STDIO lifecycle contract:
   * answers initialize
   * exits 0 when stdin closes
   * exits 0 on SIGTERM once running
-  * exits under a bounded deadline on SIGTERM during startup
+  * exits 0 within the 10-second stop deadline on SIGTERM during startup
 USAGE
 }
 
@@ -55,37 +55,35 @@ for tool in docker python3; do
   }
 done
 
-# `docker stop` waits this long for a clean exit before sending SIGKILL. Keeping
-# it at the daemon default is the point: the server must fit inside what a
-# stock supervisor already allows.
-STOP_TIMEOUT=30
+# `docker stop` waits this long for a clean exit before sending SIGKILL. Ten
+# seconds is Docker's Unix default and the published lifecycle contract.
+STOP_TIMEOUT=10
 READY_TIMEOUT=180
 
-label="telegram-mcp-verify=$$"
-containers=()
+label_key="dev.telegrammcp.verify-run"
+label_value="${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}-$$"
+label="${label_key}=${label_value}"
 
 cleanup() {
-  for cid in "${containers[@]:-}"; do
+  local cid
+  while IFS= read -r cid; do
     [[ -n "$cid" ]] && docker rm -f "$cid" >/dev/null 2>&1 || true
-  done
+  done < <(docker ps --all --quiet --filter "label=${label}" 2>/dev/null || true)
 }
 trap cleanup EXIT
 
 run_detached() {
-  local session_dir="$1"
   docker run -d -i --label "$label" \
-    -v "${session_dir}:/data/tdlib-data" \
+    --tmpfs /data/tdlib-data:rw,mode=1777 \
     -e MCP_READ_ONLY=true -e MCP_TOOL_PROFILE=reader \
     -e TDLIB_API_ID=0 -e TDLIB_API_HASH= \
     "$image" serve --transport stdio
 }
 
-# Each check starts from the state a first run sees: an empty session directory
-# with no login. A warm, authenticated session hides the slow startup that makes
-# the signal window reachable at all.
-new_session_dir() {
-  mktemp -d
-}
+# Each check gets a fresh in-container tmpfs: it is the empty, writable session
+# directory a first run sees, but cannot leak host temp data when a check fails.
+# A warm, authenticated session hides the slow startup that makes the signal
+# window reachable at all.
 
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
@@ -114,18 +112,17 @@ if [[ -n "$expected_version" ]]; then
 fi
 
 # ── 1. Answers initialize and exits when stdin closes ────────────────────────
-stdin_dir=$(new_session_dir)
-export VERIFY_IMAGE="$image" VERIFY_SESSION_DIR="$stdin_dir" VERIFY_READY_TIMEOUT="$READY_TIMEOUT"
+export VERIFY_IMAGE="$image" VERIFY_READY_TIMEOUT="$READY_TIMEOUT" VERIFY_LABEL="$label"
 stdin_result=$(python3 - <<'PY'
 import json, os, subprocess, sys, threading
 
 image = os.environ["VERIFY_IMAGE"]
-session_dir = os.environ["VERIFY_SESSION_DIR"]
 ready_timeout = int(os.environ["VERIFY_READY_TIMEOUT"])
+label = os.environ["VERIFY_LABEL"]
 
 process = subprocess.Popen(
-    ["docker", "run", "--rm", "-i",
-     "-v", f"{session_dir}:/data/tdlib-data",
+    ["docker", "run", "--rm", "-i", "--label", label,
+     "--tmpfs", "/data/tdlib-data:rw,mode=1777",
      "-e", "MCP_READ_ONLY=true", "-e", "MCP_TOOL_PROFILE=reader",
      "-e", "TDLIB_API_ID=0", "-e", "TDLIB_API_HASH=",
      image, "serve", "--transport", "stdio"],
@@ -166,12 +163,9 @@ if code != 0:
 print(code)
 PY
 ) || fail "stdio lifecycle check failed"
-rm -rf "$stdin_dir"
 
 # ── 2. SIGTERM once running ──────────────────────────────────────────────────
-running_dir=$(new_session_dir)
-cid=$(run_detached "$running_dir")
-containers+=("$cid")
+cid=$(run_detached)
 deadline=$((SECONDS + READY_TIMEOUT))
 until docker logs "$cid" 2>&1 | grep -q "Started TelegramMcpApplicationKt"; do
   [[ $SECONDS -lt $deadline ]] || fail "server did not finish starting within ${READY_TIMEOUT}s" "$(docker logs "$cid" 2>&1)"
@@ -187,14 +181,11 @@ running_code=$(docker inspect -f '{{.State.ExitCode}}' "$cid")
 [[ "$running_code" == "0" ]] || \
   fail "SIGTERM while running exited ${running_code} after ${running_elapsed}s (137 means the daemon had to SIGKILL)" "$(docker logs "$cid" 2>&1)"
 docker rm -f "$cid" >/dev/null 2>&1 || true
-rm -rf "$running_dir"
 
 # ── 3. SIGTERM during startup ────────────────────────────────────────────────
 # The window 1.11.0 shipped broken: the JVM refuses a shutdown hook once it is
 # already terminating, so without a direct request the close runs unbounded.
-startup_dir=$(new_session_dir)
-cid=$(run_detached "$startup_dir")
-containers+=("$cid")
+cid=$(run_detached)
 sleep 2
 [[ "$(docker inspect -f '{{.State.Status}}' "$cid")" == "running" ]] || \
   fail "container exited before the startup signal" "$(docker logs "$cid" 2>&1)"
@@ -207,10 +198,9 @@ startup_logs=$(docker logs "$cid" 2>&1)
 if grep -q "Shutdown in progress" <<<"$startup_logs"; then
   fail "the JVM refused the shutdown hook and left the close unbounded" "$startup_logs"
 fi
-[[ "$startup_code" != "137" ]] || \
-  fail "SIGTERM during startup was SIGKILLed after ${startup_elapsed}s" "$startup_logs"
+[[ "$startup_code" == "0" ]] || \
+  fail "SIGTERM during startup exited ${startup_code} after ${startup_elapsed}s (137 means the daemon had to SIGKILL)" "$startup_logs"
 docker rm -f "$cid" >/dev/null 2>&1 || true
-rm -rf "$startup_dir"
 
 python3 -c "
 import json, sys

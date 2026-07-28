@@ -229,6 +229,28 @@ tasks.register("verifyReleaseMetadata") {
                 "application.yml contains an unexpanded build-version token"
             }
         }
+        if (Regex("""\d+\.\d+\.\d+""").matches(expectedVersion)) {
+            val registryMetadata = rootProject.file("server.json").readText()
+            val registryVersion = Regex(""""version"\s*:\s*"([^"]+)"""")
+                .find(registryMetadata)
+                ?.groupValues
+                ?.get(1)
+            check(registryVersion == expectedVersion) {
+                "server.json version '$registryVersion' does not match release $expectedVersion"
+            }
+            check(""":$expectedVersion-stdio""" in registryMetadata) {
+                "server.json OCI package does not use release tag $expectedVersion-stdio"
+            }
+
+            val changelog = rootProject.file("CHANGELOG.md").readText()
+            val newestReleasedVersion = Regex("""(?m)^## (\d+\.\d+\.\d+) -""")
+                .find(changelog)
+                ?.groupValues
+                ?.get(1)
+            check(newestReleasedVersion == expectedVersion) {
+                "Newest CHANGELOG release '$newestReleasedVersion' does not match $expectedVersion"
+            }
+        }
         logger.lifecycle("Verified release metadata version: $expectedVersion")
     }
 }

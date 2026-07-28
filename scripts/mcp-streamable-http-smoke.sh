@@ -25,7 +25,8 @@ append_csv() {
   local item
   local -a parsed=()
   IFS=',' read -r -a parsed <<<"$value"
-  for item in "${parsed[@]}"; do
+  # Bash 3.2 treats an empty array expansion as unbound under `set -u`.
+  for item in ${parsed[@]+"${parsed[@]}"}; do
     item="${item#"${item%%[![:space:]]*}"}"
     item="${item%"${item##*[![:space:]]}"}"
     if [[ -n "$item" ]]; then
@@ -117,8 +118,8 @@ http_post() {
       --dump-header "$headers_file" \
       --output "$output_file" \
       --write-out '%{http_code}' \
-      "${common_headers[@]}" \
-      "${session_header[@]}" \
+      ${common_headers[@]+"${common_headers[@]}"} \
+      ${session_header[@]+"${session_header[@]}"} \
       --data "$body" \
       "$endpoint"
   )"
@@ -180,9 +181,9 @@ python3 - \
   "$endpoint" \
   "$initialize_python_path" \
   "$tools_python_path" \
-  "${required_tools[@]}" \
+  ${required_tools[@]+"${required_tools[@]}"} \
   --forbidden \
-  "${forbidden_tools[@]}" <<'PY'
+  ${forbidden_tools[@]+"${forbidden_tools[@]}"} <<'PY'
 import json
 import pathlib
 import sys

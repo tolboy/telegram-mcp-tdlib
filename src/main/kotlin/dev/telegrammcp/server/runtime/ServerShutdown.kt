@@ -34,6 +34,7 @@ class ServerShutdown internal constructor(
     private var haltStarted = false
 
     private val gracefulCloseFinished = CountDownLatch(1)
+    private val shutdownFinished = CountDownLatch(1)
 
     /**
      * Publishes the context that a shutdown should close.
@@ -73,6 +74,16 @@ class ServerShutdown internal constructor(
                 }
             }
         }
+    }
+
+    /**
+     * Requests shutdown and keeps the caller alive until the halt path has been
+     * reached. JVM shutdown hooks must use this form: the JVM waits for hooks,
+     * but it does not wait for the daemon workers started by [requestShutdown].
+     */
+    fun requestShutdownAndAwait(reason: String, exitCode: Int = 0) {
+        requestShutdown(reason, exitCode)
+        awaitQuietly(shutdownFinished, graceMillis + SHUTDOWN_AWAIT_MARGIN_MILLIS)
     }
 
     private fun closeGracefully() {
@@ -115,7 +126,13 @@ class ServerShutdown internal constructor(
         val finalLine = "$FINAL_STDERR_PREFIX exit_code=${finalRequest.exitCode} reason=$oneLineReason"
         runCatching { stderr(finalLine) }
             .onFailure { log.warn("Unable to write final shutdown line to stderr: {}", it.message) }
-        halt(finalRequest.exitCode)
+        try {
+            halt(finalRequest.exitCode)
+        } finally {
+            // Runtime.halt never returns in production. This countdown is for
+            // injected test halters and for the unlikely case where halt throws.
+            shutdownFinished.countDown()
+        }
     }
 
     private fun awaitQuietly(latch: CountDownLatch, timeoutMillis: Long): Boolean = try {
@@ -131,6 +148,8 @@ class ServerShutdown internal constructor(
 
         /** Grace for the graceful close before the JVM is halted. */
         const val DEFAULT_GRACE_MILLIS = 5_000L
+
+        private const val SHUTDOWN_AWAIT_MARGIN_MILLIS = 1_000L
 
         /** Process-wide instance: one JVM has one stdin and one exit. */
         val INSTANCE: ServerShutdown = ServerShutdown(

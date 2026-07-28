@@ -67,13 +67,27 @@ class ClientConfigPrinterTest {
         }
     }
 
-    /** Claude Code states the transport; Claude Desktop's file has no such key. */
+    /** Claude Code and VS Code require a type; Claude Desktop's file has no such key. */
     @Test
-    fun `only claude code declares a transport type`() {
+    fun `stdio transport type is explicit where required`() {
         val code = ClientConfigPrinter.render(ClientConfigPrinter.Options(client = ClientConfigPrinter.Client.CLAUDE_CODE))
+        val vscode = ClientConfigPrinter.render(ClientConfigPrinter.Options(client = ClientConfigPrinter.Client.VSCODE))
         val desktop = ClientConfigPrinter.render(ClientConfigPrinter.Options(client = ClientConfigPrinter.Client.CLAUDE))
         assertTrue("\"type\": \"stdio\"" in code)
+        assertTrue("\"type\": \"stdio\"" in vscode)
         assertFalse("\"type\"" in desktop)
+    }
+
+    @Test
+    fun `vscode declares the http transport type`() {
+        val root = parse(
+            ClientConfigPrinter.Options(
+                client = ClientConfigPrinter.Client.VSCODE,
+                httpUrl = "https://mcp.example.com/mcp",
+            ),
+        )
+        val entry = (root["servers"] as Map<*, *>)["telegram"] as Map<*, *>
+        assertEquals("http", entry["type"])
     }
 
     @Test
@@ -114,6 +128,37 @@ class ClientConfigPrinterTest {
         )
         assertTrue("<your-api-hash>" in rendered, "the hash must stay a placeholder")
         assertFalse("TDLIB_API_HASH_FILE=" in rendered, "a file path is meaningless inside the container")
+    }
+
+    @Test
+    fun `a docker entry explicitly starts stdio regardless of the image default`() {
+        val root = parse(
+            ClientConfigPrinter.Options(
+                client = ClientConfigPrinter.Client.VSCODE,
+                docker = "ghcr.io/tolboy/telegram-mcp-tdlib:1.13.0",
+            ),
+        )
+        val entry = (root["servers"] as Map<*, *>)["telegram"] as Map<*, *>
+        val args = entry["args"] as List<*>
+        assertEquals(
+            listOf("serve", "--transport", "stdio"),
+            args.takeLast(3),
+            "an ordinary runtime image must not silently start HTTP in an STDIO client",
+        )
+    }
+
+    @Test
+    fun `caller controlled values are escaped without changing windows paths`() {
+        val hashPath = """C:\Users\Anatoly\Telegram "production"\api.hash"""
+        listOf(ClientConfigPrinter.Client.CLAUDE, ClientConfigPrinter.Client.CODEX).forEach { client ->
+            val root = parse(ClientConfigPrinter.Options(client = client, apiHashFile = hashPath))
+            val entry = if (client == ClientConfigPrinter.Client.CODEX) {
+                (root["mcp_servers"] as Map<*, *>)["telegram"] as Map<*, *>
+            } else {
+                (root["mcpServers"] as Map<*, *>)["telegram"] as Map<*, *>
+            }
+            assertEquals(hashPath, (entry["env"] as Map<*, *>)["TDLIB_API_HASH_FILE"])
+        }
     }
 
     /** The shared-daemon topology: one process, several clients. */
@@ -160,7 +205,10 @@ class ClientConfigPrinterTest {
                 shared.any { "serve --transport stdio" in it },
                 "${client.id} shares a daemon, so that warning does not apply",
             )
-            assertTrue(shared.any { "Cowork" in it }, "${client.id} should explain why one daemon is needed")
+            assertTrue(
+                shared.any { "shared HTTP daemon" in it && "competing STDIO" in it },
+                "${client.id} should explain why one daemon is needed",
+            )
             assertFalse(
                 shared.any { "--writes" in it },
                 "${client.id} shares a daemon whose surface this entry does not set",
@@ -172,6 +220,27 @@ class ClientConfigPrinterTest {
     fun `docker notes explain why the tag is pinned`() {
         val notes = ClientConfigPrinter.notes(ClientConfigPrinter.Options(docker = "example:1.0-stdio"))
         assertTrue(notes.any { "re-pull" in it }, "the staleness trap must be called out: $notes")
+        assertTrue(
+            notes.any { "TDLIB_API_HASH=<your-api-hash>" in it },
+            "the caller must know that Docker still needs an explicitly supplied API hash: $notes",
+        )
+    }
+
+    @Test
+    fun `config writes only the document to stdout and notes to stderr`() {
+        val stdout = mutableListOf<String>()
+        val stderr = mutableListOf<String>()
+
+        TelegramMcpCli.printClientConfig(
+            listOf("--client", "codex"),
+            stdout = stdout::add,
+            stderr = stderr::add,
+        )
+
+        assertEquals(1, stdout.size)
+        toml.readValue(stdout.single(), Map::class.java)
+        assertFalse(stdout.single().contains("# Codex:"), "human notes must not contaminate the TOML document")
+        assertTrue(stderr.any { "# Codex:" in it })
     }
 
     @Test
@@ -187,10 +256,25 @@ class ClientConfigPrinterTest {
 
     @Test
     fun `the default docker image pins the running version`() {
-        val options = TelegramMcpCli.resolveConfigOptions(listOf("--docker", "default"))
+        val options = TelegramMcpCli.resolveConfigOptions(
+            listOf("--docker", "default"),
+            runningVersion = "1.13.0",
+        )
         val image = options.docker.orEmpty()
+        assertEquals("ghcr.io/tolboy/telegram-mcp-tdlib:1.13.0-stdio", image)
         assertTrue(image.endsWith("-stdio"), "the stdio variant is the one clients should run: $image")
         assertFalse(image.endsWith(":latest-stdio"), "a generated config must not float: $image")
+    }
+
+    @Test
+    fun `default docker image refuses an unpublished development version`() {
+        val error = assertFailsWith<IllegalArgumentException> {
+            TelegramMcpCli.resolveConfigOptions(
+                listOf("--docker", "default"),
+                runningVersion = "1.13.0-2-gabcdef-dirty",
+            )
+        }
+        assertTrue("explicit published image reference" in error.message.orEmpty())
     }
 
     @Test
@@ -198,6 +282,107 @@ class ClientConfigPrinterTest {
         assertFailsWith<IllegalArgumentException> {
             TelegramMcpCli.resolveConfigOptions(listOf("--http", "default", "--docker", "default"))
         }
+    }
+
+    @Test
+    fun `claude desktop http points to the supported connectors flow`() {
+        val error = assertFailsWith<IllegalArgumentException> {
+            TelegramMcpCli.resolveConfigOptions(
+                listOf("--client", "claude", "--http", "https://mcp.example.com/mcp"),
+            )
+        }
+        assertTrue("Settings > Connectors" in error.message.orEmpty())
+        assertTrue("network-reachable" in error.message.orEmpty())
+        assertTrue("MCP_AUTH_MODE=oauth" in error.message.orEmpty())
+        assertTrue("API-key Authorization header" in error.message.orEmpty())
+    }
+
+    @Test
+    fun `http rejects local server configuration flags`() {
+        listOf(
+            listOf("--writes"),
+            listOf("--profile", "reader"),
+            listOf("--api-id", "123456"),
+        ).forEach { conflicting ->
+            assertFailsWith<IllegalArgumentException>("must reject ${conflicting.joinToString(" ")}") {
+                TelegramMcpCli.resolveConfigOptions(
+                    listOf("--client", "codex", "--http", "https://mcp.example.com/mcp") + conflicting,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `docker writes are rejected until an approval bridge exists`() {
+        val error = assertFailsWith<IllegalArgumentException> {
+            TelegramMcpCli.resolveConfigOptions(listOf("--docker", "example.com/telegram-mcp:1.0", "--writes"))
+        }
+        assertTrue("approval bridge" in error.message.orEmpty())
+    }
+
+    @Test
+    fun `api id must fit a positive int`() {
+        listOf("0", "-1", "not-a-number", "2147483648").forEach { invalid ->
+            assertFailsWith<IllegalArgumentException>("must reject API ID $invalid") {
+                TelegramMcpCli.resolveConfigOptions(listOf("--api-id", invalid))
+            }
+        }
+        assertEquals(
+            Int.MAX_VALUE.toString(),
+            TelegramMcpCli.resolveConfigOptions(listOf("--api-id", Int.MAX_VALUE.toString())).apiId,
+        )
+    }
+
+    @Test
+    fun `http url must be an absolute http or https uri`() {
+        listOf(
+            "/mcp",
+            "mcp.example.com/mcp",
+            "ftp://mcp.example.com/mcp",
+            "https:/mcp",
+            "https://mcp.example.com/a path",
+        ).forEach { invalid ->
+            assertFailsWith<IllegalArgumentException>("must reject HTTP URL $invalid") {
+                TelegramMcpCli.resolveConfigOptions(listOf("--client", "codex", "--http", invalid))
+            }
+        }
+        assertEquals(
+            "https://mcp.example.com/mcp",
+            TelegramMcpCli.resolveConfigOptions(
+                listOf("--client", "codex", "--http", "https://mcp.example.com/mcp"),
+            ).httpUrl,
+        )
+    }
+
+    @Test
+    fun `docker image uses a conservative reference grammar`() {
+        listOf(
+            "example.com/repo/image:tag with-space",
+            "--privileged",
+            "example.com/repo/image:\u0001tag",
+            """example.com\repo\image:tag""",
+            "A@@@",
+            "repo::tag",
+            "repo@",
+            "repo/../image",
+            "registry.example.com:99999/repo:tag",
+        ).forEach { invalid ->
+            assertFailsWith<IllegalArgumentException>("must reject Docker image $invalid") {
+                TelegramMcpCli.resolveConfigOptions(listOf("--docker", invalid))
+            }
+        }
+        assertEquals(
+            "ghcr.io/example/telegram-mcp@sha256:${"ab".repeat(32)}",
+            TelegramMcpCli.resolveConfigOptions(
+                listOf("--docker", "ghcr.io/example/telegram-mcp@sha256:${"ab".repeat(32)}"),
+            ).docker,
+        )
+        assertEquals(
+            "localhost:5000/example/my__image:Release_1",
+            TelegramMcpCli.resolveConfigOptions(
+                listOf("--docker", "localhost:5000/example/my__image:Release_1"),
+            ).docker,
+        )
     }
 
     @Test

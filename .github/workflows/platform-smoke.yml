@@ -1,14 +1,8 @@
 name: Platform MCP Surface Smoke
 
 on:
+  workflow_call:
   workflow_dispatch:
-  # The STDIO lifecycle contract — stdin close, a signal while running, and a
-  # signal during startup — is only checked here. Leaving that manual is how a
-  # release shipped a termination path that could not be exercised by any
-  # automatic gate.
-  push:
-    tags:
-      - 'v*.*.*'
 
 permissions:
   contents: read
@@ -39,8 +33,8 @@ jobs:
           - name: Linux x64 — community admin profile
             runner: ubuntu-latest
             profile: community-admin
-            required: get_history,send_message,create_group,set_admin_rights
-            forbidden: transcribe_voice_note,search_public_messages
+            required: get_history,send_message,transcribe_voice_note,create_group,set_admin_rights
+            forbidden: search_public_messages
           - name: Linux x64 — complete profile
             runner: ubuntu-latest
             profile: all

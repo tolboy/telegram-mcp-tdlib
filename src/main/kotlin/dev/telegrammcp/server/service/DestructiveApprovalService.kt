@@ -153,11 +153,33 @@ class DestructiveApprovalService(
     }
 
     private fun requireLoopback(toolName: String, description: String) {
-        if (!loopbackServer.requestApproval(toolName, description)) {
-            throw ApprovalDeniedException(
+        val result = try {
+            loopbackServer.requestApproval(toolName, description)
+        } catch (error: ApprovalEndpointException) {
+            log.warn("Destructive tool '{}' blocked — loopback approval is unavailable: {}", toolName, error.message)
+            throw ApprovalUnavailableException(
                 toolName,
-                "the operator did not approve it within ${props.confirmation.approvalTimeout.toSeconds()}s",
+                "the local loopback approval endpoint could not be started",
+                "Check local socket permissions and IPv4 loopback availability, or use " +
+                    "MCP_DESTRUCTIVE_APPROVAL=elicitation with a capable client.",
+                error,
             )
+        }
+        when (result) {
+            LoopbackApprovalServer.ApprovalResult.APPROVED -> Unit
+            LoopbackApprovalServer.ApprovalResult.DENIED ->
+                throw ApprovalDeniedException(toolName, "the operator declined")
+            LoopbackApprovalServer.ApprovalResult.TIMED_OUT ->
+                throw ApprovalDeniedException(
+                    toolName,
+                    "the operator did not answer within ${props.confirmation.approvalTimeout.toSeconds()}s",
+                )
+            LoopbackApprovalServer.ApprovalResult.UNAVAILABLE ->
+                throw ApprovalUnavailableException(
+                    toolName,
+                    "the local loopback approval endpoint is closed or shutting down",
+                    "Retry only after the server has restarted cleanly.",
+                )
         }
     }
 
@@ -179,11 +201,42 @@ class DestructiveApprovalService(
     private fun describe(arguments: Map<String, Any>): String {
         val target = TARGET_ARGUMENTS
             .mapNotNull { key ->
-                arguments[key]?.toString()?.trim()?.takeIf(String::isNotEmpty)?.let { "$key=$it" }
+                arguments[key]
+                    ?.toString()
+                    ?.let(::normalizeForDisplay)
+                    ?.takeIf(String::isNotEmpty)
+                    ?.let { value ->
+                        if (key == "link" || key == "invite_link") {
+                            "$key=provided (value hidden)"
+                        } else {
+                            "$key=$value"
+                        }
+                    }
             }
             .joinToString(", ")
         return target.ifEmpty { "no identifying arguments" }
     }
+
+    /**
+     * Approval descriptions reach stderr and HTML. Collapse control/format
+     * characters so an argument cannot forge terminal lines or reorder text,
+     * and bound each displayed value independently.
+     */
+    private fun normalizeForDisplay(value: String): String = value
+        .map { character ->
+            when (Character.getType(character)) {
+                Character.CONTROL.toInt(),
+                Character.FORMAT.toInt(),
+                Character.LINE_SEPARATOR.toInt(),
+                Character.PARAGRAPH_SEPARATOR.toInt(),
+                -> ' '
+                else -> character
+            }
+        }
+        .joinToString("")
+        .trim()
+        .replace(WHITESPACE, " ")
+        .take(MAX_DISPLAY_VALUE_LENGTH)
 
     @PreDestroy
     fun shutdown() {
@@ -192,6 +245,17 @@ class DestructiveApprovalService(
 
     private companion object {
         /** Arguments worth showing an operator, most identifying first. */
-        private val TARGET_ARGUMENTS = listOf("account", "chat_id", "user_id", "message_id", "link")
+        private val TARGET_ARGUMENTS = listOf(
+            "account",
+            "chat_id",
+            "user_id",
+            "message_id",
+            "profile_photo_id",
+            "folder_id",
+            "link",
+            "invite_link",
+        )
+        private val WHITESPACE = Regex("\\s+")
+        private const val MAX_DISPLAY_VALUE_LENGTH = 256
     }
 }

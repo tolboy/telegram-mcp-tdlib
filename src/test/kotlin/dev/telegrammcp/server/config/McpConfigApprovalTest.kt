@@ -14,6 +14,7 @@ import dev.telegrammcp.server.tool.McpToolHandler
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import io.modelcontextprotocol.server.McpSyncServerExchange
 import io.modelcontextprotocol.spec.McpSchema
 import org.junit.jupiter.api.Test
@@ -62,6 +63,40 @@ class McpConfigApprovalTest {
 
         assertEquals(1, handler.executionCount)
         assertEquals(AuditOutcome.SUCCESS, audit.getRecentEntries().single().outcome)
+    }
+
+    @Test
+    fun `approval sees the account while handler and audit receive routed arguments`() {
+        val handler = CountingHandler("ban_user")
+        val audit = auditService(logArguments = true)
+        val specification = specificationFor(handler, audit, ServerModeProperties.ApprovalMode.ELICITATION)
+        val exchange = mockk<McpSyncServerExchange>(relaxed = true)
+        every { exchange.clientCapabilities } returns
+            McpSchema.ClientCapabilities.builder().elicitation().build()
+        val elicitation = slot<McpSchema.ElicitRequest>()
+        every { exchange.createElicitation(capture(elicitation)) } returns
+            McpSchema.ElicitResult(McpSchema.ElicitResult.Action.ACCEPT, emptyMap())
+
+        specification.callHandler().apply(
+            exchange,
+            McpSchema.CallToolRequest(
+                "ban_user",
+                mapOf("account" to "default", "chat_id" to 1, "user_id" to 2),
+                emptyMap(),
+            ),
+        )
+
+        assertEquals(
+            mapOf("chat_id" to 1, "user_id" to 2),
+            handler.receivedArguments,
+            "the account selector is dispatch metadata and must not reach the handler",
+        )
+        assertEquals(
+            mapOf("chat_id" to 1, "user_id" to 2),
+            audit.getRecentEntries().single().arguments,
+            "fallback audit must retain routed arguments",
+        )
+        assertEquals(true, "account=default" in elicitation.captured.message())
     }
 
     /**
@@ -146,14 +181,17 @@ class McpConfigApprovalTest {
         return exchange
     }
 
-    private fun auditService(): AuditService = AuditService(
-        props = ServerModeProperties(audit = ServerModeProperties.AuditProps(enabled = true)),
+    private fun auditService(logArguments: Boolean = false): AuditService = AuditService(
+        props = ServerModeProperties(
+            audit = ServerModeProperties.AuditProps(enabled = true, logArguments = logArguments),
+        ),
         meterRegistry = SimpleMeterRegistry(),
         objectMapper = jacksonObjectMapper().findAndRegisterModules(),
     )
 
     private class CountingHandler(private val name: String) : McpToolHandler {
         var executionCount: Int = 0
+        var receivedArguments: Map<String, Any> = emptyMap()
 
         override fun definition(): McpSchema.Tool = McpSchema.Tool.builder()
             .name(name)
@@ -166,6 +204,7 @@ class McpConfigApprovalTest {
             arguments: Map<String, Any>,
         ): McpSchema.CallToolResult {
             executionCount += 1
+            receivedArguments = arguments
             return McpSchema.CallToolResult.builder().addTextContent("ok").isError(false).build()
         }
     }

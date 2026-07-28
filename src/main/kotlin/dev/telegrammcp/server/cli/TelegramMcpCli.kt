@@ -10,6 +10,7 @@ import dev.telegrammcp.server.client.TelegramAccountRegistry
 import dev.telegrammcp.server.runtime.ServerShutdown
 import dev.telegrammcp.server.runtime.installSignalShutdownHook
 import dev.telegrammcp.server.runtime.installStdinCloseWatcher
+import dev.telegrammcp.server.runtime.removeSignalShutdownHook
 import org.springframework.boot.WebApplicationType
 import org.springframework.boot.builder.SpringApplicationBuilder
 import org.springframework.context.ConfigurableApplicationContext
@@ -75,18 +76,19 @@ object TelegramMcpCli {
             // the process outlives the client and keeps the TDLib session locked.
             installStdinCloseWatcher(ServerShutdown.INSTANCE)
         }
-        val context = builder.run(*invocation.remaining.toTypedArray())
-        // EOF may already have arrived while the context was still starting; the
-        // hand-off is what lets that shutdown close the context instead of only
-        // halting the JVM.
-        ServerShutdown.INSTANCE.attach(context)
-        // Only once the server is actually running. Every transport can be
-        // stopped by a signal — it is the only way a container or service
-        // manager ends an HTTP deployment — and that exit needs the same
-        // deadline as the stdin one. Registering it earlier would also make a
-        // failed startup halt with this hook's clean exit code, reporting
-        // success for a server that never started.
-        installSignalShutdownHook(ServerShutdown.INSTANCE)
+        // Cover signals during the blocking startup as well as after it. If
+        // Spring fails normally, remove the hook so its original non-zero exit
+        // status is not replaced by the bounded shutdown path.
+        val signalHook = installSignalShutdownHook(ServerShutdown.INSTANCE)
+        try {
+            val context = builder.run(*invocation.remaining.toTypedArray())
+            // EOF or a signal may already have arrived while the context was
+            // starting; attach hands the completed context to that shutdown.
+            ServerShutdown.INSTANCE.attach(context)
+        } catch (startupFailure: Throwable) {
+            removeSignalShutdownHook(signalHook)
+            throw startupFailure
+        }
     }
 
     internal fun resolveServerInvocation(
@@ -100,7 +102,10 @@ object TelegramMcpCli {
         )
     }
 
-    internal fun resolveConfigOptions(arguments: List<String>): ClientConfigPrinter.Options {
+    internal fun resolveConfigOptions(
+        arguments: List<String>,
+        runningVersion: String = version(),
+    ): ClientConfigPrinter.Options {
         val clientOption = extractOption(arguments, "--client")
         val profileOption = extractOption(clientOption.remaining, "--profile")
         val apiIdOption = extractOption(profileOption.remaining, "--api-id")
@@ -113,31 +118,74 @@ object TelegramMcpCli {
             "--http connects to a running daemon, so it cannot be combined with --docker"
         }
 
+        val client = clientOption.value?.let(ClientConfigPrinter.Client::parse) ?: ClientConfigPrinter.Client.CLAUDE
+        require(
+            httpOption.value == null ||
+                (!writes && profileOption.value == null && apiIdOption.value == null),
+        ) {
+            "--http cannot be combined with --writes, --profile, or --api-id; configure the tool surface " +
+                "and Telegram credentials on the running daemon instead."
+        }
+        require(httpOption.value == null || client != ClientConfigPrinter.Client.CLAUDE) {
+            "--client claude cannot emit an HTTP entry. In Claude Desktop, add the daemon under " +
+                "Settings > Connectors using a network-reachable HTTPS URL backed by OAuth " +
+                "(MCP_AUTH_MODE=oauth). Claude Connectors cannot carry this generator's static API-key " +
+                "Authorization header. Alternatively, omit --http to generate STDIO config."
+        }
+        require(dockerOption.value == null || !writes) {
+            "--docker cannot be combined with --writes until the Docker STDIO setup has an approval bridge; " +
+                "generate a read-only Docker entry or use a local installation."
+        }
+
         val profile = profileOption.value ?: "reader"
         require(profile in VALID_PROFILES) {
             "--profile must be one of ${VALID_PROFILES.joinToString("|")}"
         }
+        val apiId = apiIdOption.value ?: "123456"
+        val parsedApiId = apiId.toIntOrNull()
+        require(parsedApiId != null && parsedApiId > 0) {
+            "--api-id must be a positive Int (1..${Int.MAX_VALUE})"
+        }
+        val docker = dockerOption.value?.let { image ->
+            if (image == "default") {
+                require(RELEASE_VERSION.matches(runningVersion)) {
+                    "--docker default requires a release build with an X.Y.Z version; this build reports " +
+                        "'$runningVersion'. Pass an explicit published image reference instead."
+                }
+                "ghcr.io/tolboy/telegram-mcp-tdlib:$runningVersion-stdio"
+            } else {
+                image
+            }
+        }
+        require(docker == null || isDockerImageReference(docker)) {
+            "--docker image must be a valid lowercase Docker/OCI reference with an optional tag or digest"
+        }
+        val httpUrl = httpOption.value?.let { url ->
+            if (url == "default") "http://127.0.0.1:8080/mcp" else url
+        }
+        require(httpUrl == null || isAbsoluteHttpUrl(httpUrl)) {
+            "--http must be an absolute http(s) URI with a host, for example https://mcp.example.com/mcp"
+        }
         return ClientConfigPrinter.Options(
-            client = clientOption.value?.let(ClientConfigPrinter.Client::parse) ?: ClientConfigPrinter.Client.CLAUDE,
+            client = client,
             profile = profile,
             readOnly = !writes,
-            apiId = apiIdOption.value ?: "123456",
+            apiId = parsedApiId.toString(),
             // A generated config pins the version it was generated from, so the
             // tag never floats to whatever the machine happened to cache.
-            docker = dockerOption.value?.let { image ->
-                if (image == "default") "ghcr.io/tolboy/telegram-mcp-tdlib:${version()}-stdio" else image
-            },
-            httpUrl = httpOption.value?.let { url ->
-                if (url == "default") "http://127.0.0.1:8080/mcp" else url
-            },
+            docker = docker,
+            httpUrl = httpUrl,
         )
     }
 
-    private fun printClientConfig(arguments: List<String>) {
+    internal fun printClientConfig(
+        arguments: List<String>,
+        stdout: (String) -> Unit = { value -> System.out.println(value) },
+        stderr: (String) -> Unit = { value -> System.err.println(value) },
+    ) {
         val options = resolveConfigOptions(arguments)
-        println(ClientConfigPrinter.render(options))
-        println()
-        ClientConfigPrinter.notes(options).forEach { note -> println("# $note") }
+        stdout(ClientConfigPrinter.render(options))
+        ClientConfigPrinter.notes(options).forEach { note -> stderr("# $note") }
     }
 
     private fun runAuthWizard(arguments: List<String>) {
@@ -320,6 +368,52 @@ object TelegramMcpCli {
         else -> error("Unsupported MCP transport '$value'; use streamable-http or stdio")
     }
 
+    private fun isAbsoluteHttpUrl(value: String): Boolean {
+        val uri = runCatching { URI(value) }.getOrNull() ?: return false
+        return uri.isAbsolute &&
+            uri.scheme.lowercase() in setOf("http", "https") &&
+            !uri.host.isNullOrBlank()
+    }
+
+    /**
+     * Validates the useful, portable subset of the Docker distribution
+     * reference grammar. Character filtering alone accepts strings Docker
+     * rejects (for example `repo::tag` or `repo/../image`).
+     */
+    private fun isDockerImageReference(value: String): Boolean {
+        if (value.isBlank() || value.length > MAX_DOCKER_REFERENCE_LENGTH || value != value.trim()) return false
+
+        val digestParts = value.split('@')
+        if (digestParts.size > 2) return false
+        val nameAndTag = digestParts[0]
+        val digest = digestParts.getOrNull(1)
+        if (digest != null && !DOCKER_DIGEST.matches(digest)) return false
+
+        val lastSlash = nameAndTag.lastIndexOf('/')
+        val lastColon = nameAndTag.lastIndexOf(':')
+        val hasTag = lastColon > lastSlash
+        val name = if (hasTag) nameAndTag.substring(0, lastColon) else nameAndTag
+        val tag = if (hasTag) nameAndTag.substring(lastColon + 1) else null
+        if (tag != null && !DOCKER_TAG.matches(tag)) return false
+
+        val components = name.split('/')
+        if (components.any(String::isEmpty)) return false
+        val first = components.first()
+        val hasRegistry = components.size > 1 &&
+            (first == "localhost" || '.' in first || ':' in first)
+        val repositories = if (hasRegistry) components.drop(1) else components
+        if (repositories.isEmpty() || repositories.any { !DOCKER_REPOSITORY_COMPONENT.matches(it) }) return false
+        return !hasRegistry || isDockerRegistry(first)
+    }
+
+    private fun isDockerRegistry(value: String): Boolean {
+        val parts = value.split(':')
+        if (parts.size > 2 || !DOCKER_REGISTRY_HOST.matches(parts[0])) return false
+        val port = parts.getOrNull(1) ?: return true
+        val portNumber = port.toIntOrNull() ?: return false
+        return portNumber in 1..65_535
+    }
+
     private fun extractOption(
         arguments: List<String>,
         name: String,
@@ -373,6 +467,13 @@ object TelegramMcpCli {
 
     /** Profile names accepted by `MCP_TOOL_PROFILE`, rejected here rather than at startup. */
     private val VALID_PROFILES = setOf("all", "reader", "inbox", "community-admin", "research")
+    private val RELEASE_VERSION = Regex("""\d+\.\d+\.\d+""")
+    private val DOCKER_REPOSITORY_COMPONENT = Regex("""[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*""")
+    private val DOCKER_REGISTRY_HOST =
+        Regex("""(?:localhost|[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*)""")
+    private val DOCKER_TAG = Regex("""[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}""")
+    private val DOCKER_DIGEST = Regex("""[a-z][a-z0-9]*(?:[+._-][a-z][a-z0-9]*)*:[A-Fa-f0-9]{32,}""")
+    private const val MAX_DOCKER_REFERENCE_LENGTH = 255
 
     internal data class ServerInvocation(
         val transport: Transport,

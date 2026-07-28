@@ -25,7 +25,8 @@ append_csv() {
   local item
   local -a parsed=()
   IFS=',' read -r -a parsed <<<"$value"
-  for item in "${parsed[@]}"; do
+  # Bash 3.2 treats an empty array expansion as unbound under `set -u`.
+  for item in ${parsed[@]+"${parsed[@]}"}; do
     item="${item#"${item%%[![:space:]]*}"}"
     item="${item%"${item##*[![:space:]]}"}"
     if [[ -n "$item" ]]; then
@@ -117,9 +118,9 @@ fi
 python3 - \
   "$mode" \
   "$target" \
-  "${required_tools[@]}" \
+  ${required_tools[@]+"${required_tools[@]}"} \
   --forbidden \
-  "${forbidden_tools[@]}" <<'PY'
+  ${forbidden_tools[@]+"${forbidden_tools[@]}"} <<'PY'
 import json
 import os
 import queue
@@ -351,6 +352,11 @@ try:
                 "STDIO server did not exit within 15000ms of a termination signal. "
                 "A supervisor would escalate to SIGKILL."
             ) from exc
+        if os.name != "nt" and signal_exit != 0:
+            raise RuntimeError(
+                f"STDIO server exited with code {signal_exit} after a running-state "
+                "termination signal; expected a clean Unix exit code of 0."
+            )
     finally:
         if signal_process.poll() is None:
             signal_process.kill()
@@ -402,6 +408,11 @@ try:
             raise RuntimeError(
                 "STDIO server failed to register its shutdown path during startup: "
                 "the JVM refused the hook and the close was left unbounded."
+            )
+        if os.name != "nt" and startup_signal_exit != 0:
+            raise RuntimeError(
+                f"STDIO server exited with code {startup_signal_exit} after a startup "
+                "termination signal; expected a clean Unix exit code of 0."
             )
     finally:
         if startup_process.poll() is None:

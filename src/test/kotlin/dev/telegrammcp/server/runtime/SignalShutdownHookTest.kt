@@ -7,6 +7,7 @@ import io.mockk.mockk
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -59,6 +60,34 @@ class SignalShutdownHookTest {
         io.mockk.verify { context.close() }
     }
 
+    @Test
+    fun `the signal hook stays alive until the halt path finishes`() {
+        val haltEntered = CountDownLatch(1)
+        val releaseHalt = CountDownLatch(1)
+        val context = mockk<ConfigurableApplicationContext>(relaxed = true)
+        val shutdown = ServerShutdown(
+            graceMillis = 1_000,
+            halt = {
+                haltEntered.countDown()
+                releaseHalt.await(5, TimeUnit.SECONDS)
+            },
+            stderr = {},
+        )
+        shutdown.attach(context)
+
+        withInstalledHook(shutdown) { hook ->
+            try {
+                hook.start()
+                assertTrue(haltEntered.await(5, TimeUnit.SECONDS), "the halt path must be reached")
+                assertTrue(hook.isAlive, "the JVM hook must keep daemon shutdown workers alive")
+            } finally {
+                releaseHalt.countDown()
+            }
+            hook.join(5_000)
+            assertFalse(hook.isAlive, "the hook may finish after the halt callback returns")
+        }
+    }
+
     /**
      * Startup loads TDLib's native libraries, so it is slow enough for a signal
      * to land before the hook is registered. The JVM then refuses the hook, and
@@ -75,15 +104,13 @@ class SignalShutdownHookTest {
             halt = { halted.countDown() },
             stderr = {},
         )
-        shutdown.attach(context)
-
         val hook = installSignalShutdownHook(shutdown) {
             throw IllegalStateException("Shutdown in progress")
         }
 
         assertNull(hook, "no hook can be registered once the JVM is shutting down")
         assertTrue(halted.await(5, TimeUnit.SECONDS), "the deadline must still apply")
-        io.mockk.verify { context.close() }
+        io.mockk.verify(exactly = 0) { context.close() }
     }
 
     /**

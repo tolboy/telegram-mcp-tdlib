@@ -96,10 +96,12 @@ class DestructiveApprovalServiceTest {
 
     @Test
     fun `a missing exchange is refused`() {
-        assertFailsWith<ApprovalUnavailableException> {
+        val error = assertFailsWith<ApprovalUnavailableException> {
             service(ServerModeProperties.ApprovalMode.ELICITATION)
                 .requireApproval(null, "ban_user", mapOf("confirmed" to true))
         }
+        assertTrue("MCP_DESTRUCTIVE_APPROVAL=auto" in error.message.orEmpty())
+        assertTrue("off disables human approval and is unsafe" in error.message.orEmpty())
     }
 
     /** A host that advertises elicitation but fails to deliver is not an approval. */
@@ -178,7 +180,8 @@ class DestructiveApprovalServiceTest {
     @Test
     fun `auto asks over loopback when the client cannot render a prompt`() {
         val loopback = mockk<LoopbackApprovalServer>(relaxed = true)
-        every { loopback.requestApproval(any(), any()) } returns true
+        every { loopback.requestApproval(any(), any()) } returns
+            LoopbackApprovalServer.ApprovalResult.APPROVED
         val exchange = mockk<McpSyncServerExchange>(relaxed = true)
         every { exchange.clientCapabilities } returns McpSchema.ClientCapabilities.builder().build()
 
@@ -204,19 +207,54 @@ class DestructiveApprovalServiceTest {
     @Test
     fun `a loopback refusal blocks the operation`() {
         val loopback = mockk<LoopbackApprovalServer>(relaxed = true)
-        every { loopback.requestApproval(any(), any()) } returns false
+        every { loopback.requestApproval(any(), any()) } returns
+            LoopbackApprovalServer.ApprovalResult.DENIED
 
-        assertFailsWith<ApprovalDeniedException> {
+        val error = assertFailsWith<ApprovalDeniedException> {
             service(ServerModeProperties.ApprovalMode.LOOPBACK, loopback = loopback)
                 .requireApproval(null, "delete_message", mapOf("chat_id" to 1L))
         }
+        assertTrue("operator declined" in error.message.orEmpty())
+    }
+
+    @Test
+    fun `a loopback timeout is distinguished from an explicit denial`() {
+        val loopback = mockk<LoopbackApprovalServer>(relaxed = true)
+        every { loopback.requestApproval(any(), any()) } returns
+            LoopbackApprovalServer.ApprovalResult.TIMED_OUT
+
+        val error = assertFailsWith<ApprovalDeniedException> {
+            service(ServerModeProperties.ApprovalMode.LOOPBACK, loopback = loopback)
+                .requireApproval(null, "delete_message", mapOf("chat_id" to 1L))
+        }
+
+        assertTrue("did not answer within" in error.message.orEmpty())
+        assertFalse("operator declined" in error.message.orEmpty())
+    }
+
+    @Test
+    fun `a loopback start failure is reported as unavailable approval`() {
+        val loopback = mockk<LoopbackApprovalServer>(relaxed = true)
+        every { loopback.requestApproval(any(), any()) } throws
+            ApprovalEndpointException(java.io.IOException("synthetic bind failure"))
+
+        val error = assertFailsWith<ApprovalUnavailableException> {
+            service(ServerModeProperties.ApprovalMode.LOOPBACK, loopback = loopback)
+                .requireApproval(null, "ban_user", mapOf("chat_id" to 1L))
+        }
+
+        assertTrue("loopback approval endpoint could not be started" in error.message.orEmpty())
+        assertTrue("Check local socket permissions" in error.message.orEmpty())
+        assertFalse("set MCP_DESTRUCTIVE_APPROVAL=auto" in error.message.orEmpty())
+        assertTrue(error.cause is ApprovalEndpointException)
     }
 
     /** Loopback needs no client at all — that is the point of having it. */
     @Test
     fun `loopback works without an exchange`() {
         val loopback = mockk<LoopbackApprovalServer>(relaxed = true)
-        every { loopback.requestApproval(any(), any()) } returns true
+        every { loopback.requestApproval(any(), any()) } returns
+            LoopbackApprovalServer.ApprovalResult.APPROVED
 
         service(ServerModeProperties.ApprovalMode.LOOPBACK, loopback = loopback)
             .requireApproval(null, "ban_user", mapOf("chat_id" to 1L))
@@ -229,7 +267,8 @@ class DestructiveApprovalServiceTest {
     fun `the loopback description identifies the target without message content`() {
         val loopback = mockk<LoopbackApprovalServer>(relaxed = true)
         val description = slot<String>()
-        every { loopback.requestApproval(any(), capture(description)) } returns true
+        every { loopback.requestApproval(any(), capture(description)) } returns
+            LoopbackApprovalServer.ApprovalResult.APPROVED
 
         service(ServerModeProperties.ApprovalMode.LOOPBACK, loopback = loopback).requireApproval(
             null,
@@ -239,6 +278,31 @@ class DestructiveApprovalServiceTest {
 
         assertTrue("-1001" in description.captured && "77" in description.captured)
         assertFalse("IGNORE PREVIOUS INSTRUCTIONS" in description.captured)
+    }
+
+    @Test
+    fun `approval descriptions hide invite links and neutralize control characters`() {
+        val loopback = mockk<LoopbackApprovalServer>(relaxed = true)
+        val description = slot<String>()
+        every { loopback.requestApproval(any(), capture(description)) } returns
+            LoopbackApprovalServer.ApprovalResult.APPROVED
+
+        service(ServerModeProperties.ApprovalMode.LOOPBACK, loopback = loopback).requireApproval(
+            null,
+            "join_chat_by_link",
+            mapOf(
+                "account" to "work\r\nFORGED APPROVAL",
+                "link" to "https://t.me/+SecretInviteToken\u202E",
+                "invite_link" to "https://t.me/+AnotherSecret",
+            ),
+        )
+
+        assertTrue("account=work FORGED APPROVAL" in description.captured)
+        assertTrue("link=provided (value hidden)" in description.captured)
+        assertTrue("invite_link=provided (value hidden)" in description.captured)
+        assertFalse("SecretInviteToken" in description.captured)
+        assertFalse("AnotherSecret" in description.captured)
+        assertFalse('\r' in description.captured || '\n' in description.captured || '\u202E' in description.captured)
     }
 
     /** The operator should hear about a mismatch before a call fails, and only once. */

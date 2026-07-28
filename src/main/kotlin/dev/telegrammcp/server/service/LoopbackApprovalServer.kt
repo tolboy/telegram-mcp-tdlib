@@ -3,7 +3,6 @@ package dev.telegrammcp.server.service
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import dev.telegrammcp.server.util.StructuredLogger
-import java.io.IOException
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.URLDecoder
@@ -14,9 +13,10 @@ import java.time.Duration
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Asks a person to approve a destructive operation on a page the server hosts.
@@ -40,45 +40,59 @@ class LoopbackApprovalServer(
         System.err.println(line)
         System.err.flush()
     },
+    private val serverFactory: (InetSocketAddress, Int) -> HttpServer = { address, backlog ->
+        HttpServer.create(address, backlog)
+    },
 ) : AutoCloseable {
+
+    init {
+        require(!timeout.isZero && !timeout.isNegative) {
+            "Destructive approval timeout must be positive"
+        }
+    }
 
     private val log = StructuredLogger.forClass<LoopbackApprovalServer>()
     private val random = SecureRandom()
     private val pending = ConcurrentHashMap<String, PendingApproval>()
-    private val started = AtomicBoolean(false)
+    private val lifecycleLock = Any()
 
     @Volatile
     private var server: HttpServer? = null
 
+    @Volatile
+    private var executor: ExecutorService? = null
+
+    @Volatile
+    private var closed = false
+
     /**
      * Blocks until the operator answers, the request expires, or the wait is
-     * interrupted. Returns false for every one of those: an approval that did
-     * not arrive is not an approval.
+     * interrupted. Every non-approval has a distinct fail-closed result so the
+     * caller can report a denial separately from silence or shutdown.
      */
-    fun requestApproval(toolName: String, description: String): Boolean {
+    internal fun requestApproval(toolName: String, description: String): ApprovalResult {
         val approval = PendingApproval(
             id = randomToken(),
             nonce = randomToken(),
             toolName = toolName,
             description = description,
         )
-        val port = ensureStarted()
-        pending[approval.id] = approval
+        val port = startAndRegister(approval) ?: return ApprovalResult.UNAVAILABLE
         try {
             announce(
                 "APPROVAL REQUIRED for '$toolName' — $description\n" +
                     "Approve or deny within ${timeout.toSeconds()}s: " +
                     "http://127.0.0.1:$port/approve?id=${approval.id}&nonce=${approval.nonce}",
             )
-            val answered = approval.answered.await(timeout.toSeconds(), TimeUnit.SECONDS)
+            val answered = approval.answered.await(timeout.toMillis(), TimeUnit.MILLISECONDS)
             if (!answered) {
                 log.warn("Approval for '{}' expired after {}s", toolName, timeout.toSeconds())
-                return false
+                return ApprovalResult.TIMED_OUT
             }
-            return approval.approved
+            return approval.result()
         } catch (interrupted: InterruptedException) {
             Thread.currentThread().interrupt()
-            return false
+            return ApprovalResult.TIMED_OUT
         } finally {
             // Single use: the entry is gone whether it was answered, expired, or
             // interrupted, so a link can never authorise a second operation.
@@ -86,21 +100,42 @@ class LoopbackApprovalServer(
         }
     }
 
-    /** Starts the listener on first use and returns the bound port. */
-    private fun ensureStarted(): Int {
-        if (started.compareAndSet(false, true)) {
-            val created = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
-            created.createContext("/approve", ::handle)
-            created.executor = Executors.newCachedThreadPool { runnable ->
-                Thread(runnable, "approval-http").apply { isDaemon = true }
+    /**
+     * Starts the listener on first use and registers the request atomically with
+     * respect to [close]. A caller can therefore neither be registered after
+     * shutdown's snapshot nor wait on an endpoint that shutdown already missed.
+     */
+    private fun startAndRegister(approval: PendingApproval): Int? = synchronized(lifecycleLock) {
+        if (closed) return@synchronized null
+
+        var active = server
+        if (active == null) {
+            var created: HttpServer? = null
+            var createdExecutor: ExecutorService? = null
+            try {
+                // Do not use getLoopbackAddress(): it is allowed to return ::1,
+                // while the announced URL and security contract are explicitly IPv4.
+                created = serverFactory(InetSocketAddress(IPV4_LOOPBACK, 0), 0)
+                created.createContext("/approve", ::handle)
+                createdExecutor = Executors.newCachedThreadPool { runnable ->
+                    Thread(runnable, "approval-http").apply { isDaemon = true }
+                }
+                created.executor = createdExecutor
+                created.start()
+            } catch (error: Exception) {
+                created?.let { runCatching { it.stop(0) } }
+                createdExecutor?.shutdownNow()
+                throw ApprovalEndpointException(error)
             }
-            created.start()
+
             server = created
+            executor = createdExecutor
+            active = created
             log.info("Approval endpoint listening on 127.0.0.1:{}", created.address.port)
         }
-        // A racing caller may observe `started` before the field is published.
-        while (server == null) Thread.onSpinWait()
-        return server!!.address.port
+
+        pending[approval.id] = approval
+        active.address.port
     }
 
     private fun handle(exchange: HttpExchange) {
@@ -124,12 +159,16 @@ class LoopbackApprovalServer(
             when (exchange.requestMethod.uppercase()) {
                 "GET" -> respondHtml(exchange, page(approval))
                 "POST" -> {
-                    val decision = parseQuery(readBody(exchange))["decision"]
-                    approval.complete(decision == "approve")
+                    val body = readBody(exchange) ?: return
+                    val decision = parseQuery(body)["decision"]
+                    approval.complete(
+                        if (decision == "approve") ApprovalResult.APPROVED else ApprovalResult.DENIED,
+                    )
+                    pending.remove(approval.id, approval)
                     respondHtml(
                         exchange,
                         resultPage(
-                            if (approval.approved) "Approved" else "Denied",
+                            if (approval.result() == ApprovalResult.APPROVED) "Approved" else "Denied",
                             "${approval.toolName} — ${escape(approval.description)}",
                         ),
                     )
@@ -179,6 +218,10 @@ class LoopbackApprovalServer(
         exchange.responseHeaders.add("Cache-Control", "no-store")
         exchange.responseHeaders.add("X-Frame-Options", "DENY")
         exchange.responseHeaders.add("Referrer-Policy", "no-referrer")
+        exchange.responseHeaders.add(
+            "Content-Security-Policy",
+            "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+        )
         val bytes = html.toByteArray(StandardCharsets.UTF_8)
         exchange.sendResponseHeaders(200, bytes.size.toLong())
         exchange.responseBody.use { it.write(bytes) }
@@ -191,8 +234,19 @@ class LoopbackApprovalServer(
         exchange.responseBody.use { it.write(bytes) }
     }
 
-    private fun readBody(exchange: HttpExchange): String =
-        exchange.requestBody.readBytes().toString(StandardCharsets.UTF_8)
+    private fun readBody(exchange: HttpExchange): String? {
+        val declaredSize = exchange.requestHeaders.getFirst("Content-Length")?.toLongOrNull()
+        if (declaredSize != null && declaredSize > MAX_POST_BODY_BYTES) {
+            respond(exchange, 413, "Approval response is too large")
+            return null
+        }
+        val bytes = exchange.requestBody.readNBytes(MAX_POST_BODY_BYTES + 1)
+        if (bytes.size > MAX_POST_BODY_BYTES) {
+            respond(exchange, 413, "Approval response is too large")
+            return null
+        }
+        return bytes.toString(StandardCharsets.UTF_8)
+    }
 
     private fun parseQuery(raw: String?): Map<String, String> =
         raw.orEmpty()
@@ -230,12 +284,25 @@ class LoopbackApprovalServer(
     }
 
     override fun close() {
-        // Waiting callers are released before the listener goes: an in-flight
-        // approval must resolve to "not approved", never hang the shutdown.
-        pending.values.forEach { it.complete(false) }
-        pending.clear()
-        server?.let { runCatching { it.stop(0) }.onFailure { error -> log.warn("Approval endpoint did not stop cleanly: {}", error.message) } }
-        server = null
+        val toClose = synchronized(lifecycleLock) {
+            if (closed) return
+            closed = true
+            val snapshot = CloseSnapshot(server, executor, pending.values.toList())
+            server = null
+            executor = null
+            pending.clear()
+            snapshot
+        }
+
+        // Release waiters outside the lifecycle monitor before stopping the
+        // listener. PendingApproval is atomic, so a simultaneous POST and close
+        // have one stable winner and can never overwrite each other's decision.
+        toClose.approvals.forEach { it.complete(ApprovalResult.UNAVAILABLE) }
+        toClose.server?.let {
+            runCatching { it.stop(0) }
+                .onFailure { error -> log.warn("Approval endpoint did not stop cleanly: {}", error.message) }
+        }
+        toClose.executor?.shutdownNow()
     }
 
     /** The port in use, for tests and diagnostics; null before first use. */
@@ -248,19 +315,37 @@ class LoopbackApprovalServer(
         val description: String,
     ) {
         val answered = CountDownLatch(1)
+        private val decision = AtomicReference<ApprovalResult?>(null)
 
-        @Volatile
-        var approved: Boolean = false
-            private set
-
-        fun complete(decision: Boolean) {
-            if (answered.count == 0L) return
-            approved = decision
-            answered.countDown()
+        fun complete(decision: ApprovalResult) {
+            if (this.decision.compareAndSet(null, decision)) {
+                answered.countDown()
+            }
         }
+
+        fun result(): ApprovalResult = decision.get() ?: ApprovalResult.UNAVAILABLE
+    }
+
+    private data class CloseSnapshot(
+        val server: HttpServer?,
+        val executor: ExecutorService?,
+        val approvals: List<PendingApproval>,
+    )
+
+    private companion object {
+        private const val MAX_POST_BODY_BYTES = 4_096
+        private val IPV4_LOOPBACK: InetAddress =
+            InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1))
+    }
+
+    internal enum class ApprovalResult {
+        APPROVED,
+        DENIED,
+        TIMED_OUT,
+        UNAVAILABLE,
     }
 }
 
 /** Thrown when the approval listener cannot be started at all. */
-class ApprovalEndpointException(cause: IOException) :
+class ApprovalEndpointException(cause: Exception) :
     IllegalStateException("Could not start the loopback approval endpoint: ${cause.message}", cause)

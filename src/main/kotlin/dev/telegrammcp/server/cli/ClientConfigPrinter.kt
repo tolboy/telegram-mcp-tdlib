@@ -38,8 +38,11 @@ internal object ClientConfigPrinter {
         /** The object that holds server entries, for the JSON clients. */
         fun rootKey(): String = if (this == VSCODE) "servers" else "mcpServers"
 
-        /** Claude Code states the transport explicitly; the others infer it. */
-        fun declaresTransportType(): Boolean = this == CLAUDE_CODE
+        /** Claude Code and VS Code require an explicit local STDIO type. */
+        fun declaresStdioTransportType(): Boolean = this == CLAUDE_CODE || this == VSCODE
+
+        /** VS Code also requires an explicit type for remote HTTP servers. */
+        fun declaresHttpTransportType(): Boolean = this == CLAUDE_CODE || this == VSCODE
 
         companion object {
             fun parse(value: String): Client = entries.firstOrNull { it.id == value.lowercase() }
@@ -70,18 +73,20 @@ internal object ClientConfigPrinter {
         val entry = options.docker?.let { image ->
             listOf(
                 jsonField("command", "docker"),
-                """      "args": [${dockerArgs(options, image).joinToString(", ") { "\"$it\"" }}]""",
+                """      "args": [${dockerArgs(options, image).joinToString(", ", transform = ::jsonString)}]""",
             )
         } ?: listOf(
             jsonField("command", "telegram-mcp"),
             """      "args": ["serve", "--transport", "stdio"]""",
             """      "env": {
-${environmentEntries(options).joinToString(",\n") { (key, value) -> "        \"$key\": \"$value\"" }}
+${environmentEntries(options).joinToString(",\n") { (key, value) ->
+                "        ${jsonString(key)}: ${jsonString(value)}"
+            }}
       }""",
         )
 
         val fields = buildList {
-            if (options.client.declaresTransportType()) add(jsonField("type", "stdio"))
+            if (options.client.declaresStdioTransportType()) add(jsonField("type", "stdio"))
             addAll(entry)
         }
         return wrapJson(options.client, fields)
@@ -89,16 +94,15 @@ ${environmentEntries(options).joinToString(",\n") { (key, value) -> "        \"$
 
     /**
      * The shared-daemon topology from MULTI_CLIENT_DEPLOYMENT.md. Several
-     * clients — or one client that starts more than one server, as Claude
-     * Desktop does for Cowork — cannot each own a STDIO process, because a
-     * TDLib session admits exactly one.
+     * clients cannot each own a STDIO process because a TDLib session admits
+     * exactly one.
      */
     private fun renderHttp(options: Options): String {
         val url = requireNotNull(options.httpUrl)
         if (options.client.format == Format.TOML) {
             return """
                 |[mcp_servers.telegram]
-                |url = "$url"
+                |url = ${tomlString(url)}
                 |
                 |[mcp_servers.telegram.http_headers]
                 |Authorization = "Bearer <your-MCP_API_KEY>"
@@ -107,7 +111,7 @@ ${environmentEntries(options).joinToString(",\n") { (key, value) -> "        \"$
         return wrapJson(
             options.client,
             buildList {
-                if (options.client.declaresTransportType()) add(jsonField("type", "http"))
+                if (options.client.declaresHttpTransportType()) add(jsonField("type", "http"))
                 add(jsonField("url", url))
                 add(
                     """      "headers": {
@@ -120,11 +124,11 @@ ${environmentEntries(options).joinToString(",\n") { (key, value) -> "        \"$
 
     private fun renderToml(options: Options): String {
         val command = options.docker?.let { image ->
-            "command = \"docker\"\nargs = [${dockerArgs(options, image).joinToString(", ") { "\"$it\"" }}]"
+            "command = \"docker\"\nargs = [${dockerArgs(options, image).joinToString(", ", transform = ::tomlString)}]"
         } ?: "command = \"telegram-mcp\"\nargs = [\"serve\", \"--transport\", \"stdio\"]"
 
         val env = environmentEntries(options)
-            .joinToString("\n") { (key, value) -> "$key = \"$value\"" }
+            .joinToString("\n") { (key, value) -> "$key = ${tomlString(value)}" }
         return """
             |[mcp_servers.telegram]
             |$command
@@ -144,7 +148,60 @@ ${environmentEntries(options).joinToString(",\n") { (key, value) -> "        \"$
         |}
     """.trimMargin()
 
-    private fun jsonField(key: String, value: String) = """      "$key": "$value""""
+    private fun jsonField(key: String, value: String) = "      ${jsonString(key)}: ${jsonString(value)}"
+
+    /** JSON strings cannot interpolate paths or URLs verbatim: backslashes and quotes are syntax. */
+    private fun jsonString(value: String): String = buildString(value.length + 2) {
+        append('"')
+        value.forEach { character ->
+            when (character) {
+                '"' -> append("\\\"")
+                '\\' -> append("\\\\")
+                '\b' -> append("\\b")
+                '\u000C' -> append("\\f")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                else -> {
+                    if (character.code < 0x20 || character.code in 0xD800..0xDFFF) {
+                        appendUnicodeEscape(character)
+                    } else {
+                        append(character)
+                    }
+                }
+            }
+        }
+        append('"')
+    }
+
+    /** TOML basic strings use JSON-like escapes, but also forbid DEL. */
+    private fun tomlString(value: String): String = buildString(value.length + 2) {
+        append('"')
+        value.forEach { character ->
+            when (character) {
+                '"' -> append("\\\"")
+                '\\' -> append("\\\\")
+                '\b' -> append("\\b")
+                '\t' -> append("\\t")
+                '\n' -> append("\\n")
+                '\u000C' -> append("\\f")
+                '\r' -> append("\\r")
+                else -> {
+                    if (character.code < 0x20 || character.code == 0x7F) {
+                        appendUnicodeEscape(character)
+                    } else {
+                        append(character)
+                    }
+                }
+            }
+        }
+        append('"')
+    }
+
+    private fun StringBuilder.appendUnicodeEscape(character: Char) {
+        append("\\u")
+        append(character.code.toString(16).padStart(4, '0'))
+    }
 
     private fun dockerArgs(options: Options, image: String): List<String> = buildList {
         addAll(listOf("run", "-i", "--rm"))
@@ -156,6 +213,10 @@ ${environmentEntries(options).joinToString(",\n") { (key, value) -> "        \"$
             addAll(listOf("-e", inline))
         }
         add(image)
+        // Do not rely on the image's default transport. An explicit image may
+        // be the ordinary runtime tag rather than the -stdio variant, and a
+        // generated desktop config must still start an STDIO server.
+        addAll(listOf("serve", "--transport", "stdio"))
     }
 
     private fun environmentEntries(options: Options): List<Pair<String, String>> = buildList {
@@ -186,15 +247,18 @@ ${environmentEntries(options).joinToString(",\n") { (key, value) -> "        \"$
 
         if (options.httpUrl != null) {
             add(
-                "One shared HTTP daemon, because a TDLib session admits a single process. Claude Desktop " +
-                    "starts a second server for Cowork from the same config, which is why two STDIO entries " +
-                    "collide on the session lock.",
+                "Use one shared HTTP daemon when several clients need the account, because a TDLib session " +
+                    "admits a single process and competing STDIO children collide on its lock.",
             )
             add("Set MCP_API_KEY on the daemon and use the same value in the Authorization header.")
         } else if (options.docker != null) {
             add(
                 "The image tag is pinned on purpose: `docker run` never re-pulls a tag the machine " +
                     "already has, so a floating tag keeps starting the build it first cached.",
+            )
+            add(
+                "Replace the `TDLIB_API_HASH=<your-api-hash>` placeholder in the generated entry. " +
+                    "The generator never copies the host hash file into the container config.",
             )
         } else {
             add("`telegram-mcp` must be on PATH; the Homebrew and Scoop packages put it there.")

@@ -71,9 +71,9 @@ Then try a first prompt that cannot change anything:
 
 In this mode write and quota-consuming tools are absent from the tool list entirely, so the
 model has nothing destructive to call. Switch to `MCP_READ_ONLY=false` only after you have
-reviewed the surface. When you do, add `MCP_DESTRUCTIVE_APPROVAL=elicitation` so deletes,
-bans and leaves wait for your answer in the client rather than for the model's own
-`"confirmed": true`.
+reviewed the surface. When you do, add `MCP_DESTRUCTIVE_APPROVAL=auto` so deletes, bans and
+leaves wait for your answer through host elicitation where available, or through the
+server's loopback page otherwise, rather than trusting the model's own `"confirmed": true`.
 
 ## Connect your client
 
@@ -88,8 +88,13 @@ telegram-mcp config --client claude
 Code gets the `servers` key it actually reads, Claude Code gets the explicit
 transport `type`. `--writes` enables write tools and the approval prompt that
 guards the destructive ones, `--docker default` emits a container entry with a
-pinned image, and `--http default` emits the shared-daemon entry to use when more
-than one client — or Claude Desktop's own Cowork — needs the same account.
+pinned image, and `--http default` emits the shared-daemon entry for Claude Code,
+Cursor, VS Code, or Codex. Claude Desktop does not read remote servers from
+`claude_desktop_config.json`; add a network-reachable remote endpoint under
+Settings → Connectors instead. Claude remote connectors do not accept the
+generator's custom API-key header, so this server must be exposed over HTTPS
+with `MCP_AUTH_MODE=oauth`. The generator therefore rejects
+`--client claude --http`.
 
 STDIO is the low-friction path for desktop clients. The generated entry looks like:
 
@@ -116,8 +121,9 @@ STDIO is the low-friction path for desktop clients. The generated entry looks li
   for the installer build — the Microsoft Store build is packaged as MSIX and keeps its config
   in `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\` instead.
 - **Cursor** — add it to `~/.cursor/mcp.json` (or Settings → MCP → Add).
-- **VS Code** — use `.vscode/mcp.json`; VS Code names the top-level key `servers` instead of
-  `mcpServers`, otherwise the entry is identical.
+- **VS Code** — use `.vscode/mcp.json`; VS Code names the top-level key `servers`
+  instead of `mcpServers` and requires an explicit `"type": "stdio"` or
+  `"type": "http"`.
 
 For a managed HTTP deployment instead of STDIO:
 
@@ -265,8 +271,12 @@ The server starts on `http://localhost:8080`. Its MCP Streamable HTTP endpoint i
 
 1. Add a remote **Streamable HTTP** MCP server in your client with URL
    `http://127.0.0.1:8080/mcp` and `Authorization: Bearer <MCP_API_KEY>`.
-   The stable connection data for Claude Desktop, Cursor, VS Code, and
-   Inspector is kept in [MCP_CLIENT_COMPATIBILITY.md](docs/MCP_CLIENT_COMPATIBILITY.md).
+   Cursor, VS Code, Codex, Claude Code, and Inspector can use that local HTTP
+   endpoint. Claude Desktop's config file supports the local STDIO entry above;
+   its remote connectors are added through Settings → Connectors and require a
+   network-reachable HTTPS endpoint with `MCP_AUTH_MODE=oauth`, rather than this
+   loopback URL plus a custom header. Exact connection data is kept in
+   [MCP_CLIENT_COMPATIBILITY.md](docs/MCP_CLIENT_COMPATIBILITY.md).
 2. Start safely with `MCP_READ_ONLY=true` and one focused surface, for example
    `MCP_TOOL_PROFILE=inbox` or `MCP_TOOL_PROFILE=research`.
 3. Ask the client one of these concrete first questions:
@@ -431,7 +441,7 @@ Docker, mount the secret file into the container and set the container path.
 | `MCP_TRANSPORT`            | No       | `streamable-http` | `streamable-http` or `stdio`; CLI `--transport` wins |
 | `MCP_CONFIRMATION_REQUIRED`| No       | `true`          | Require caller acknowledgement (`"confirmed": true`) for destructive tools; not proof of human approval |
 | `MCP_DESTRUCTIVE_APPROVAL`| No       | `off`           | `auto` asks a human before each destructive tool — through the MCP host where supported, otherwise on a loopback page. Also `elicitation`, `loopback` |
-| `MCP_DESTRUCTIVE_APPROVAL_TIMEOUT`| No | `120s`        | How long a person has to answer before the operation is refused |
+| `MCP_DESTRUCTIVE_APPROVAL_TIMEOUT`| No | `120s`        | Loopback-page answer deadline; elicitation uses the MCP host/request deadline |
 | `MCP_FILE_ROOTS`           | No       | (deny all)      | Allowed root dirs for file operations    |
 | `MCP_AUDIT_ENABLED`        | No       | `true`          | Enable audit logging                     |
 | `MCP_AUDIT_LOG_ARGS`       | No       | `false`         | Include tool arguments in audit logs     |
@@ -552,6 +562,12 @@ Telegram account credentials and TDLib session data are sensitive. Start with a 
 `MCP_DESTRUCTIVE_APPROVAL=auto` closes that gap. Before each destructive tool a person is asked, and the answer comes back over a channel the model does not write to — so an injected instruction can make the model *request* a ban, but not approve one. The check runs before any Telegram call.
 
 Where the question appears depends on the client. Hosts that implement MCP elicitation show their own prompt. Most do not — Claude Desktop advertises no elicitation capability — so `auto` falls back to a page this server hosts on `127.0.0.1`, announcing the link on stderr where your client shows server output. That is not a weaker answer: the link is single use, nonce-protected, reachable only from your machine, and expires into a refusal. Force one route with `elicitation` or `loopback` if you would rather fail than fall back. This is the setting to enable on an account you care about.
+
+The loopback page belongs to the server process. Inside an un-published Docker
+network namespace, its `127.0.0.1` is not reachable from the host browser.
+Because `--writes` enables `auto`, the config generator rejects
+`--docker ... --writes`; use a native process/shared daemon, or an
+elicitation-capable host with an explicitly managed container configuration.
 
 An empty `TELEGRAM_ALLOWED_CHAT_IDS` grants the connector visibility across the
 whole selected Telegram account. Remote or model-facing deployments should set

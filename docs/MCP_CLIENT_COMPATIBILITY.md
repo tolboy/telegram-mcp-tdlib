@@ -13,7 +13,7 @@ after `initialize`. API-key deployments accept `Authorization: Bearer <key>`;
 | STDIO | Command `telegram-mcp serve --transport stdio`; secrets supplied through the client's secret/env mechanism | `scripts/mcp-stdio-smoke.ps1` and `.sh` verify JSON-only stdout, lifecycle and `tools/list` | Automated in CI/release images |
 | Streamable HTTP | URL `http(s)://host/mcp`, optional API-key header | `scripts/mcp-streamable-http-smoke.ps1` and `.sh` send `initialize`, `notifications/initialized`, and `tools/list` | Automated in CI/local checks |
 | MCP Inspector | Select **Streamable HTTP**, enter the endpoint and API-key header | Run the smoke script first, then use Inspector's Tools pane to list the same surface | Reproducible manual check |
-| Claude Desktop | Add the endpoint and `Authorization` header through the version's MCP/connector UI | Run the smoke script against the same endpoint before enabling the connector | Reproducible manual check |
+| Claude Desktop | Local servers use STDIO in `claude_desktop_config.json`; remote servers are added under Settings → Connectors and need network-reachable HTTPS plus this server's OAuth mode, not a custom API-key header | Smoke the endpoint before adding a remote connector; restart Desktop after changing local config | Reproducible manual check |
 | Cursor | Add a remote Streamable HTTP MCP server with the endpoint and header | Run the smoke script, then refresh the MCP server and inspect its tool list | Reproducible manual check |
 | VS Code | Add a remote HTTP MCP server with the endpoint and header in the version's MCP configuration UI/file | Run the smoke script, then use the MCP server view to list tools | Reproducible manual check |
 
@@ -30,10 +30,10 @@ silently:
 
 | Client | File | Shape |
 |---|---|---|
-| `claude` | `claude_desktop_config.json` | `mcpServers` object |
+| `claude` | `claude_desktop_config.json` | Local STDIO `mcpServers` object; remote HTTP is configured in Settings → Connectors, not this file |
 | `claude-code` | `~/.claude.json`, or `.mcp.json` in a project | `mcpServers` object with an explicit `type` |
 | `cursor` | `~/.cursor/mcp.json` | `mcpServers` object |
-| `vscode` | `.vscode/mcp.json` | `servers` — an `mcpServers` block here is ignored, which looks exactly like a broken server |
+| `vscode` | `.vscode/mcp.json` | `servers`; entries require an explicit `"type": "stdio"` or `"type": "http"` |
 | `codex` | `~/.codex/config.toml` | `[mcp_servers.<name>]` TOML tables, not JSON |
 
 Only clients whose shape was checked against a real configuration file are
@@ -41,20 +41,20 @@ listed; a generated entry that is wrong is worse than none. Clients that read a
 standard `mcpServers` object — Zed, LM Studio, Windsurf/Devin and others — take
 the `cursor` output unchanged, and only their file location differs.
 
-`--docker default` pins the running version instead of a floating tag, `--writes`
-turns on write tools together with the approval prompt that guards the
-destructive ones, and `--http` emits the shared-daemon entry described below.
+`--docker default` pins the running version instead of a floating tag and
+`--writes` turns on write tools together with human approval. Those two flags
+cannot be combined: an auto-fallback approval page bound inside an un-published
+container namespace is unreachable from the host browser. `--http` emits the
+shared-daemon entry described below and cannot be combined with daemon-side
+surface/credential flags (`--writes`, `--profile`, or `--api-id`).
 
 STDIO is a one-client/one-child-process transport. When several clients need
 the same Telegram account, use one shared Streamable HTTP process instead of
 letting every client compete for the same TDLib session lock:
-`telegram-mcp config --client <name> --http default` emits that entry.
-
-"Several clients" includes one application that starts more than one server.
-Claude Desktop runs Cowork alongside the main chat and starts a separate server
-for each from the same configuration, so a single STDIO entry there already
-produces two processes competing for one session — the loser reports a locked
-`td.binlog`. The topology and operational rules are in
+`telegram-mcp config --client <name> --http default` emits that entry for
+Claude Code, Cursor, VS Code, and Codex. Claude Desktop remote servers are not
+written to `claude_desktop_config.json`; add the already-running, externally
+reachable OAuth endpoint under Settings → Connectors. The topology and operational rules are in
 [Multi-client deployment](MULTI_CLIENT_DEPLOYMENT.md).
 
 ## MCP Inspector Via Docker Compose

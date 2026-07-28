@@ -43,9 +43,9 @@ data class ServerModeProperties(
         val approval: ApprovalMode = ApprovalMode.OFF,
 
         /**
-         * How long a person has to answer before the operation is refused.
-         * Refusing on silence is the safe direction, so this is a deadline
-         * rather than an indefinite wait.
+         * How long the loopback approval page waits before refusing the
+         * operation. Host elicitation uses the MCP request deadline negotiated
+         * by the SDK/host instead of this local-page timeout.
          */
         val approvalTimeout: Duration = Duration.ofSeconds(120),
     )
