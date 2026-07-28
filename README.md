@@ -87,7 +87,9 @@ telegram-mcp config --client claude
 `--client claude-code|cursor|vscode|codex` switches target — Codex gets TOML, VS
 Code gets the `servers` key it actually reads, Claude Code gets the explicit
 transport `type`. `--writes` enables write tools and the approval prompt that
-guards the destructive ones, `--docker default` emits a container entry with a
+guards the destructive ones — pair it with a write-capable
+`--profile inbox|community-admin|all`, since the default `reader` surface hides
+write tools before read-only mode is consulted. `--docker default` emits a container entry with a
 pinned image, and `--http default` emits the shared-daemon entry for Claude Code,
 Cursor, VS Code, or Codex. Claude Desktop does not read remote servers from
 `claude_desktop_config.json`; add a network-reachable remote endpoint under
@@ -564,10 +566,12 @@ Telegram account credentials and TDLib session data are sensitive. Start with a 
 Where the question appears depends on the client. Hosts that implement MCP elicitation show their own prompt. Most do not — Claude Desktop advertises no elicitation capability — so `auto` falls back to a page this server hosts on `127.0.0.1`, announcing the link on stderr where your client shows server output. That is not a weaker answer: the link is single use, nonce-protected, reachable only from your machine, and expires into a refusal. Force one route with `elicitation` or `loopback` if you would rather fail than fall back. This is the setting to enable on an account you care about.
 
 The loopback page belongs to the server process. Inside an un-published Docker
-network namespace, its `127.0.0.1` is not reachable from the host browser.
-Because `--writes` enables `auto`, the config generator rejects
-`--docker ... --writes`; use a native process/shared daemon, or an
-elicitation-capable host with an explicitly managed container configuration.
+network namespace, its `127.0.0.1` is the container's, not yours, so no host
+browser can open it. `telegram-mcp config --docker ... --writes` therefore
+generates `MCP_DESTRUCTIVE_APPROVAL=elicitation` rather than `auto`: a client
+that implements elicitation still asks you, and one that does not refuses the
+destructive tools outright instead of waiting on a page nobody can reach. Run
+the server natively when you want the loopback route.
 
 An empty `TELEGRAM_ALLOWED_CHAT_IDS` grants the connector visibility across the
 whole selected Telegram account. Remote or model-facing deployments should set

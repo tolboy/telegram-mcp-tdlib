@@ -48,7 +48,19 @@ data class ServerModeProperties(
          * by the SDK/host instead of this local-page timeout.
          */
         val approvalTimeout: Duration = Duration.ofSeconds(120),
-    )
+    ) {
+        init {
+            // Only the loopback page reads this deadline. Rejecting the value in
+            // modes that never use it would refuse a start over a setting the
+            // deployment does not depend on; accepting it where it *is* used
+            // would turn every destructive call into an instant refusal.
+            val usesLocalDeadline = approval == ApprovalMode.LOOPBACK || approval == ApprovalMode.AUTO
+            require(!usesLocalDeadline || (!approvalTimeout.isZero && !approvalTimeout.isNegative)) {
+                "MCP_DESTRUCTIVE_APPROVAL_TIMEOUT must be positive for the '${approval.name.lowercase()}' " +
+                    "approval mode; '$approvalTimeout' would refuse every destructive tool without asking"
+            }
+        }
+    }
 
     /**
      * Where the answer to "may this destructive operation proceed?" comes from.

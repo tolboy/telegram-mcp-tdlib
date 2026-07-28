@@ -387,7 +387,15 @@ jobs:
 
       # Promotion is deliberately last among the artifact gates. If
       # attestation or signing fails, only the run-scoped candidate tags exist;
-      # no user-facing tag is left pointing at an incomplete release.
+      # no user-facing tag is left pointing at an incomplete release. Those
+      # candidate tags survive the run as extra aliases of the very digest the
+      # release tags name, so they cannot be deleted afterwards: a GHCR version
+      # delete would take the published image with them.
+      #
+      # Everything above binds to a digest — the attestation subject, the cosign
+      # signature, `server.json`. Promotion is the one step that could break that
+      # binding by republishing the manifest under a new digest, so it asserts
+      # the result instead of assuming buildx copies the index untouched.
       - name: Promote verified and signed digests to final tags
         shell: bash
         env:
@@ -413,6 +421,18 @@ jobs:
               return 1
             }
             docker buildx imagetools create "$@" "${IMAGE}@${digest}"
+
+            # An unsigned, unattested tag is worse than a failed release: it
+            # looks exactly like a verified one to everyone who pulls it.
+            while IFS= read -r tag; do
+              [[ -n "$tag" ]] || continue
+              local promoted
+              promoted="$(docker buildx imagetools inspect "$tag" --format '{{.Manifest.Digest}}')"
+              [[ "$promoted" == "$digest" ]] || {
+                echo "Tag ${tag} resolves to ${promoted}, not the verified and signed ${digest}" >&2
+                return 1
+              }
+            done <<< "$tags"
           }
 
           promote_digest "$RUNTIME_DIGEST" "$RUNTIME_TAGS"

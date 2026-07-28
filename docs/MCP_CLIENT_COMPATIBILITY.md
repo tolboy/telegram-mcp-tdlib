@@ -42,9 +42,13 @@ standard `mcpServers` object — Zed, LM Studio, Windsurf/Devin and others — t
 the `cursor` output unchanged, and only their file location differs.
 
 `--docker default` pins the running version instead of a floating tag and
-`--writes` turns on write tools together with human approval. Those two flags
-cannot be combined: an auto-fallback approval page bound inside an un-published
-container namespace is unreachable from the host browser. `--http` emits the
+`--writes` turns on write tools together with human approval. `--writes` needs a
+write-capable `--profile` (`inbox`, `community-admin`, or `all`): the profile
+filter runs first, so the default `reader` surface would hide every write tool
+the flag just enabled. Combined with `--docker`, they
+pin `MCP_DESTRUCTIVE_APPROVAL=elicitation`: the fallback approval page would be
+bound inside the container's namespace, where no host browser can reach it, so
+a container asks through the client or refuses. `--http` emits the
 shared-daemon entry described below and cannot be combined with daemon-side
 surface/credential flags (`--writes`, `--profile`, or `--api-id`).
 

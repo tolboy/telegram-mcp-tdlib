@@ -31,9 +31,17 @@ import java.util.Collections
 class DestructiveApprovalService(
     private val props: ServerModeProperties,
     private val operationGuardService: OperationGuardService,
-    private val loopbackServer: LoopbackApprovalServer =
-        LoopbackApprovalServer(props.confirmation.approvalTimeout),
+    injectedLoopbackServer: LoopbackApprovalServer? = null,
 ) {
+
+    /**
+     * Built on first use, not at startup: the approval timeout is only binding
+     * for this route, so a deployment that never asks over loopback must not be
+     * refused a start over a value it does not use.
+     */
+    private val loopbackServer: Lazy<LoopbackApprovalServer> = injectedLoopbackServer
+        ?.let { lazyOf(it) }
+        ?: lazy { LoopbackApprovalServer(props.confirmation.approvalTimeout) }
 
     private val log = StructuredLogger.forClass<DestructiveApprovalService>()
 
@@ -154,7 +162,7 @@ class DestructiveApprovalService(
 
     private fun requireLoopback(toolName: String, description: String) {
         val result = try {
-            loopbackServer.requestApproval(toolName, description)
+            loopbackServer.value.requestApproval(toolName, description)
         } catch (error: ApprovalEndpointException) {
             log.warn("Destructive tool '{}' blocked — loopback approval is unavailable: {}", toolName, error.message)
             throw ApprovalUnavailableException(
@@ -206,15 +214,29 @@ class DestructiveApprovalService(
                     ?.let(::normalizeForDisplay)
                     ?.takeIf(String::isNotEmpty)
                     ?.let { value ->
-                        if (key == "link" || key == "invite_link") {
-                            "$key=provided (value hidden)"
-                        } else {
-                            "$key=$value"
-                        }
+                        if (key in LINK_ARGUMENTS) "$key=${redactLink(value)}" else "$key=$value"
                     }
             }
             .joinToString(", ")
         return target.ifEmpty { "no identifying arguments" }
+    }
+
+    /**
+     * Shows enough of an invite link to recognise it, and not enough to use it.
+     *
+     * `join_chat_by_link` has no other identifying argument, so hiding the value
+     * outright leaves the operator approving a chat they cannot name. The host
+     * and path stay; only the trailing secret is cut, which is the part that
+     * would otherwise let anyone reading the log or the terminal join too.
+     */
+    private fun redactLink(value: String): String {
+        val withoutScheme = value.substringAfter("://", value)
+        val path = withoutScheme.takeWhile { it != '?' && it != '#' }
+        val lastSlash = path.lastIndexOf('/')
+        val prefix = path.substring(0, lastSlash + 1)
+        val token = path.substring(lastSlash + 1)
+        val shown = token.take(LINK_TOKEN_PREFIX_LENGTH)
+        return if (shown.length < token.length) "$prefix$shown…" else "$prefix$shown"
     }
 
     /**
@@ -240,7 +262,8 @@ class DestructiveApprovalService(
 
     @PreDestroy
     fun shutdown() {
-        loopbackServer.close()
+        // Never force the endpoint into existence just to close it.
+        if (loopbackServer.isInitialized()) loopbackServer.value.close()
     }
 
     private companion object {
@@ -252,10 +275,18 @@ class DestructiveApprovalService(
             "message_id",
             "profile_photo_id",
             "folder_id",
+            // The only target `create_channel` and `create_supergroup` have.
+            // Unlike message text it is composed by the caller rather than
+            // arriving from a chat, and it is normalized before it is shown.
+            "title",
             "link",
             "invite_link",
         )
+
+        /** Values that identify a chat and authorise joining it in one string. */
+        private val LINK_ARGUMENTS = setOf("link", "invite_link")
         private val WHITESPACE = Regex("\\s+")
         private const val MAX_DISPLAY_VALUE_LENGTH = 256
+        private const val LINK_TOKEN_PREFIX_LENGTH = 8
     }
 }

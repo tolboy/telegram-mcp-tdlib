@@ -266,6 +266,28 @@ class LoopbackApprovalServerTest {
         }
     }
 
+    /** The confirmation page renders the same values back; so must it escape them. */
+    @Test
+    fun `the result page escapes what it echoes`() {
+        val announcer = Announcer()
+        LoopbackApprovalServer(Duration.ofSeconds(15), announcer.sink).use { server ->
+            val result = CompletableFuture.supplyAsync {
+                server.requestApproval("<img src=x onerror=alert(1)>", "chat_id=1")
+            }
+            val url = announcer.url()
+            val connection = URI(url).toURL().openConnection() as HttpURLConnection
+            connection.requestMethod = "POST"
+            connection.doOutput = true
+            connection.outputStream.use { it.write("decision=deny".toByteArray(StandardCharsets.UTF_8)) }
+            val body = connection.inputStream.use { it.readBytes().toString(StandardCharsets.UTF_8) }
+            connection.disconnect()
+
+            assertFalse("<img src=x" in body, "raw markup must not reach the confirmation page")
+            assertTrue("&lt;img src=x" in body, "the tool name must still be shown, escaped")
+            assertEquals(ApprovalResult.DENIED, result.get(20, TimeUnit.SECONDS))
+        }
+    }
+
     @Test
     fun `the listener binds only to loopback`() {
         val announcer = Announcer()

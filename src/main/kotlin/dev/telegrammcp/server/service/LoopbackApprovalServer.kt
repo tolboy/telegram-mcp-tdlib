@@ -169,7 +169,7 @@ class LoopbackApprovalServer(
                         exchange,
                         resultPage(
                             if (approval.result() == ApprovalResult.APPROVED) "Approved" else "Denied",
-                            "${approval.toolName} — ${escape(approval.description)}",
+                            "${escape(approval.toolName)} — ${escape(approval.description)}",
                         ),
                     )
                 }

@@ -20,6 +20,7 @@ import java.net.URI
 import java.security.SecureRandom
 import java.util.Base64
 import java.util.Properties
+import kotlin.system.exitProcess
 
 /** Stable command line shared by the JAR and runtime-inclusive launchers. */
 object TelegramMcpCli {
@@ -44,7 +45,11 @@ object TelegramMcpCli {
                 true
             }
             "config" -> {
-                printClientConfig(args.drop(1))
+                try {
+                    printClientConfig(args.drop(1))
+                } catch (invalid: IllegalArgumentException) {
+                    failUsage(invalid.message)
+                }
                 true
             }
             "version", "--version", "-V" -> {
@@ -59,8 +64,24 @@ object TelegramMcpCli {
         }
     }
 
+    /**
+     * Reports a rejected argument the way a command line is expected to.
+     *
+     * The generator refuses a dozen combinations that cannot work; a Kotlin
+     * stack trace buries the one line among them that says what to change.
+     */
+    private fun failUsage(message: String?): Nothing {
+        System.err.println("error: ${message ?: "invalid arguments"}")
+        System.err.println("Run `telegram-mcp help` for the accepted options.")
+        exitProcess(USAGE_EXIT_CODE)
+    }
+
     private fun runServer(arguments: List<String>) {
-        val invocation = resolveServerInvocation(arguments, System.getenv("MCP_TRANSPORT"))
+        val invocation = try {
+            resolveServerInvocation(arguments, System.getenv("MCP_TRANSPORT"))
+        } catch (invalid: IllegalStateException) {
+            failUsage(invalid.message)
+        }
         val builder = SpringApplicationBuilder(TelegramMcpApplication::class.java)
         if (invocation.transport == Transport.STDIO) {
             builder
@@ -132,14 +153,18 @@ object TelegramMcpCli {
                 "(MCP_AUTH_MODE=oauth). Claude Connectors cannot carry this generator's static API-key " +
                 "Authorization header. Alternatively, omit --http to generate STDIO config."
         }
-        require(dockerOption.value == null || !writes) {
-            "--docker cannot be combined with --writes until the Docker STDIO setup has an approval bridge; " +
-                "generate a read-only Docker entry or use a local installation."
-        }
 
         val profile = profileOption.value ?: "reader"
         require(profile in VALID_PROFILES) {
             "--profile must be one of ${VALID_PROFILES.joinToString("|")}"
+        }
+        // The profile filter runs before the read-only one, so a read-only
+        // profile hides every write tool no matter what MCP_READ_ONLY says.
+        // Emitting both settings would produce an entry that promises writes
+        // and lists none, and silently widening the surface instead is worse.
+        require(!writes || profile !in READ_ONLY_PROFILES) {
+            "--writes has no effect with the '$profile' profile: it hides every write tool before " +
+                "read-only mode is consulted. Add --profile inbox|community-admin|all."
         }
         val apiId = apiIdOption.value ?: "123456"
         val parsedApiId = apiId.toIntOrNull()
@@ -467,6 +492,12 @@ object TelegramMcpCli {
 
     /** Profile names accepted by `MCP_TOOL_PROFILE`, rejected here rather than at startup. */
     private val VALID_PROFILES = setOf("all", "reader", "inbox", "community-admin", "research")
+
+    /** Profiles whose definition already excludes every write tool. */
+    private val READ_ONLY_PROFILES = setOf("reader", "research")
+
+    /** Conventional shell exit status for a misused command. */
+    private const val USAGE_EXIT_CODE = 2
     private val RELEASE_VERSION = Regex("""\d+\.\d+\.\d+""")
     private val DOCKER_REPOSITORY_COMPONENT = Regex("""[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*""")
     private val DOCKER_REGISTRY_HOST =

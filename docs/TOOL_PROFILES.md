@@ -29,7 +29,8 @@ single-use, nonce-protected page on IPv4 loopback and prints the link to stderr.
 Both replies travel outside the model's turn. Select `elicitation` or `loopback`
 to require one route and fail closed when it is unavailable. A loopback page
 inside an un-published Docker network namespace is not reachable from the host,
-so generated Docker configs deliberately reject `--writes`.
+so a generated Docker entry with `--writes` pins `elicitation` instead of `auto`
+and refuses destructive tools on clients that cannot ask.
 
 For a custom surface, apply exact-name `MCP_TOOL_ALLOW` and `MCP_TOOL_DENY`
 filters. They run after the profile and before read-only filtering. Unknown

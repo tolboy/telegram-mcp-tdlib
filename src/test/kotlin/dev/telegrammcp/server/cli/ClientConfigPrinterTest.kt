@@ -312,12 +312,62 @@ class ClientConfigPrinterTest {
         }
     }
 
+    /**
+     * `auto` in a container promises a fallback it cannot deliver: the page is
+     * announced on the container's loopback, which no host browser can open.
+     * Pinning `elicitation` fails closed on clients that cannot ask instead.
+     */
     @Test
-    fun `docker writes are rejected until an approval bridge exists`() {
-        val error = assertFailsWith<IllegalArgumentException> {
-            TelegramMcpCli.resolveConfigOptions(listOf("--docker", "example.com/telegram-mcp:1.0", "--writes"))
+    fun `docker writes use the only approval route a container can serve`() {
+        val options = TelegramMcpCli.resolveConfigOptions(
+            listOf(
+                "--client", "vscode",
+                "--profile", "community-admin",
+                "--docker", "example.com/telegram-mcp:1.0",
+                "--writes",
+            ),
+        )
+        val entry = (parse(options)["servers"] as Map<*, *>)["telegram"] as Map<*, *>
+        val args = (entry["args"] as List<*>).map(Any?::toString)
+
+        assertTrue("MCP_DESTRUCTIVE_APPROVAL=elicitation" in args, "$args")
+        assertFalse("MCP_DESTRUCTIVE_APPROVAL=auto" in args, "an unreachable loopback page is not a fallback")
+        assertTrue(
+            ClientConfigPrinter.notes(options).any { "container's own 127.0.0.1" in it },
+            "the caller must learn why a container cannot show the loopback page",
+        )
+    }
+
+    @Test
+    fun `a native writes entry keeps the loopback fallback`() {
+        val options = TelegramMcpCli.resolveConfigOptions(
+            listOf("--client", "vscode", "--profile", "inbox", "--writes"),
+        )
+        val entry = (parse(options)["servers"] as Map<*, *>)["telegram"] as Map<*, *>
+
+        assertEquals("auto", (entry["env"] as Map<*, *>)["MCP_DESTRUCTIVE_APPROVAL"])
+    }
+
+    /**
+     * The profile filter runs before the read-only one, so `--writes` with the
+     * default profile would emit `MCP_READ_ONLY=false` next to a profile that
+     * still hides every write tool — a config that promises what it withholds.
+     */
+    @Test
+    fun `writes must name a profile that contains write tools`() {
+        listOf(emptyList(), listOf("--profile", "reader"), listOf("--profile", "research")).forEach { profile ->
+            val error = assertFailsWith<IllegalArgumentException>("must reject --writes with $profile") {
+                TelegramMcpCli.resolveConfigOptions(listOf("--client", "cursor", "--writes") + profile)
+            }
+            assertTrue("hides every write tool" in error.message.orEmpty())
         }
-        assertTrue("approval bridge" in error.message.orEmpty())
+
+        listOf("inbox", "community-admin", "all").forEach { profile ->
+            val options = TelegramMcpCli.resolveConfigOptions(
+                listOf("--client", "cursor", "--profile", profile, "--writes"),
+            )
+            assertFalse(options.readOnly, "$profile must keep writes enabled")
+        }
     }
 
     @Test

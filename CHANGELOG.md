@@ -5,22 +5,42 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+### Changed
+
+- `telegram-mcp config --writes` now requires a write-capable `--profile`
+  (`inbox`, `community-admin`, or `all`). The profile filter runs before the
+  read-only one, so the default `reader` surface produced an entry that set
+  `MCP_READ_ONLY=false` and still listed no write tool.
+- A generated Docker entry with `--writes` pins
+  `MCP_DESTRUCTIVE_APPROVAL=elicitation` instead of refusing to generate at all.
+  The loopback page a container would announce lives on the container's own
+  `127.0.0.1`, so `auto` promises a fallback nobody can answer; `elicitation`
+  asks through the client where that works and fails closed where it does not.
+
 ### Fixed
 
 - Human approval now binds explicitly to IPv4 loopback, preserves the selected
-  account in the approval description, redacts invite links/control characters,
-  caps request bodies, and has race-safe startup, completion, and shutdown.
+  account in the approval description, neutralizes control characters, caps
+  request bodies, and has race-safe startup, completion, and shutdown.
+- The approval prompt shows an invite link truncated to its host and path rather
+  than hiding it: `join_chat_by_link` carries no other target, so a hidden value
+  left the operator approving a chat they could not name. `create_channel` and
+  `create_supergroup` now show the title for the same reason.
+- The destructive-approval deadline is validated where it is read. A zero or
+  negative `MCP_DESTRUCTIVE_APPROVAL_TIMEOUT` stops startup in the modes that
+  use the loopback page, and no longer blocks a start that never opens one.
 - Signal handling is installed before blocking Spring startup and keeps its JVM
   hook alive through the bounded halt path, so termination during initialization
   cannot strand daemon-only cleanup or be mistaken for a clean smoke result.
-- Generated client entries reject unsupported Claude Desktop HTTP and
-  Docker-with-writes combinations, emit VS Code's required transport type, validate
-  and escape caller input, explicitly select STDIO for Docker images, and keep
-  notes off machine-readable stdout.
+- Generated client entries reject the unsupported Claude Desktop HTTP
+  combination, emit VS Code's required transport type, validate and escape
+  caller input, explicitly select STDIO for Docker images, and keep notes off
+  machine-readable stdout.
 - Release verification keeps user-facing tags behind the platform gates,
-  immutable-digest smokes, attestations, and signatures; the smoke scripts
-  cover current profile tools, macOS Bash 3.2, bounded signal exits, and
-  cleanup on failure.
+  immutable-digest smokes, attestations, and signatures; the promotion step
+  asserts that each published tag resolves to the digest that was verified and
+  signed. The smoke scripts cover current profile tools, macOS Bash 3.2,
+  bounded signal exits, and cleanup on failure.
 - Container health checks now match CLI-over-environment transport precedence
   and custom server ports. Release metadata verification also keeps
   `server.json`, its OCI tag, and the newest changelog version synchronized.

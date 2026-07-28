@@ -225,8 +225,13 @@ ${environmentEntries(options).joinToString(",\n") { (key, value) ->
         add("MCP_TOOL_PROFILE" to options.profile)
         add("MCP_READ_ONLY" to options.readOnly.toString())
         // Only meaningful once writes exist; gating tools that are never
-        // registered would just be noise.
-        if (!options.readOnly) add("MCP_DESTRUCTIVE_APPROVAL" to "auto")
+        // registered would just be noise. A container gets `elicitation`
+        // instead of `auto`: the loopback page would be announced on the
+        // container's own 127.0.0.1, which no host browser can open, so `auto`
+        // would fall back to a route that cannot be answered.
+        if (!options.readOnly) {
+            add("MCP_DESTRUCTIVE_APPROVAL" to if (options.docker != null) "elicitation" else "auto")
+        }
     }
 
     /** Guidance that belongs next to the block rather than inside it. */
@@ -260,6 +265,14 @@ ${environmentEntries(options).joinToString(",\n") { (key, value) ->
                 "Replace the `TDLIB_API_HASH=<your-api-hash>` placeholder in the generated entry. " +
                     "The generator never copies the host hash file into the container config.",
             )
+            if (!options.readOnly) {
+                add(
+                    "Destructive tools are set to `elicitation`, not `auto`: the loopback approval page " +
+                        "would be published on the container's own 127.0.0.1, which your browser cannot " +
+                        "reach. A client that does not implement MCP elicitation will therefore refuse " +
+                        "them outright — run the server natively if you need the loopback route.",
+                )
+            }
         } else {
             add("`telegram-mcp` must be on PATH; the Homebrew and Scoop packages put it there.")
         }
@@ -276,7 +289,10 @@ ${environmentEntries(options).joinToString(",\n") { (key, value) ->
             options.httpUrl != null ->
                 add("The tool surface comes from the daemon's MCP_TOOL_PROFILE and MCP_READ_ONLY, not from this entry.")
             options.readOnly ->
-                add("Read-only: write tools are absent from the tool list. Re-run with --writes when you need them.")
+                add(
+                    "Read-only: write tools are absent from the tool list. Re-run with --writes and a " +
+                        "write-capable --profile (inbox, community-admin, or all) when you need them.",
+                )
             else ->
                 add("Writes are enabled, so destructive tools ask a human for approval before running.")
         }
