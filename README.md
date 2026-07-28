@@ -84,9 +84,12 @@ actually expects and pins the version it was generated from:
 telegram-mcp config --client claude
 ```
 
-`--client cursor|vscode` switches target, `--writes` enables write tools and the
-approval prompt that guards the destructive ones, and `--docker default` emits a
-container entry with a pinned image instead of a local binary.
+`--client claude-code|cursor|vscode|codex` switches target — Codex gets TOML, VS
+Code gets the `servers` key it actually reads, Claude Code gets the explicit
+transport `type`. `--writes` enables write tools and the approval prompt that
+guards the destructive ones, `--docker default` emits a container entry with a
+pinned image, and `--http default` emits the shared-daemon entry to use when more
+than one client — or Claude Desktop's own Cowork — needs the same account.
 
 STDIO is the low-friction path for desktop clients. The generated entry looks like:
 

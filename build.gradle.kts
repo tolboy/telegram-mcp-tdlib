@@ -143,6 +143,9 @@ dependencies {
     testImplementation("org.springframework.security:spring-security-test")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testImplementation("io.mockk:mockk:$mockkVersion")
+    // Codex reads TOML, so the generated entry is checked with a real TOML
+    // parser rather than by looking for substrings.
+    testImplementation("com.fasterxml.jackson.dataformat:jackson-dataformat-toml")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test")
 }
 

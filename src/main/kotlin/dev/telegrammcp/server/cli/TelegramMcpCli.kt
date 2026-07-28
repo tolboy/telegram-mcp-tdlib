@@ -105,9 +105,13 @@ object TelegramMcpCli {
         val profileOption = extractOption(clientOption.remaining, "--profile")
         val apiIdOption = extractOption(profileOption.remaining, "--api-id")
         val dockerOption = extractOption(apiIdOption.remaining, "--docker")
-        val writes = "--writes" in dockerOption.remaining
-        val remaining = dockerOption.remaining.filterNot { it == "--writes" }
+        val httpOption = extractOption(dockerOption.remaining, "--http")
+        val writes = "--writes" in httpOption.remaining
+        val remaining = httpOption.remaining.filterNot { it == "--writes" }
         require(remaining.isEmpty()) { "Unknown config argument(s): ${remaining.joinToString(" ")}" }
+        require(httpOption.value == null || dockerOption.value == null) {
+            "--http connects to a running daemon, so it cannot be combined with --docker"
+        }
 
         val profile = profileOption.value ?: "reader"
         require(profile in VALID_PROFILES) {
@@ -122,6 +126,9 @@ object TelegramMcpCli {
             // tag never floats to whatever the machine happened to cache.
             docker = dockerOption.value?.let { image ->
                 if (image == "default") "ghcr.io/tolboy/telegram-mcp-tdlib:${version()}-stdio" else image
+            },
+            httpUrl = httpOption.value?.let { url ->
+                if (url == "default") "http://127.0.0.1:8080/mcp" else url
             },
         )
     }
@@ -355,8 +362,9 @@ object TelegramMcpCli {
         println("Usage:")
         println("  telegram-mcp serve [--transport streamable-http|stdio] [Spring options]")
         println("  telegram-mcp auth [--account <label>] [--method qr|phone] [--no-browser]")
-        println("  telegram-mcp config [--client claude|cursor|vscode] [--profile <name>] [--writes]")
-        println("                      [--api-id <id>] [--docker default|<image>]")
+        println("  telegram-mcp config [--client claude|claude-code|cursor|vscode|codex] [--profile <name>]")
+        println("                      [--writes] [--api-id <id>] [--docker default|<image>]")
+        println("                      [--http default|<url>]")
         println("  telegram-mcp session <doctor|logout|clear> [options]")
         println("  telegram-mcp version")
         println()

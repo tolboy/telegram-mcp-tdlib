@@ -22,10 +22,39 @@ connection data above intentionally avoids pinning an outdated vendor-specific
 snippet. Do not place an API key in a committed client configuration file; use
 that client's secret/input-variable mechanism.
 
+## Generated Client Entries
+
+`telegram-mcp config --client <name>` writes the entry for a client rather than
+leaving it to be transcribed. The differences it handles are the ones that fail
+silently:
+
+| Client | File | Shape |
+|---|---|---|
+| `claude` | `claude_desktop_config.json` | `mcpServers` object |
+| `claude-code` | `~/.claude.json`, or `.mcp.json` in a project | `mcpServers` object with an explicit `type` |
+| `cursor` | `~/.cursor/mcp.json` | `mcpServers` object |
+| `vscode` | `.vscode/mcp.json` | `servers` — an `mcpServers` block here is ignored, which looks exactly like a broken server |
+| `codex` | `~/.codex/config.toml` | `[mcp_servers.<name>]` TOML tables, not JSON |
+
+Only clients whose shape was checked against a real configuration file are
+listed; a generated entry that is wrong is worse than none. Clients that read a
+standard `mcpServers` object — Zed, LM Studio, Windsurf/Devin and others — take
+the `cursor` output unchanged, and only their file location differs.
+
+`--docker default` pins the running version instead of a floating tag, `--writes`
+turns on write tools together with the approval prompt that guards the
+destructive ones, and `--http` emits the shared-daemon entry described below.
+
 STDIO is a one-client/one-child-process transport. When several clients need
 the same Telegram account, use one shared Streamable HTTP process instead of
-letting every client compete for the same TDLib session lock. The topology and
-operational rules are in
+letting every client compete for the same TDLib session lock:
+`telegram-mcp config --client <name> --http default` emits that entry.
+
+"Several clients" includes one application that starts more than one server.
+Claude Desktop runs Cowork alongside the main chat and starts a separate server
+for each from the same configuration, so a single STDIO entry there already
+produces two processes competing for one session — the loser reports a locked
+`td.binlog`. The topology and operational rules are in
 [Multi-client deployment](MULTI_CLIENT_DEPLOYMENT.md).
 
 ## MCP Inspector Via Docker Compose

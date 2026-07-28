@@ -3,6 +3,22 @@
 Notable changes to Telegram MCP Server are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.13.0 - 2026-07-28
+
+### Added
+
+- `telegram-mcp config` covers Claude Code and Codex, and can emit a shared HTTP
+  daemon entry. The differences it handles are the ones that fail silently:
+  Codex reads TOML tables rather than JSON, VS Code reads `servers` and ignores
+  an `mcpServers` block, and Claude Code states the transport `type` the others
+  omit. Only shapes checked against a real configuration file are generated —
+  clients that read a standard `mcpServers` object take the `cursor` output
+  unchanged, and that is now stated instead of guessed at.
+- `--http` emits the entry for the shared-daemon topology, which is what a
+  second client needs. Claude Desktop is already that case on its own: it starts
+  a separate server for Cowork from the same configuration, so one STDIO entry
+  there produces two processes competing for a session that admits one.
+
 ## 1.12.0 - 2026-07-28
 
 ### Added
