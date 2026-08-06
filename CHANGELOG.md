@@ -3,7 +3,7 @@
 Notable changes to Telegram MCP Server are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 1.15.0 - 2026-08-06
 
 ### Added
 
