@@ -3,6 +3,17 @@
 Notable changes to Telegram MCP Server are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- `_manifest` reports `serverVersion` alongside `schemaVersion`. The manifest
+  described the tool surface but not the build behind it, so two releases were
+  indistinguishable from the server's own answer. The value comes from the
+  jar's Spring Boot build metadata rather than `spring.ai.mcp.server.version`,
+  which `MCP_SERVER_VERSION` can override — a version the deployment can
+  rewrite proves nothing about what is running.
+
 ## 1.14.0 - 2026-07-28
 
 ### Changed

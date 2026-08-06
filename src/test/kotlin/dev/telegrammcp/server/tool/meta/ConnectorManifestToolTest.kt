@@ -14,6 +14,8 @@ import io.modelcontextprotocol.server.McpSyncServerExchange
 import io.modelcontextprotocol.spec.McpSchema
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.ObjectProvider
+import org.springframework.boot.info.BuildProperties
+import java.util.Properties
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -71,6 +73,7 @@ class ConnectorManifestToolTest {
         assertFalse(result.isError)
         val payload = objectMapper.readTree((result.content.first() as McpSchema.TextContent).text())
         assertEquals("telegram-mcp", payload["connector"].asText())
+        assertEquals("unknown", payload["serverVersion"].asText())
         assertEquals(5, payload["toolCount"].asInt())
         assertEquals(listOf("self"), payload["selfChatAliases"].map { it.asText() })
         assertTrue(payload["toolGroups"]["messages"].any { it.asText() == "send_message" })
@@ -113,6 +116,27 @@ class ConnectorManifestToolTest {
 
         assertEquals("inbox", payload["toolProfile"].asText())
         assertEquals(listOf("_manifest", "get_history", "send_message"), payload["tools"].map { it["name"].asText() })
+    }
+
+    @Test
+    fun `manifest reports the build version so a caller can tell releases apart`() {
+        val manifestTool = ConnectorManifestTool(
+            handlersProvider = handlersProvider(listOf(fakeTool("get_history", "Read history"))),
+            serverMode = ServerModeProperties(),
+            toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.READER)),
+            auditService = mockk<AuditService>(relaxed = true),
+            objectMapper = objectMapper,
+            meterRegistry = SimpleMeterRegistry(),
+            buildProperties = BuildProperties(
+                Properties().apply { setProperty("version", "1.15.0") },
+            ),
+        )
+
+        val result = manifestTool.execute(mockk<McpSyncServerExchange>(relaxed = true), emptyMap())
+        val payload = objectMapper.readTree((result.content.first() as McpSchema.TextContent).text())
+
+        assertEquals("1.15.0", payload["serverVersion"].asText())
+        assertEquals(1, payload["schemaVersion"].asInt())
     }
 
     private fun handlersProvider(handlers: List<McpToolHandler>): ObjectProvider<McpToolHandler> =

@@ -337,6 +337,12 @@ CI runs on every pull request and push to `master`. A signed-off release is a Gi
 
 Use a concrete semver tag for reproducible deployments. `v1.0.0` is the first Streamable HTTP / MCP SDK 2.0 public baseline; `v1.1.0` adds account isolation, scoped keys, and cross-platform native packaging; `v1.2.0` adds premium voice-note transcription and the neutral package namespace; `v1.3.0` adds privacy, bot-command, detailed group-permission controls, and verified release bundles; `v1.4.0` adds focused MCP tool profiles; `v1.7.x` adds the STDIO transport, CLI with an interactive auth wizard, structured tool output, optional OAuth resource-server mode, and runtime-inclusive release images; `v1.13.0` adds human approval for destructive tools over the host or a loopback page, and `telegram-mcp config` to generate client entries; `v1.14.0` ties every published image tag to the digest that passed verification and signing. The complete history is in [CHANGELOG.md](CHANGELOG.md).
 
+To find out which release is actually answering, call the `_manifest` tool: the
+response carries `serverVersion` next to `schemaVersion`. It is read from the
+jar's own build metadata — the Gradle version derived from the release tag — so
+`MCP_SERVER_VERSION` cannot rewrite it, and `telegram-mcp version` on the same
+artifact prints the same string.
+
 > The current TDLight native release publishes an Apple-silicon macOS binary but not an Intel macOS classifier. The server supports Intel macOS at the JVM/path level, but TDLib-backed Telegram access on that platform requires an upstream native package before it can run.
 
 To create the runtime-inclusive app image for the current matching platform:
@@ -782,7 +788,7 @@ all-administrator, chat, chat-administrator, and chat-member scopes.
 
 | Tool | Description |
 |------|-------------|
-| `_manifest` | Return a compact self-description and grouped tool inventory |
+| `_manifest` | Return a compact self-description and grouped tool inventory, including the running release in `serverVersion` |
 | `list_accounts` | List account-routing labels visible to the authenticated MCP client |
 | `register_internal_chat` | Mark an operator control chat as internal anti-spam context (destructive, requires confirmation — it loosens rate limits for that chat) |
 

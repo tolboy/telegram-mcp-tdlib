@@ -12,6 +12,7 @@ import io.micrometer.core.instrument.MeterRegistry
 import io.modelcontextprotocol.server.McpSyncServerExchange
 import io.modelcontextprotocol.spec.McpSchema
 import org.springframework.beans.factory.ObjectProvider
+import org.springframework.boot.info.BuildProperties
 import org.springframework.stereotype.Component
 
 /**
@@ -29,6 +30,7 @@ class ConnectorManifestTool(
     private val auditService: AuditService,
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
+    private val buildProperties: BuildProperties? = null,
 ) : AccountAgnosticMcpToolHandler {
 
     private val log = StructuredLogger.forClass<ConnectorManifestTool>()
@@ -43,6 +45,9 @@ class ConnectorManifestTool(
           "required": []
         }
         """.trimIndent()
+
+        /** Reported when the jar carries no build metadata; see [serverVersion]. */
+        const val UNKNOWN_VERSION = "unknown"
 
         private val SELF_CHAT_ALIASES = listOf("self")
 
@@ -209,6 +214,7 @@ class ConnectorManifestTool(
         val toolNames = tools.map { it.name }
         return linkedMapOf(
             "schemaVersion" to 1,
+            "serverVersion" to serverVersion(),
             "connector" to "telegram-mcp",
             "manifest" to "Telegram user-account connector for messages, chats, Saved Messages, media, drafts, contacts, administration, and read-only public search.",
             "toolProfile" to toolSurfacePolicy.profile.name.lowercase().replace('_', '-'),
@@ -225,6 +231,18 @@ class ConnectorManifestTool(
             "tools" to tools,
         )
     }
+
+    /**
+     * The release the running jar was built from, taken from Spring Boot
+     * build metadata (= the Gradle version derived from the git tag).
+     *
+     * Deliberately not `spring.ai.mcp.server.version`: that one is overridable
+     * through `MCP_SERVER_VERSION`, and a version the deployment can rewrite
+     * proves nothing about what is actually running. A jar without build
+     * metadata cannot reach Telegram at all — TdLibConfig refuses to build
+     * client settings — so `unknown` marks a build that serves nothing.
+     */
+    private fun serverVersion(): String = buildProperties?.version ?: UNKNOWN_VERSION
 
     private fun groupToolNames(toolNames: List<String>): Map<String, List<String>> {
         fun List<String>.matching(allowed: Set<String>): List<String> = filter { it in allowed }
