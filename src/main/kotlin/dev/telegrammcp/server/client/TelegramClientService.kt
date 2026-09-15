@@ -488,7 +488,10 @@ interface TelegramClientService {
     /** Removes a previously placed emoji reaction from a message. */
     fun removeReaction(chatId: Long, messageId: Long, emoji: String): Boolean
 
-    /** Returns added reactions for a message (who placed what). */
+    /**
+     * Returns reaction counts for a message and, when Telegram permits it,
+     * the senders who placed them.
+     */
     fun getMessageReactions(chatId: Long, messageId: Long, limit: Int = 50): MessageReactionSummary
 
     /** Sends a poll to a chat. */
@@ -673,4 +676,3 @@ interface TelegramClientService {
     /** Returns groups and channels the current account shares with the given user. */
     fun getGroupsInCommon(userId: Long, limit: Int = 50): List<ChatInfo>
 }
-

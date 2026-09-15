@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.model.MessageReactionSummary
+import dev.telegrammcp.server.model.ReactionCount
 import dev.telegrammcp.server.model.ReactionInfo
 import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
@@ -80,6 +81,30 @@ class GetMessageReactionsToolTest {
 
         assertFalse(result.isError)
         verify { telegramClient.getMessageReactions(42L, 100L, 10) }
+    }
+
+    @Test
+    fun `returns aggregate counts when sender details are unavailable`() {
+        val summary = MessageReactionSummary(
+            chatId = 42,
+            messageId = 100,
+            reactions = emptyList(),
+            reactionCounts = listOf(ReactionCount(emoji = "👍", totalCount = 12)),
+            canGetAddedReactions = false,
+        )
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.getMessageReactions(42L, 100L, 50) } returns summary
+
+        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to 100))
+
+        assertFalse(result.isError)
+        val text = (result.content.first() as McpSchema.TextContent).text()
+        val json = objectMapper.readTree(text)
+        assertEquals(12, json["totalCount"].asInt())
+        assertEquals(12, json["reactionCounts"][0]["totalCount"].asInt())
+        assertEquals("👍", json["reactionCounts"][0]["emoji"].asText())
+        assertFalse(json["canGetAddedReactions"].asBoolean())
+        assertEquals(0, json["reactions"].size())
     }
 
     @Test

@@ -219,6 +219,9 @@ data class MessageReactionSummary(
     val chatId: Long,
     val messageId: Long,
     val reactions: List<ReactionInfo>,
+    val reactionCounts: List<ReactionCount> = emptyList(),
+    val totalCount: Int = reactionCounts.sumOf { it.totalCount },
+    val canGetAddedReactions: Boolean = true,
 )
 
 /** A single reaction entry with the sender who placed it. */
@@ -228,6 +231,13 @@ data class ReactionInfo(
     val senderName: String? = null,
     val isOutgoing: Boolean = false,
     val date: Instant? = null,
+)
+
+/** Aggregate count for one reaction type, available even when Telegram hides senders. */
+data class ReactionCount(
+    val emoji: String,
+    val totalCount: Int,
+    val isChosen: Boolean = false,
 )
 
 /** Information about a Telegram forum topic. */
