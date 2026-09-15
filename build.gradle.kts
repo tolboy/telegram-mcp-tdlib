@@ -1,11 +1,11 @@
-﻿import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.nio.file.Path
 import java.util.zip.ZipFile
 
 plugins {
     kotlin("jvm") version "2.4.0"
     kotlin("plugin.spring") version "2.4.0"
-    id("org.springframework.boot") version "4.1.0"
+    id("org.springframework.boot") version "4.1.1"
     id("io.spring.dependency-management") version "1.1.7"
 }
 
@@ -72,8 +72,8 @@ repositories {
 }
 
 // ─── Dependency versions not managed by Spring Boot BOM ─────────────────────
-val mcpSdkVersion = "2.0.0"
-val springAiMcpVersion = "2.0.0"
+val mcpSdkVersion = "2.0.1"
+val springAiMcpVersion = "2.0.1"
 val tdlightVersion = "3.5.3+td.1.8.65"
 val tdlightNativesVersion = "4.0.589"
 val resilience4jVersion = "2.4.0"
