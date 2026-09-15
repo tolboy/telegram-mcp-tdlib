@@ -8,6 +8,9 @@ updates:
     groups:
       kotlin-and-spring:
         patterns:
+          # Kotlin DSL plugin IDs are reported without Maven coordinates.
+          - "jvm"
+          - "plugin.spring"
           - "org.jetbrains.kotlin*"
           - "org.springframework*"
           - "io.modelcontextprotocol.sdk*"

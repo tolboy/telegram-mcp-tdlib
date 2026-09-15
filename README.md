@@ -645,7 +645,7 @@ The full inventory is grouped below. In practice you start with a
 | `mark_as_read` | Mark messages as read |
 | `send_reaction` | Add an emoji reaction to a message (requires confirmation) |
 | `remove_reaction` | Remove an emoji reaction from a message (requires confirmation) |
-| `get_message_reactions` | List all reactions on a message with senders |
+| `get_message_reactions` | Get reaction counts and list senders when Telegram permits it |
 | `create_poll` | Send a poll (anonymous or public, single or multi-answer) |
 | `vote_poll` | Vote in a poll by 0-based option indexes |
 | `close_poll` | Permanently close a poll (destructive, requires confirmation) |

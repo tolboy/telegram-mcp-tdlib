@@ -10,6 +10,7 @@ import io.github.resilience4j.ratelimiter.RateLimiter
 import io.github.resilience4j.ratelimiter.RequestNotPermitted
 import io.micrometer.core.instrument.MeterRegistry
 import it.tdlight.client.SimpleTelegramClient
+import it.tdlight.client.TelegramError
 import it.tdlight.jni.TdApi
 import java.time.Instant
 import java.util.concurrent.CompletableFuture
@@ -982,6 +983,35 @@ class TdLibClientService(
     override fun getMessageReactions(chatId: Long, messageId: Long, limit: Int): MessageReactionSummary {
         log.info("Fetching reactions for message {} in chat {} (limit={})", messageId, chatId, limit)
 
+        val message = withResilience("getMessage") {
+            send<TdApi.Message>(TdApi.GetMessage(chatId, messageId))
+        }
+        val messageReactions = message.interactionInfo?.reactions
+        val reactionCounts = messageReactions?.reactions?.map { reaction ->
+            ReactionCount(
+                emoji = reactionTypeLabel(reaction.type),
+                totalCount = reaction.totalCount,
+                isChosen = reaction.isChosen,
+            )
+        } ?: emptyList()
+
+        fun summary(
+            reactions: List<ReactionInfo>,
+            canGetAddedReactions: Boolean,
+        ) = MessageReactionSummary(
+            chatId = chatId,
+            messageId = messageId,
+            reactions = reactions,
+            reactionCounts = reactionCounts,
+            canGetAddedReactions = canGetAddedReactions,
+        )
+
+        // Broadcast channels expose aggregate counters on the message but not
+        // the list of users behind them. TDLib advertises this explicitly.
+        if (messageReactions?.canGetAddedReactions == false) {
+            return summary(emptyList(), canGetAddedReactions = false)
+        }
+
         val request = TdApi.GetMessageAddedReactions().apply {
             this.chatId = chatId
             this.messageId = messageId
@@ -989,16 +1019,26 @@ class TdLibClientService(
             this.offset = ""
             this.limit = limit.coerceIn(1, 100)
         }
-        val result = withResilience("getMessageAddedReactions") {
-            send<TdApi.AddedReactions>(request)
+        val result = try {
+            withResilience("getMessageAddedReactions") {
+                send<TdApi.AddedReactions>(request)
+            }
+        } catch (error: TelegramError) {
+            // Protect against stale/missing canGetAddedReactions metadata. The
+            // aggregate counters above are still valid for broadcast posts.
+            if (error.errorCode == 403 && error.errorMessage == "BROADCAST_FORBIDDEN") {
+                log.info(
+                    "Telegram hides reaction senders for broadcast message {} in chat {}; returning counts only",
+                    messageId,
+                    chatId,
+                )
+                return summary(emptyList(), canGetAddedReactions = false)
+            }
+            throw error
         }
 
         val reactions = result.reactions?.map { r ->
-            val emoji = when (val t = r.type) {
-                is TdApi.ReactionTypeEmoji -> t.emoji ?: ""
-                is TdApi.ReactionTypeCustomEmoji -> "custom:${t.customEmojiId}"
-                else -> t?.javaClass?.simpleName ?: "unknown"
-            }
+            val emoji = reactionTypeLabel(r.type)
             val (senderId, senderName) = when (val s = r.senderId) {
                 is TdApi.MessageSenderUser -> {
                     val user = getUserSafe(s.userId)
@@ -1024,7 +1064,14 @@ class TdLibClientService(
             )
         } ?: emptyList()
 
-        return MessageReactionSummary(chatId, messageId, reactions)
+        return summary(reactions, canGetAddedReactions = true)
+    }
+
+    private fun reactionTypeLabel(type: TdApi.ReactionType?): String = when (type) {
+        is TdApi.ReactionTypeEmoji -> type.emoji ?: ""
+        is TdApi.ReactionTypeCustomEmoji -> "custom:${type.customEmojiId}"
+        is TdApi.ReactionTypePaid -> "paid"
+        else -> type?.javaClass?.simpleName ?: "unknown"
     }
 
     override fun sendPoll(

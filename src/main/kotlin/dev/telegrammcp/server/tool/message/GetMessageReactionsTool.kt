@@ -16,8 +16,8 @@ import org.springframework.stereotype.Component
 /**
  * MCP tool: **get_message_reactions**
  *
- * Returns the list of reactions placed on a message, including which sender
- * placed which emoji.
+ * Returns aggregate reaction counts and, when Telegram permits it, which
+ * sender placed which reaction.
  */
 @Component
 class GetMessageReactionsTool(
@@ -50,7 +50,7 @@ class GetMessageReactionsTool(
 
     override fun definition(): McpSchema.Tool = ToolSupport.definition(
         name = TOOL_NAME,
-        description = "List all reactions placed on a specific message, including who placed them",
+        description = "Get reaction counts for a message and list senders when Telegram permits it",
         inputSchema = INPUT_SCHEMA,
         objectMapper = objectMapper,
     )
