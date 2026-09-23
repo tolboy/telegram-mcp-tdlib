@@ -3,6 +3,29 @@
 Notable changes to Telegram MCP Server are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.16.1 - 2026-09-23
+
+### Security
+
+- Enable Spring CSRF protection for HTTP requests, including keyless loopback
+  access. A third-party page must not be able to submit a form to local
+  `/auth/logout` or other state-changing endpoints. Validated API-key headers,
+  OAuth Bearer authentication, and the auth wizard's validated nonce continue
+  to work without an additional CSRF token. Direct HTTP scripts must send an
+  API key even on localhost, or supply a valid CSRF token. STDIO is unaffected.
+- Add security-filter-chain regression coverage for CSRF rejection, valid and
+  invalid API keys, the auth wizard nonce, and OAuth Bearer handling.
+
+### Fixed
+
+- Return aggregate reaction counts for broadcast channels when Telegram does
+  not expose individual senders.
+
+### Maintenance
+
+- Update Spring Boot, Spring AI/MCP, Gradle, and pinned GitHub Actions; keep
+  Kotlin at 2.4.0 for compatibility with the CodeQL analyzer.
+
 ## 1.16.0 - 2026-08-22
 
 ### Added

@@ -12,9 +12,11 @@ import org.springframework.security.authorization.AuthorizationDecision
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity
 import org.springframework.security.config.http.SessionCreationPolicy
+import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter
 import org.springframework.security.web.SecurityFilterChain
-import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter
+import org.springframework.security.web.csrf.CsrfFilter
+import org.springframework.security.web.util.matcher.RequestMatcher
 import java.net.InetAddress
 import java.net.URI
 
@@ -33,7 +35,16 @@ class SecurityConfig(
     @Bean
     fun securityFilterChain(http: HttpSecurity): SecurityFilterChain {
         val configured = http
-            .csrf { it.disable() }
+            .csrf { csrf ->
+                // Only credentials explicitly validated from request headers bypass
+                // CSRF. In particular, loopback/local-dev is not a CSRF boundary:
+                // a hostile website can submit a form to a localhost service.
+                // OAuth resource-server config supplies its own Bearer exemption.
+                csrf.ignoringRequestMatchers(RequestMatcher {
+                    val authentication = SecurityContextHolder.getContext().authentication
+                    authentication is ApiKeyAuthToken && authentication.headerAuthenticated
+                })
+            }
             .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
             .authorizeHttpRequests { auth ->
                 auth
@@ -61,7 +72,7 @@ class SecurityConfig(
 
         when (properties.security.mode) {
             McpAuthMode.API_KEY ->
-                configured.addFilterBefore(apiKeyAuthFilter, UsernamePasswordAuthenticationFilter::class.java)
+                configured.addFilterBefore(apiKeyAuthFilter, CsrfFilter::class.java)
             McpAuthMode.OAUTH ->
                 configured.oauth2ResourceServer { oauth ->
                     val converter = JwtAuthenticationConverter().also {

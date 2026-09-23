@@ -50,7 +50,7 @@ class ApiKeyAuthFilter(
             path == "/actuator/health" || path.startsWith("/actuator/health/") -> true
             path == "/actuator/info" -> true
             path == "/.well-known/mcp-server.json" -> true
-            path.startsWith("/auth/") -> !authWizard.enabled && isLoopbackRequest(request)
+            path.startsWith("/auth/") -> !authWizard.enabled && isLoopbackRequest(request) && extractKey(request) == null
             path == "/mcp" || path.startsWith("/mcp/") -> false
             path.startsWith("/actuator/") -> false
             else -> true
@@ -82,7 +82,7 @@ class ApiKeyAuthFilter(
                 response.sendError(HttpServletResponse.SC_FORBIDDEN, "Invalid authentication wizard nonce")
                 return
             }
-            SecurityContextHolder.getContext().authentication = ApiKeyAuthToken("auth-wizard")
+            SecurityContextHolder.getContext().authentication = ApiKeyAuthToken("auth-wizard", headerAuthenticated = true)
             filterChain.doFilter(request, response)
             return
         }
@@ -125,6 +125,7 @@ class ApiKeyAuthFilter(
             SecurityContextHolder.getContext().authentication = ApiKeyAuthToken(
                 principal = matchedClient.id,
                 allowedAccounts = matchedClient.allowedAccounts,
+                headerAuthenticated = true,
             )
             filterChain.doFilter(request, response)
         } else {
@@ -225,6 +226,8 @@ class ApiKeyAuthFilter(
 class ApiKeyAuthToken(
     private val principal: String,
     val allowedAccounts: Set<String>? = null,
+    /** True only after an API key or wizard nonce from a request header was validated. */
+    val headerAuthenticated: Boolean = false,
 ) : AbstractAuthenticationToken(listOf(SimpleGrantedAuthority("ROLE_MCP_CLIENT"))) {
 
     init {

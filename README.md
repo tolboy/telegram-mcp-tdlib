@@ -548,6 +548,13 @@ Interactive `/auth/**` endpoints are keyless only from loopback. Requests from
 a Docker bridge, reverse proxy, or private LAN must include the configured MCP
 API key; private IP space is not treated as a trusted identity.
 
+CSRF protection applies to state-changing requests, including loopback requests.
+Only validated API-key headers, OAuth Bearer tokens, and the authentication
+wizard's validated nonce header bypass the CSRF-token requirement. For scripted
+HTTP use, configure an MCP API key and send it even on localhost; keyless POSTs
+(including `/auth/logout` and `/mcp`) without a valid CSRF token return `403`.
+The browser authentication wizard handles its nonce automatically.
+
 The same fail-closed rule applies to `/mcp` and protected Actuator endpoints
 when API-key mode has no configured key. Raw HTTP binds to `127.0.0.1` by
 default; a remote deployment must deliberately change `SERVER_ADDRESS` and

@@ -28,6 +28,12 @@ replace an already running isolated account registry.
 This deliberately does not trust all RFC1918 addresses: another container or
 LAN device is not the same security principal as the local process.
 
+For direct HTTP POSTs in this guide, configure an MCP API key and include
+`Authorization: Bearer <key>` or `X-MCP-API-Key: <key>`, including on localhost.
+Keyless POSTs require a valid Spring CSRF token and otherwise return `403`.
+The standalone browser authentication wizard supplies its validated nonce header
+automatically and does not need an additional CSRF token.
+
 ## QR login
 
 Submit the Telegram application credentials without a phone number:
