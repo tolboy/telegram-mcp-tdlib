@@ -3,7 +3,11 @@
 Notable changes to Telegram MCP Server are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
-## 1.16.1 - 2026-09-23
+## 1.16.2 - 2026-09-23
+
+The `v1.16.1` tag did not publish artifacts: its HTTP smoke clients still used
+keyless POSTs and were correctly rejected by CSRF protection. This release
+updates those clients to authenticate with a per-run API key.
 
 ### Security
 

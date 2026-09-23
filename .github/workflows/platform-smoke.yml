@@ -81,6 +81,9 @@ jobs:
           $baseUrl = "http://127.0.0.1:$port"
           $stdout = Join-Path $env:RUNNER_TEMP 'telegram-mcp-stdout.log'
           $stderr = Join-Path $env:RUNNER_TEMP 'telegram-mcp-stderr.log'
+          # HTTP mutations require explicit credentials even on loopback.
+          # Use a per-run key inherited by the server and the Bash smoke client.
+          $env:MCP_API_KEY = [Guid]::NewGuid().ToString('N')
           $process = Start-Process -FilePath java -ArgumentList @('--enable-preview', '-jar', $jar, "--server.port=$port") -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
 
           try {
@@ -99,7 +102,7 @@ jobs:
               throw "Server did not become healthy at $baseUrl"
             }
 
-            & ./scripts/mcp-streamable-http-smoke.ps1 -Endpoint "$baseUrl/mcp" -RequiredTool ($env:REQUIRED_TOOLS -split ',') -ForbiddenTool ($env:FORBIDDEN_TOOLS -split ',')
+            & ./scripts/mcp-streamable-http-smoke.ps1 -Endpoint "$baseUrl/mcp" -ApiKey $env:MCP_API_KEY -RequiredTool ($env:REQUIRED_TOOLS -split ',') -ForbiddenTool ($env:FORBIDDEN_TOOLS -split ',')
             if ($env:RUNNER_OS -ne 'Windows') {
               & bash ./scripts/mcp-streamable-http-smoke.sh `
                 --endpoint "$baseUrl/mcp" `
