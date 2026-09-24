@@ -56,6 +56,7 @@ class ToolSurfacePolicy(
         private val META_TOOLS = setOf("_manifest", "list_accounts")
 
         private val MESSAGE_TOOLS = setOf(
+            "get_send_operation",
             "get_history", "get_messages", "search_messages", "search_global",
             "send_message", "reply_to_message", "edit_message", "delete_message",
             "forward_message", "pin_message", "unpin_message", "get_pinned_messages",

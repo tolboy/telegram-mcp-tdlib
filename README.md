@@ -175,7 +175,7 @@ is in [PUBLIC_BENCHMARK_AND_ROADMAP.md](docs/PUBLIC_BENCHMARK_AND_ROADMAP.md).
 
 ## Tool profiles
 
-You don't expose 110 tools on day one. `MCP_TOOL_PROFILE` narrows the advertised surface
+You don't expose 111 tools on day one. `MCP_TOOL_PROFILE` narrows the advertised surface
 *before a client ever sees it*, without weakening account scoping, read-only mode,
 confirmation, audit, or anti-spam:
 
@@ -191,7 +191,7 @@ See [TOOL_PROFILES.md](docs/TOOL_PROFILES.md) for the exact intent of each surfa
 
 ## Features
 
-- **110 MCP tools** — messages, polls, read receipts, scheduled sends, chats, folders,
+- **111 MCP tools** — messages, polls, read receipts, scheduled sends, chats, folders,
   invite-link administration, contacts, media, drafts, privacy, bot commands, detailed group
   permissions, profile, search, and account routing.
 - **TDLib via tdlight-java** — real user accounts, not just the Bot API.
@@ -631,9 +631,9 @@ The full inventory is grouped below. In practice you start with a
 [tool profile](#tool-profiles) rather than enabling all of it at once.
 
 <details>
-<summary><b>Show all 110 tools</b></summary>
+<summary><b>Show all 111 tools</b></summary>
 
-### Messages (29 tools)
+### Messages (30 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -641,7 +641,8 @@ The full inventory is grouped below. In practice you start with a
 | `get_messages` | Get specific messages by ID |
 | `search_messages` | Search messages in a specific chat |
 | `search_global` | Search messages across all chats |
-| `send_message` | Send a text message with optional HTML/Markdown |
+| `send_message` | Send a text message with optional HTML/Markdown and an optional persistent idempotency key; see [delivery recovery](docs/SEND_IDEMPOTENCY.md) |
+| `get_send_operation` | Read an account-scoped delivery receipt by destination and idempotency key |
 | `reply_to_message` | Reply to a specific message |
 | `edit_message` | Edit an existing message |
 | `delete_message` | Delete messages (destructive, requires confirmation) |
@@ -872,7 +873,7 @@ src/main/kotlin/dev/telegrammcp/server/
 │   └── FileSecurityService.kt          # File upload security
 ├── tool/                               # MCP Tools (auto-discovered)
 │   ├── McpToolHandler.kt               # Tool interface
-│   ├── message/                        # 29 message tools
+│   ├── message/                        # 30 message tools
 │   ├── chat/                           # 49 chat, folder, permission & privacy tools
 │   ├── user/                           # 16 user/contact tools
 │   ├── media/                          # 7 media tools

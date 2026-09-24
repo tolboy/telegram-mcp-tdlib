@@ -13,6 +13,9 @@ data class ToolError(
     companion object {
         fun from(error: Exception): ToolError {
             val code = when (error) {
+                is SendOperationConflictException -> "IDEMPOTENCY_CONFLICT"
+                is SendOperationBusyException -> "OPERATION_IN_PROGRESS"
+                is SendJournalException -> "SEND_JOURNAL_UNAVAILABLE"
                 is SendOutcomeUnknownException -> "SEND_OUTCOME_UNKNOWN"
                 is InvalidToolInputException, is IllegalArgumentException -> "INVALID_INPUT"
                 is ChatNotAllowedException -> "CHAT_FORBIDDEN"
@@ -33,6 +36,9 @@ data class ToolError(
             val delayMs = (error as? AntiSpamException)?.retryAfterMs?.coerceAtLeast(0)
             val delaySeconds = delayMs?.let { it / 1000 + if (it % 1000 == 0L) 0 else 1 }
             val action = when (code) {
+                "IDEMPOTENCY_CONFLICT" -> "Use the original parameters to inspect the existing operation. Do not change the key merely to retry an uncertain send."
+                "OPERATION_IN_PROGRESS" -> "Wait, then use get_send_operation with the same chat and key."
+                "SEND_JOURNAL_UNAVAILABLE" -> "Ask the operator to inspect the journal and delivery; do not delete records or resend automatically."
                 "SEND_OUTCOME_UNKNOWN" ->
                     "Check the target chat for delivery before sending again; do not automatically retry."
                 "INVALID_INPUT" -> "Correct the arguments before retrying."

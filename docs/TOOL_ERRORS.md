@@ -35,10 +35,11 @@ not a confirmed rejection and must not trigger automatic resend. The message
 includes the destination chat and, when known, the provisional message ID.
 Explicit Telegram rejections remain distinct from local wait timeouts.
 
-This is the first delivery-recovery step, not durable idempotency. There is no
-persistent operation journal, replay key, or status-query tool yet; checking
-the target chat is the available recovery path. The provisional ID is not an
-advertised final message ID or a durable operation handle.
+For keyed text sends/replies, use `get_send_operation` to inspect the persistent
+receipt; see [send idempotency](SEND_IDEMPOTENCY.md). Unknown receipts still
+require checking the target chat. The provisional ID is not an advertised final
+message ID or a durable operation handle. Journal errors use
+`IDEMPOTENCY_CONFLICT`, `OPERATION_IN_PROGRESS`, or `SEND_JOURNAL_UNAVAILABLE`.
 
 `retryable=false` means automatic replay is not known to be safe; it does not
 mean the failure is permanent. All current mappings are conservative. Anti-spam

@@ -47,7 +47,7 @@ Example shape:
     ]
   },
   "capabilities": {
-    "toolCount": 110,
+    "toolCount": 111,
     "toolNames": ["get_history", "send_message"]
   },
   "toolProfile": "all",

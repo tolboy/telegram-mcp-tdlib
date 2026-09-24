@@ -53,6 +53,7 @@ class ConnectorManifestTool(
 
         private val MESSAGE_TOOLS = setOf(
             "send_message",
+            "get_send_operation",
             "edit_message",
             "delete_message",
             "reply_to_message",
@@ -222,6 +223,7 @@ class ConnectorManifestTool(
             "selfChatAliases" to SELF_CHAT_ALIASES,
             "routingHints" to listOf(
                 "Use send_message with chat_id=self for the current account's Saved Messages.",
+                "For recoverable text sends/replies, supply a unique idempotency_key and use get_send_operation after a lost response. UNKNOWN requires inspecting delivery, not another send.",
                 "chat_id accepts numeric ids, @usernames, +phone numbers, and the canonical self identifier.",
                 "Read-only mode hides mutating and quota-consuming tools; caller acknowledgement, guardrails, and chat allow-lists remain invocation-time checks.",
                 "The confirmed argument is caller-supplied and does not prove human approval; MCP hosts should provide any required human-in-the-loop UX.",

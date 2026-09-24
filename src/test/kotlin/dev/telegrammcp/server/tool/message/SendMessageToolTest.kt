@@ -24,6 +24,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class SendMessageToolTest {
+    @org.junit.jupiter.api.io.TempDir
+    lateinit var journalDirectory: java.nio.file.Path
 
     private lateinit var telegramClient: TelegramClientService
     private lateinit var entityResolver: EntityResolverService
@@ -52,7 +54,55 @@ class SendMessageToolTest {
             auditService = auditService,
             objectMapper = objectMapper,
             meterRegistry = SimpleMeterRegistry(),
+            sendOperations = dev.telegrammcp.server.service.SendOperationService(
+                mockk { every { currentAccount() } returns "work" },
+                mockk { every { applicationDataDirectory } returns journalDirectory },
+                objectMapper,
+            ),
         )
+    }
+
+    @Test
+    fun `uncertain keyed send is not dispatched again`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.sendMessage(42L, "Hello", ParseMode.PLAIN, null, null) } throws
+            dev.telegrammcp.server.exception.SendOutcomeUnknownException(42, cause = java.util.concurrent.TimeoutException())
+        val args = mapOf("chat_id" to 42, "text" to "Hello", "idempotency_key" to "uncertain-key")
+        assertTrue(tool.execute(exchange, args).isError)
+        val replay = tool.execute(exchange, args)
+        val data = (replay.structuredContent() as Map<*, *>)["data"] as Map<*, *>
+        kotlin.test.assertEquals("UNKNOWN", data["status"])
+        verify(exactly = 1) { telegramClient.sendMessage(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `keyed replay returns receipt without another send or anti-spam charge`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.sendMessage(42L, "Hello", ParseMode.PLAIN, null, null) } returns
+            TelegramMessage(messageId = 100, chatId = 42, chatTitle = "test", senderName = "me", text = "Hello", date = Instant.now())
+        val args = mapOf("chat_id" to 42, "text" to "Hello", "idempotency_key" to "test-key")
+        assertFalse(tool.execute(exchange, args).isError)
+        val replay = tool.execute(exchange, args)
+        assertFalse(replay.isError)
+        val data = (replay.structuredContent() as Map<*, *>)["data"] as Map<*, *>
+        kotlin.test.assertEquals("SENT", data["status"])
+        kotlin.test.assertEquals(true, data["replayed"])
+        verify(exactly = 1) { telegramClient.sendMessage(any(), any(), any(), any(), any()) }
+        verify(exactly = 1) { operationGuardService.checkPermission("send_message", any()) }
+        verify(exactly = 2) { operationGuardService.checkPolicy("send_message", any()) }
+        verify(exactly = 2) { guardrailService.validateChatAccess(42L) }
+    }
+
+    @Test
+    fun `keyed replay still obeys changed chat policy`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.sendMessage(42L, "Hello", ParseMode.PLAIN, null, null) } returns
+            TelegramMessage(messageId = 100, chatId = 42, chatTitle = "test", senderName = "me", text = "Hello", date = Instant.now())
+        val args = mapOf("chat_id" to 42, "text" to "Hello", "idempotency_key" to "test-key")
+        assertFalse(tool.execute(exchange, args).isError)
+        every { guardrailService.validateChatAccess(42L) } throws dev.telegrammcp.server.exception.ChatNotAllowedException(42)
+        assertTrue(tool.execute(exchange, args).isError)
+        verify(exactly = 1) { telegramClient.sendMessage(any(), any(), any(), any(), any()) }
     }
 
     @Test

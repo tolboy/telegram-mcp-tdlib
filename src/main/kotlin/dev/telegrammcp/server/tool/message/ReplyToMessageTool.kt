@@ -7,6 +7,8 @@ import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
+import dev.telegrammcp.server.service.SendOperationJournal
+import dev.telegrammcp.server.service.SendOperationService
 import dev.telegrammcp.server.tool.McpToolHandler
 import dev.telegrammcp.server.tool.ToolInputParsers
 import dev.telegrammcp.server.tool.ToolSupport
@@ -40,6 +42,7 @@ class ReplyToMessageTool(
     private val auditService: AuditService,
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
+    private val sendOperations: SendOperationService,
 ) : McpToolHandler {
 
     private val log = StructuredLogger.forClass<ReplyToMessageTool>()
@@ -53,6 +56,10 @@ class ReplyToMessageTool(
         {
           "type": "object",
           "properties": {
+            "idempotency_key": {
+              "type": "string",
+              "description": "Optional unique reply key (1-128 ASCII letters, digits, '.', '_', ':', '-'). Identical retries return a saved receipt without sending again. UNKNOWN requires checking delivery."
+            },
             "chat_id": {
               "type": ["string", "number"],
               "description": "Chat identifier: numeric ID, @username, +phone, or the canonical value self"
@@ -91,7 +98,14 @@ class ReplyToMessageTool(
         failureMessage = "Failed to reply",
         auditService = auditService,
     ) {
-        operationGuardService.checkPermission(TOOL_NAME, arguments)
+        val key = if (arguments.containsKey("idempotency_key")) {
+            arguments["idempotency_key"] as? String ?: throw InvalidToolInputException("idempotency_key must be a string")
+        } else null
+        if (key == null) operationGuardService.checkPermission(TOOL_NAME, arguments)
+        else {
+            operationGuardService.checkPolicy(TOOL_NAME, arguments)
+            SendOperationJournal.validateKey(key)
+        }
 
         val chatId = resolveChatId(arguments)
         val messageId = extractMessageId(arguments)
@@ -105,11 +119,18 @@ class ReplyToMessageTool(
         guardrailService.validateInput(text)
         guardrailService.validateChatAccess(chatId)
 
-        val reply = telegramClient.replyToMessage(chatId, messageId, text, parseMode)
-        if (reply.replyToMessageId != messageId) {
-            throw IllegalStateException("Telegram did not attach reply to message $messageId in chat $chatId")
+        val send = {
+            val reply = telegramClient.replyToMessage(chatId, messageId, text, parseMode)
+            if (reply.replyToMessageId != messageId) {
+                throw IllegalStateException("Telegram did not attach reply to message $messageId in chat $chatId")
+            }
+            reply
         }
-        objectMapper.writeValueAsString(reply)
+        if (key == null) objectMapper.writeValueAsString(send())
+        else sendOperations.send(
+            key, chatId, listOf(TOOL_NAME, chatId, messageId, text, parseMode.name),
+            beforeSend = { operationGuardService.checkPermission(TOOL_NAME, arguments) }, send = send,
+        )
     }
 
     private fun resolveChatId(args: Map<String, Any>): Long {

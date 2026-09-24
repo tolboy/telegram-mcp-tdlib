@@ -24,6 +24,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ReplyToMessageToolTest {
+    @org.junit.jupiter.api.io.TempDir
+    lateinit var journalDirectory: java.nio.file.Path
 
     private lateinit var telegramClient: TelegramClientService
     private lateinit var entityResolver: EntityResolverService
@@ -52,7 +54,29 @@ class ReplyToMessageToolTest {
             auditService = auditService,
             objectMapper = objectMapper,
             meterRegistry = SimpleMeterRegistry(),
+            sendOperations = dev.telegrammcp.server.service.SendOperationService(
+                mockk { every { currentAccount() } returns "work" },
+                mockk { every { applicationDataDirectory } returns journalDirectory },
+                objectMapper,
+            ),
         )
+    }
+
+    @Test
+    fun `key binds the reply target and replays without sending again`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.replyToMessage(42L, 55L, "Hello", ParseMode.PLAIN) } returns
+            TelegramMessage(messageId = 100, chatId = 42, chatTitle = "test", senderName = "me", text = "Hello",
+                date = Instant.now(), replyToMessageId = 55)
+        val args = mapOf("chat_id" to 42, "message_id" to 55, "text" to "Hello", "idempotency_key" to "reply-key")
+        assertFalse(tool.execute(exchange, args).isError)
+        assertFalse(tool.execute(exchange, args).isError)
+        val conflict = tool.execute(exchange, args + ("message_id" to 56))
+        assertTrue(conflict.isError)
+        val error = ((conflict.structuredContent() as Map<*, *>)["data"] as Map<*, *>)["error"] as Map<*, *>
+        assertEquals("IDEMPOTENCY_CONFLICT", error["code"])
+        verify(exactly = 1) { telegramClient.replyToMessage(any(), any(), any(), any()) }
+        verify(exactly = 1) { operationGuardService.checkPermission("reply_to_message", any()) }
     }
 
     @Test

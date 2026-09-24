@@ -8,6 +8,8 @@ import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
+import dev.telegrammcp.server.service.SendOperationService
+import dev.telegrammcp.server.service.SendOperationJournal
 import dev.telegrammcp.server.tool.McpToolHandler
 import dev.telegrammcp.server.tool.ToolInputParsers
 import dev.telegrammcp.server.tool.ToolSupport
@@ -47,6 +49,7 @@ class SendMessageTool(
     private val auditService: AuditService,
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
+    private val sendOperations: SendOperationService,
 ) : McpToolHandler {
 
     private val log = StructuredLogger.forClass<SendMessageTool>()
@@ -60,6 +63,10 @@ class SendMessageTool(
         {
           "type": "object",
           "properties": {
+            "idempotency_key": {
+              "type": "string",
+              "description": "Optional unique send key (1-128 ASCII letters, digits, '.', '_', ':', '-'). Reuse with identical parameters to retrieve the stored receipt without sending again. Keyed calls return a delivery receipt; UNKNOWN requires checking the chat."
+            },
             "chat_id": {
               "type": ["string", "number"],
               "description": "Chat identifier: numeric ID, @username, +phone, or the canonical value self"
@@ -122,7 +129,14 @@ class SendMessageTool(
         failureMessage = "Failed to send message",
         auditService = auditService,
     ) {
-            operationGuardService.checkPermission(TOOL_NAME, arguments)
+            val key = if (arguments.containsKey("idempotency_key")) {
+                arguments["idempotency_key"] as? String ?: throw InvalidToolInputException("idempotency_key must be a string")
+            } else null
+            if (key == null) operationGuardService.checkPermission(TOOL_NAME, arguments)
+            else {
+                operationGuardService.checkPolicy(TOOL_NAME, arguments)
+                SendOperationJournal.validateKey(key)
+            }
 
             val chatId = resolveChatId(arguments)
             val text = extractText(arguments)
@@ -138,7 +152,14 @@ class SendMessageTool(
             guardrailService.validateInput(text)
             guardrailService.validateChatAccess(chatId)
 
-            telegramClient.sendMessage(chatId, text, parseMode, replyMarkup, messageThreadId)
+            if (key == null) {
+                telegramClient.sendMessage(chatId, text, parseMode, replyMarkup, messageThreadId)
+            } else {
+                sendOperations.send(
+                    key, chatId, listOf(TOOL_NAME, chatId, text, parseMode.name, messageThreadId, replyMarkup),
+                    beforeSend = { operationGuardService.checkPermission(TOOL_NAME, arguments) },
+                ) { telegramClient.sendMessage(chatId, text, parseMode, replyMarkup, messageThreadId) }
+            }
     }
 
     @Suppress("UNCHECKED_CAST")

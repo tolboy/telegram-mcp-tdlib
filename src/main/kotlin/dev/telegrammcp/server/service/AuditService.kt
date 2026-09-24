@@ -160,6 +160,7 @@ class AuditService(
             "vote_poll" to AuditCategory.POLL,
             "close_poll" to AuditCategory.POLL,
             "get_message_context" to AuditCategory.READ_MESSAGE,
+            "get_send_operation" to AuditCategory.READ_MESSAGE,
 
             // Inline buttons & forum topics
             "list_inline_buttons" to AuditCategory.INLINE_INTERACTION,

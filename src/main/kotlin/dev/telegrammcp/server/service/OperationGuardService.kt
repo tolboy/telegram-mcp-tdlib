@@ -151,6 +151,12 @@ class OperationGuardService(
      * @throws ConfirmationRequiredException if a destructive tool lacks caller acknowledgement
      */
     fun checkPermission(toolName: String, arguments: Map<String, Any>) {
+        checkPolicy(toolName, arguments)
+        antiSpamGuardService.check(toolName, arguments)
+    }
+
+    /** Revalidate access for a receipt replay without charging another send. */
+    fun checkPolicy(toolName: String, arguments: Map<String, Any>) {
         // 1. Read-only mode check
         if (props.readOnly && toolName in WRITE_TOOLS) {
             log.warn("Blocked write tool '{}' — server is in read-only mode", toolName)
@@ -170,8 +176,6 @@ class OperationGuardService(
             log.info("Destructive tool '{}' confirmed by caller", toolName)
         }
 
-        // 3. Anti-spam check (rate limits, daily caps, duplicate detection).
-        antiSpamGuardService.check(toolName, arguments)
     }
 
     /**

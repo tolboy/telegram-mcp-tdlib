@@ -47,7 +47,8 @@ class TelegramMcpApplicationTests {
     fun `registers the documented tool inventory on Streamable HTTP`() {
         val names = handlers.map { it.definition().name() }
 
-        assertEquals(110, names.size)
+        assertEquals(111, names.size)
+        assertTrue("get_send_operation" in names)
         assertEquals(names.size, names.toSet().size)
         assertTrue("search_public_messages" in names)
         assertFalse("get_chat_promotion_policy" in names)
