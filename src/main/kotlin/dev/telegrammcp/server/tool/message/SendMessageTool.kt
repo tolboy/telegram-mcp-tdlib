@@ -115,6 +115,7 @@ class SendMessageTool(
         "Send a text message to a Telegram chat with optional HTML/Markdown formatting",
         INPUT_SCHEMA,
         objectMapper,
+        dataSchema = dev.telegrammcp.server.tool.ToolOutputSchemas.sendResult,
     )
 
     override fun execute(

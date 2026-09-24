@@ -1,5 +1,6 @@
-﻿package dev.telegrammcp.server.tool.message
+package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.executeChecked
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -69,9 +70,9 @@ class ReplyToMessageToolTest {
             TelegramMessage(messageId = 100, chatId = 42, chatTitle = "test", senderName = "me", text = "Hello",
                 date = Instant.now(), replyToMessageId = 55)
         val args = mapOf("chat_id" to 42, "message_id" to 55, "text" to "Hello", "idempotency_key" to "reply-key")
-        assertFalse(tool.execute(exchange, args).isError)
-        assertFalse(tool.execute(exchange, args).isError)
-        val conflict = tool.execute(exchange, args + ("message_id" to 56))
+        assertFalse(tool.executeChecked(exchange, args).isError)
+        assertFalse(tool.executeChecked(exchange, args).isError)
+        val conflict = tool.executeChecked(exchange, args + ("message_id" to 56))
         assertTrue(conflict.isError)
         val error = ((conflict.structuredContent() as Map<*, *>)["data"] as Map<*, *>)["error"] as Map<*, *>
         assertEquals("IDEMPOTENCY_CONFLICT", error["code"])
@@ -91,7 +92,7 @@ class ReplyToMessageToolTest {
             operationGuardService.checkPermission("reply_to_message", any())
         } throws ConfirmationRequiredException("reply_to_message", "This is a destructive operation")
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 55, "text" to "Great point!"),
         )
@@ -110,7 +111,7 @@ class ReplyToMessageToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.replyToMessage(42L, 55L, "Great point!", ParseMode.PLAIN) } returns replyMsg
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 55, "text" to "Great point!"),
         )
@@ -130,7 +131,7 @@ class ReplyToMessageToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.replyToMessage(42L, 55L, "*bold*", ParseMode.MARKDOWN) } returns replyMsg
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 55, "text" to "*bold*", "parse_mode" to "markdown"),
         )
@@ -148,7 +149,7 @@ class ReplyToMessageToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.replyToMessage(42L, 55L, "text", ParseMode.MARKDOWN) } returns replyMsg
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 55, "text" to "text", "parse_mode" to "md"),
         )
@@ -166,7 +167,7 @@ class ReplyToMessageToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.replyToMessage(42L, 55L, "text", ParseMode.PLAIN) } returns unlinkedMsg
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 55, "text" to "text"),
         )
@@ -178,7 +179,7 @@ class ReplyToMessageToolTest {
 
     @Test
     fun `returns error when chat_id is missing`() {
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("message_id" to 55, "text" to "reply"),
         )
@@ -192,7 +193,7 @@ class ReplyToMessageToolTest {
     fun `returns error when message_id is missing`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "text" to "reply"),
         )
@@ -206,7 +207,7 @@ class ReplyToMessageToolTest {
     fun `returns error when text is missing`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 55),
         )
@@ -220,7 +221,7 @@ class ReplyToMessageToolTest {
     fun `returns error when text is blank`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 55, "text" to "  "),
         )
@@ -234,7 +235,7 @@ class ReplyToMessageToolTest {
     fun `returns error for invalid parse_mode`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 55, "text" to "test", "parse_mode" to "rtf"),
         )

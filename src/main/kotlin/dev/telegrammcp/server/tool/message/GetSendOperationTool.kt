@@ -31,6 +31,7 @@ class GetSendOperationTool(
           "chat_id":{"type":["string","number"],"description":"Destination chat identifier, as used for the send."},
           "idempotency_key":{"type":"string","description":"Key supplied to send_message or reply_to_message."}
         },"required":["chat_id","idempotency_key"]}""", mapper,
+        dataSchema = dev.telegrammcp.server.tool.ToolOutputSchemas.receipt,
     )
 
     override fun execute(exchange: McpSyncServerExchange, arguments: Map<String, Any>): McpSchema.CallToolResult =

@@ -48,25 +48,36 @@ object ToolSupport {
         description: String,
         inputSchema: String,
         objectMapper: ObjectMapper,
+        dataSchema: Map<String, Any>? = null,
     ): McpSchema.Tool {
         val schemaMap = objectMapper.readValue(inputSchema, Map::class.java) as Map<String, Any>
-        return definition(name, description, schemaMap)
+        return definition(name, description, schemaMap, dataSchema)
     }
 
     fun definition(
         name: String,
         description: String,
         inputSchema: Map<String, Any>,
+        dataSchema: Map<String, Any>? = null,
     ): McpSchema.Tool = McpSchema.Tool(
         name,
         null,
         description,
         inputSchema,
-        outputSchema,
+        if (dataSchema == null) outputSchema else typedOutputSchema(dataSchema),
         null,
         emptyMap(),
         emptyList(),
     )
+
+    /** Keep the existing envelope, including structured error responses. */
+    private fun typedOutputSchema(dataSchema: Map<String, Any>): Map<String, Any> {
+        @Suppress("UNCHECKED_CAST")
+        val properties = outputSchema["properties"] as Map<String, Any>
+        return outputSchema + ("properties" to (properties + ("data" to mapOf(
+            "anyOf" to listOf(dataSchema, ToolOutputSchemas.error),
+        ))))
+    }
 
     fun execute(
         toolName: String,

@@ -85,6 +85,7 @@ class SearchMessagesForIntentTool(
         description = "Read-only search across multiple chats using a primary query and optional caller-supplied multilingual variants.",
         inputSchema = INPUT_SCHEMA,
         objectMapper = objectMapper,
+        dataSchema = dev.telegrammcp.server.tool.ToolOutputSchemas.search,
     )
 
     override fun execute(

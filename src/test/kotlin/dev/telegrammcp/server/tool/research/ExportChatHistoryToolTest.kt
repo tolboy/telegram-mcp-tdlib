@@ -1,5 +1,6 @@
 package dev.telegrammcp.server.tool.research
 
+import dev.telegrammcp.server.tool.executeChecked
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -59,7 +60,7 @@ class ExportChatHistoryToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.getHistory(42L, 0L, 0, 100) } returns listOf(fresh, older)
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf(
                 "chat_id" to 42,
@@ -85,7 +86,7 @@ class ExportChatHistoryToolTest {
         every { telegramClient.getHistory(42L, 0L, 0, 100) } returns listOf(service)
         every { telegramClient.searchMessages(42L, "сотки колеса", 0L, 100) } returns listOf(lead)
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf(
                 "chat_id" to 42L,
@@ -104,7 +105,7 @@ class ExportChatHistoryToolTest {
 
     @Test
     fun `rejects invalid date window`() {
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42L, "since" to "2026-05-02", "until" to "2026-05-01"),
         )
@@ -120,7 +121,7 @@ class ExportChatHistoryToolTest {
         every { telegramClient.getHistory(42L, 0L, 0, 100) } returns
             listOf(msg(2, "two", "2026-05-01T00:00:00Z"), msg(1, "one", "2026-05-01T00:00:00Z"))
 
-        val data = payload(tool.execute(exchange, mapOf("chat_id" to 42, "limit" to 2)))
+        val data = payload(tool.executeChecked(exchange, mapOf("chat_id" to 42, "limit" to 2)))
 
         assertEquals(2, data["total"])
         assertEquals(false, data["complete"])
@@ -137,7 +138,7 @@ class ExportChatHistoryToolTest {
         every { telegramClient.getHistory(42L, 2L, 0, 100) } returns
             listOf(msg(1, "one", "2026-05-01T00:00:00Z"))
 
-        val data = payload(tool.execute(exchange, mapOf("chat_id" to 42)))
+        val data = payload(tool.executeChecked(exchange, mapOf("chat_id" to 42)))
 
         assertEquals(2, data["total"])
         assertEquals(2, data["scanned_count"])
@@ -153,7 +154,7 @@ class ExportChatHistoryToolTest {
             listOf(msg(id--, "newer", "2026-05-01T00:00:00Z"))
         }
 
-        val data = payload(tool.execute(exchange, mapOf("chat_id" to 42, "until" to "2026-01-01")))
+        val data = payload(tool.executeChecked(exchange, mapOf("chat_id" to 42, "until" to "2026-01-01")))
 
         assertEquals(0, data["total"])
         assertEquals(false, data["complete"])
@@ -168,7 +169,7 @@ class ExportChatHistoryToolTest {
         every { telegramClient.getHistory(42L, any(), 0, 100) } returns
             listOf(msg(2, "two", "2026-05-01T00:00:00Z"))
 
-        val data = payload(tool.execute(exchange, mapOf("chat_id" to 42)))
+        val data = payload(tool.executeChecked(exchange, mapOf("chat_id" to 42)))
 
         assertEquals(1, data["total"])
         assertEquals(listOf("cursor_stalled"), data["partial_reasons"])
@@ -180,7 +181,7 @@ class ExportChatHistoryToolTest {
     fun `search-only completeness is scoped to requested sources`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val data = payload(tool.execute(exchange, mapOf(
+        val data = payload(tool.executeChecked(exchange, mapOf(
             "chat_id" to 42, "include_history" to false, "query_terms" to listOf("missing"),
         )))
 
@@ -195,7 +196,7 @@ class ExportChatHistoryToolTest {
         every { telegramClient.searchMessages(42L, "first", 0L, 100) } returns
             listOf(msg(2, "two", "2026-05-01T00:00:00Z"))
 
-        val data = payload(tool.execute(exchange, mapOf(
+        val data = payload(tool.executeChecked(exchange, mapOf(
             "chat_id" to 42, "limit" to 1, "query_terms" to listOf("first", "second"),
         )))
 
@@ -208,7 +209,7 @@ class ExportChatHistoryToolTest {
     @Test
     fun `rejects export without any source`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "include_history" to false))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "include_history" to false))
         assertTrue(result.isError)
     }
 

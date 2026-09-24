@@ -87,6 +87,7 @@ class ExportChatHistoryTool(
         description = "Read-only bounded export of Telegram chat messages by date, with optional query-term search fanout.",
         inputSchema = INPUT_SCHEMA,
         objectMapper = objectMapper,
+        dataSchema = dev.telegrammcp.server.tool.ToolOutputSchemas.export,
     )
 
     override fun execute(

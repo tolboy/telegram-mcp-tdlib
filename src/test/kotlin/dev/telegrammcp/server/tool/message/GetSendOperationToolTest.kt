@@ -1,6 +1,7 @@
 package dev.telegrammcp.server.tool.message
 
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import dev.telegrammcp.server.tool.executeChecked
 import dev.telegrammcp.server.exception.ChatNotAllowedException
 import dev.telegrammcp.server.service.*
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
@@ -22,7 +23,7 @@ class GetSendOperationToolTest {
     fun `status requires current chat permission before accessing journal`() {
         every { resolver.resolve(42 as Any) } returns 42L
         every { guard.validateChatAccess(42L) } throws ChatNotAllowedException(42)
-        val result = tool.execute(mockk(relaxed = true), mapOf("chat_id" to 42, "idempotency_key" to "key"))
+        val result = tool.executeChecked(mockk(relaxed = true), mapOf("chat_id" to 42, "idempotency_key" to "key"))
         assertTrue(result.isError)
         verify(exactly = 0) { operations.status(any(), any()) }
     }
@@ -30,8 +31,8 @@ class GetSendOperationToolTest {
     @Test
     fun `valid status reads account scoped receipt`() {
         every { resolver.resolve(42 as Any) } returns 42L
-        every { operations.status("key", 42L) } returns mapOf("status" to "SENT", "message_id" to 100L)
-        assertFalse(tool.execute(mockk(relaxed = true), mapOf("chat_id" to 42, "idempotency_key" to "key")).isError)
+        every { operations.status("key", 42L) } returns SendOperationJournal.Receipt("a".repeat(64), 42, "SENT", 100).payload()
+        assertFalse(tool.executeChecked(mockk(relaxed = true), mapOf("chat_id" to 42, "idempotency_key" to "key")).isError)
         verify { guard.validateChatAccess(42L) }
     }
 }

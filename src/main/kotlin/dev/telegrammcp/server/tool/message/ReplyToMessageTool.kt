@@ -84,7 +84,8 @@ class ReplyToMessageTool(
     }
 
     override fun definition(): McpSchema.Tool =
-        ToolSupport.definition(TOOL_NAME, "Reply to a specific message in a Telegram chat", INPUT_SCHEMA, objectMapper)
+        ToolSupport.definition(TOOL_NAME, "Reply to a specific message in a Telegram chat", INPUT_SCHEMA, objectMapper,
+            dataSchema = dev.telegrammcp.server.tool.ToolOutputSchemas.sendResult)
 
     override fun execute(
         exchange: McpSyncServerExchange,

@@ -1,5 +1,6 @@
 package dev.telegrammcp.server.tool.research
 
+import dev.telegrammcp.server.tool.executeChecked
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -56,7 +57,7 @@ class SearchMessagesForIntentToolTest {
         every { telegramClient.searchMessages(42L, any(), 0L, 10) } returns emptyList()
         every { telegramClient.searchMessages(42L, "hiring", 0L, 10) } returns listOf(message)
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf(
                 "chats" to listOf(42),
@@ -85,7 +86,7 @@ class SearchMessagesForIntentToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.searchMessages(42L, any(), 0L, 10) } returns emptyList()
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf(
                 "chats" to listOf(42),
@@ -131,7 +132,7 @@ class SearchMessagesForIntentToolTest {
             emptyList()
         }
 
-        val result = timeoutTool.execute(
+        val result = timeoutTool.executeChecked(
             exchange,
             mapOf(
                 "chats" to listOf(42, 43),
@@ -158,7 +159,7 @@ class SearchMessagesForIntentToolTest {
             TelegramMessage(messageId = 1, chatId = 42, chatTitle = "test", senderName = "User", text = "match", date = Instant.now()),
         )
 
-        val result = tool.execute(exchange, mapOf(
+        val result = tool.executeChecked(exchange, mapOf(
             "chats" to listOf(42), "query" to "primary", "query_variants" to listOf("variant"),
         ))
         val data = objectMapper.readTree((result.content.first() as McpSchema.TextContent).text())
@@ -178,13 +179,13 @@ class SearchMessagesForIntentToolTest {
         every { telegramClient.searchMessages(42L, "query", 0L, 10) } throws IllegalStateException("failed")
         val args = mapOf("chats" to listOf(42), "query" to "query")
 
-        val failed = tool.execute(exchange, args)
+        val failed = tool.executeChecked(exchange, args)
         val failedData = objectMapper.readTree((failed.content.first() as McpSchema.TextContent).text())
         assertFalse(failedData["complete"].asBoolean())
         assertEquals(1, failedData["chats"][0]["failed_queries"].size())
 
         every { telegramClient.searchMessages(42L, "query", 0L, 10) } returns emptyList()
-        val empty = tool.execute(exchange, args)
+        val empty = tool.executeChecked(exchange, args)
         val emptyData = objectMapper.readTree((empty.content.first() as McpSchema.TextContent).text())
         assertTrue(emptyData["complete"].asBoolean())
         assertEquals(0, emptyData["chats"][0]["failed_queries"].size())
@@ -196,7 +197,7 @@ class SearchMessagesForIntentToolTest {
         every { telegramClient.searchMessages(42L, "query", 0L, 1) } returns listOf(
             TelegramMessage(messageId = 1, chatId = 42, chatTitle = "test", senderName = "User", text = "match", date = Instant.now()),
         )
-        val result = tool.execute(exchange, mapOf("chats" to listOf(42), "query" to "query", "limit_per_chat" to 1))
+        val result = tool.executeChecked(exchange, mapOf("chats" to listOf(42), "query" to "query", "limit_per_chat" to 1))
         val data = objectMapper.readTree((result.content.first() as McpSchema.TextContent).text())
         assertFalse(data["complete"].asBoolean())
         assertTrue(data["chats"][0]["truncated"].asBoolean())
@@ -208,7 +209,7 @@ class SearchMessagesForIntentToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { guardrailService.validateChatAccess(42L) } throws
             dev.telegrammcp.server.exception.ChatNotAllowedException(42L)
-        val result = tool.execute(exchange, mapOf("chats" to listOf(42), "query" to "query"))
+        val result = tool.executeChecked(exchange, mapOf("chats" to listOf(42), "query" to "query"))
         val data = objectMapper.readTree((result.content.first() as McpSchema.TextContent).text())
         assertFalse(data["complete"].asBoolean())
         assertEquals("chat_failed", data["chats"][0]["partial_reasons"][0].asText())

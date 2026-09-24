@@ -1,5 +1,6 @@
-﻿package dev.telegrammcp.server.tool.message
+package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.executeChecked
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -68,8 +69,8 @@ class SendMessageToolTest {
         every { telegramClient.sendMessage(42L, "Hello", ParseMode.PLAIN, null, null) } throws
             dev.telegrammcp.server.exception.SendOutcomeUnknownException(42, cause = java.util.concurrent.TimeoutException())
         val args = mapOf("chat_id" to 42, "text" to "Hello", "idempotency_key" to "uncertain-key")
-        assertTrue(tool.execute(exchange, args).isError)
-        val replay = tool.execute(exchange, args)
+        assertTrue(tool.executeChecked(exchange, args).isError)
+        val replay = tool.executeChecked(exchange, args)
         val data = (replay.structuredContent() as Map<*, *>)["data"] as Map<*, *>
         kotlin.test.assertEquals("UNKNOWN", data["status"])
         verify(exactly = 1) { telegramClient.sendMessage(any(), any(), any(), any(), any()) }
@@ -81,8 +82,8 @@ class SendMessageToolTest {
         every { telegramClient.sendMessage(42L, "Hello", ParseMode.PLAIN, null, null) } returns
             TelegramMessage(messageId = 100, chatId = 42, chatTitle = "test", senderName = "me", text = "Hello", date = Instant.now())
         val args = mapOf("chat_id" to 42, "text" to "Hello", "idempotency_key" to "test-key")
-        assertFalse(tool.execute(exchange, args).isError)
-        val replay = tool.execute(exchange, args)
+        assertFalse(tool.executeChecked(exchange, args).isError)
+        val replay = tool.executeChecked(exchange, args)
         assertFalse(replay.isError)
         val data = (replay.structuredContent() as Map<*, *>)["data"] as Map<*, *>
         kotlin.test.assertEquals("SENT", data["status"])
@@ -99,9 +100,9 @@ class SendMessageToolTest {
         every { telegramClient.sendMessage(42L, "Hello", ParseMode.PLAIN, null, null) } returns
             TelegramMessage(messageId = 100, chatId = 42, chatTitle = "test", senderName = "me", text = "Hello", date = Instant.now())
         val args = mapOf("chat_id" to 42, "text" to "Hello", "idempotency_key" to "test-key")
-        assertFalse(tool.execute(exchange, args).isError)
+        assertFalse(tool.executeChecked(exchange, args).isError)
         every { guardrailService.validateChatAccess(42L) } throws dev.telegrammcp.server.exception.ChatNotAllowedException(42)
-        assertTrue(tool.execute(exchange, args).isError)
+        assertTrue(tool.executeChecked(exchange, args).isError)
         verify(exactly = 1) { telegramClient.sendMessage(any(), any(), any(), any(), any()) }
     }
 
@@ -111,7 +112,7 @@ class SendMessageToolTest {
         every { telegramClient.sendMessage(42L, "Hello", ParseMode.PLAIN, null, null) } throws
             dev.telegrammcp.server.exception.SendOutcomeUnknownException(42L, 10L, java.util.concurrent.TimeoutException())
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "text" to "Hello"))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "text" to "Hello"))
 
         assertTrue(result.isError)
         val envelope = result.structuredContent() as Map<*, *>
@@ -131,7 +132,7 @@ class SendMessageToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.sendMessage(42L, "Hello", ParseMode.PLAIN, null, null) } returns sentMsg
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "text" to "Hello"))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "text" to "Hello"))
 
         assertFalse(result.isError)
         verify { operationGuardService.checkPermission("send_message", any()) }
@@ -145,7 +146,7 @@ class SendMessageToolTest {
             operationGuardService.checkPermission("send_message", any())
         } throws AntiSpamException("send_message", "rate limit 6 ops per 60s (external)", 1000L)
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "text" to "Hello"))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "text" to "Hello"))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -162,7 +163,7 @@ class SendMessageToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.sendMessage(42L, "<b>Bold</b>", ParseMode.HTML, null, null) } returns sentMsg
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "text" to "<b>Bold</b>", "parse_mode" to "html"),
         )
@@ -188,7 +189,7 @@ class SendMessageToolTest {
             telegramClient.sendMessage(42L, "Choose", ParseMode.PLAIN, replyMarkup, null)
         } returns sentMsg
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf(
                 "chat_id" to 42,
@@ -219,7 +220,7 @@ class SendMessageToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.sendMessage(42L, "Threaded", ParseMode.PLAIN, null, 9001L) } returns sentMsg
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "text" to "Threaded", "message_thread_id" to 9001),
         )
@@ -232,7 +233,7 @@ class SendMessageToolTest {
     fun `returns error when text is missing`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -243,7 +244,7 @@ class SendMessageToolTest {
     fun `returns error when text is blank`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "text" to "  "))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "text" to "  "))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -254,7 +255,7 @@ class SendMessageToolTest {
     fun `returns error for invalid parse_mode`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "text" to "test", "parse_mode" to "xml"),
         )
@@ -268,7 +269,7 @@ class SendMessageToolTest {
     fun `returns error for reply keyboard without rows`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf(
                 "chat_id" to 42,

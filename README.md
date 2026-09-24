@@ -627,6 +627,9 @@ For remote deployment, terminate TLS before the service and restrict network acc
 
 ## Available MCP Tools
 
+Text sends, delivery receipts, export and public search advertise
+[typed output schemas](docs/OUTPUT_SCHEMAS.md), including structured error variants.
+
 The full inventory is grouped below. In practice you start with a
 [tool profile](#tool-profiles) rather than enabling all of it at once.
 
