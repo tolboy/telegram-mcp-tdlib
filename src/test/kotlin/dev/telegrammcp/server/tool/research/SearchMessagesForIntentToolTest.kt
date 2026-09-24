@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test
 import java.time.Instant
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.test.assertEquals
 
 class SearchMessagesForIntentToolTest {
 
@@ -144,6 +145,74 @@ class SearchMessagesForIntentToolTest {
         assertTrue(text.contains("\"timed_out\""))
         assertTrue(text.contains("fast-channel"))
         assertTrue(text.contains("looking for a developer"))
+        val data = objectMapper.readTree(text)
+        assertFalse(data["complete"].asBoolean())
+        assertEquals("43", data["incomplete_chats"][0]["chat"].asText())
+    }
+
+    @Test
+    fun `failed variant is visible while successful hits survive`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.searchMessages(42L, "primary", 0L, 10) } throws IllegalStateException("upstream unavailable")
+        every { telegramClient.searchMessages(42L, "variant", 0L, 10) } returns listOf(
+            TelegramMessage(messageId = 1, chatId = 42, chatTitle = "test", senderName = "User", text = "match", date = Instant.now()),
+        )
+
+        val result = tool.execute(exchange, mapOf(
+            "chats" to listOf(42), "query" to "primary", "query_variants" to listOf("variant"),
+        ))
+        val data = objectMapper.readTree((result.content.first() as McpSchema.TextContent).text())
+
+        assertFalse(result.isError)
+        assertFalse(data["complete"].asBoolean())
+        val chat = data["chats"][0]
+        assertEquals("match", chat["messages"][0]["text"].asText())
+        assertEquals("primary", chat["failed_queries"][0]["query"].asText())
+        assertEquals("upstream unavailable", chat["failed_queries"][0]["error"].asText())
+        assertEquals("query_failed", chat["partial_reasons"][0].asText())
+    }
+
+    @Test
+    fun `all failed queries differ from a successful empty search`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.searchMessages(42L, "query", 0L, 10) } throws IllegalStateException("failed")
+        val args = mapOf("chats" to listOf(42), "query" to "query")
+
+        val failed = tool.execute(exchange, args)
+        val failedData = objectMapper.readTree((failed.content.first() as McpSchema.TextContent).text())
+        assertFalse(failedData["complete"].asBoolean())
+        assertEquals(1, failedData["chats"][0]["failed_queries"].size())
+
+        every { telegramClient.searchMessages(42L, "query", 0L, 10) } returns emptyList()
+        val empty = tool.execute(exchange, args)
+        val emptyData = objectMapper.readTree((empty.content.first() as McpSchema.TextContent).text())
+        assertTrue(emptyData["complete"].asBoolean())
+        assertEquals(0, emptyData["chats"][0]["failed_queries"].size())
+    }
+
+    @Test
+    fun `capped query results remain incomplete`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.searchMessages(42L, "query", 0L, 1) } returns listOf(
+            TelegramMessage(messageId = 1, chatId = 42, chatTitle = "test", senderName = "User", text = "match", date = Instant.now()),
+        )
+        val result = tool.execute(exchange, mapOf("chats" to listOf(42), "query" to "query", "limit_per_chat" to 1))
+        val data = objectMapper.readTree((result.content.first() as McpSchema.TextContent).text())
+        assertFalse(data["complete"].asBoolean())
+        assertTrue(data["chats"][0]["truncated"].asBoolean())
+        assertEquals("result_limit", data["chats"][0]["partial_reasons"][0].asText())
+    }
+
+    @Test
+    fun `denied chat is not silently omitted or searched`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { guardrailService.validateChatAccess(42L) } throws
+            dev.telegrammcp.server.exception.ChatNotAllowedException(42L)
+        val result = tool.execute(exchange, mapOf("chats" to listOf(42), "query" to "query"))
+        val data = objectMapper.readTree((result.content.first() as McpSchema.TextContent).text())
+        assertFalse(data["complete"].asBoolean())
+        assertEquals("chat_failed", data["chats"][0]["partial_reasons"][0].asText())
+        verify(exactly = 0) { telegramClient.searchMessages(any(), any(), any(), any()) }
     }
 
     private fun createTool(

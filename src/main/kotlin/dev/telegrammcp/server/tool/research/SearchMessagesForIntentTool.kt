@@ -21,9 +21,9 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.springframework.stereotype.Component
 import java.util.concurrent.ConcurrentHashMap
@@ -108,6 +108,7 @@ class SearchMessagesForIntentTool(
         if (rawChats.size > MAX_CHATS) {
             throw InvalidToolInputException("chats exceeds maximum of $MAX_CHATS")
         }
+        if (rawChats.any { it == null }) throw InvalidToolInputException("chats must not contain null")
         val query = arguments["query"]?.toString()?.takeIf { it.isNotBlank() }
             ?: throw InvalidToolInputException("query is required")
         if (query.length > MAX_QUERY_LENGTH) {
@@ -160,11 +161,21 @@ class SearchMessagesForIntentTool(
             completedResults.toSortedMap().values.toList()
         }
 
+        val incompleteChats = rawChats.mapIndexedNotNull { index, raw ->
+            if (completedResults.containsKey(index)) null else mapOf(
+                "index" to index,
+                "chat" to raw.toString(),
+                "reason" to "timeout",
+            )
+        }
         val payload = linkedMapOf<String, Any>(
             "query" to query,
             "search_queries" to searchQueries,
             "limit_per_chat" to limit,
             "chats" to results,
+            "complete" to (!timedOut.get() && results.all { it["complete"] == true }),
+            "completion_scope" to "requested_query_pages",
+            "incomplete_chats" to incompleteChats,
         )
         if (timedOut.get()) {
             payload["timed_out"] = true
@@ -186,7 +197,7 @@ class SearchMessagesForIntentTool(
     ): Map<String, Any>? {
         val candidate = raw ?: return null
         val chatId = try {
-            withContext(Dispatchers.IO) { entityResolver.resolve(candidate) }
+            runInterruptible(Dispatchers.IO) { entityResolver.resolve(candidate) }
         } catch (ex: CancellationException) {
             throw ex
         } catch (ex: Exception) {
@@ -195,15 +206,26 @@ class SearchMessagesForIntentTool(
                 "chat" to candidate.toString(),
                 "error" to (ex.message ?: "resolution failed"),
                 "messages" to emptyList<Any>(),
+                "complete" to false,
+                "partial_reasons" to listOf("resolution_failed"),
             )
         }
         return try {
             guardrailService.validateChatAccess(chatId)
-            val messages = searchExpandedMessages(chatId, expandedQueries, limit)
+            val outcome = searchExpandedMessages(chatId, expandedQueries, limit)
+            val reasons = buildList {
+                if (outcome.failedQueries.isNotEmpty()) add("query_failed")
+                if (outcome.truncated) add("result_limit")
+            }
             mapOf(
                 "chat" to candidate.toString(),
                 "chat_id" to chatId,
-                "messages" to messages,
+                "messages" to outcome.messages,
+                "complete" to reasons.isEmpty(),
+                "partial_reasons" to reasons,
+                "failed_queries" to outcome.failedQueries,
+                "truncated" to outcome.truncated,
+                "scanned_count" to outcome.scannedCount,
             )
         } catch (ex: CancellationException) {
             throw ex
@@ -214,6 +236,8 @@ class SearchMessagesForIntentTool(
                 "chat_id" to chatId,
                 "error" to (ex.message ?: "search failed"),
                 "messages" to emptyList<Any>(),
+                "complete" to false,
+                "partial_reasons" to listOf("chat_failed"),
             )
         }
     }
@@ -223,37 +247,59 @@ class SearchMessagesForIntentTool(
      * are deduplicated by [TelegramMessage.dedupeKey] and reported through
      * low-cardinality aggregate metrics.
      */
+    private data class QueryOutcome(
+        val query: String,
+        val messages: List<TelegramMessage> = emptyList(),
+        val error: String? = null,
+    )
+
+    private data class SearchOutcome(
+        val messages: List<TelegramMessage>,
+        val failedQueries: List<Map<String, String>>,
+        val truncated: Boolean,
+        val scannedCount: Int,
+    )
+
     private suspend fun searchExpandedMessages(
         chatId: Long,
         queries: List<String>,
         limit: Int,
-    ): List<TelegramMessage> = coroutineScope {
+    ): SearchOutcome = coroutineScope {
         val fanout = publicSearchProps.fanout
         val querySemaphore = Semaphore(fanout.maxConcurrentQueriesPerChat.coerceAtLeast(1))
-        val perQueryHits: List<List<TelegramMessage>> = queries.mapIndexed { idx, q ->
+        val outcomes = queries.map { q ->
             async(Dispatchers.IO) {
                 querySemaphore.withPermit {
                     try {
-                        val hits = telegramClient.searchMessages(chatId, q, 0L, limit)
+                        val hits = runInterruptible(Dispatchers.IO) {
+                            telegramClient.searchMessages(chatId, q, 0L, limit)
+                        }
                         meterRegistry.counter("telegram.mcp.public_search.hits_total").increment(hits.size.toDouble())
-                        hits
+                        QueryOutcome(q, hits)
                     } catch (ex: CancellationException) {
                         throw ex
                     } catch (ex: Exception) {
                         log.withTool(TOOL_NAME).debug(
                             "Per-query search failed (chat={}, query='{}'): {}", chatId, q, ex.message,
                         )
-                        emptyList()
+                        QueryOutcome(q, error = ex.message ?: "search failed")
                     }
                 }
             }
         }.awaitAll()
 
         val deduped = linkedMapOf<String, TelegramMessage>()
-        perQueryHits.forEach { hits ->
-            hits.forEach { message -> deduped.putIfAbsent(message.dedupeKey(), message) }
+        outcomes.forEach { outcome ->
+            outcome.messages.forEach { message -> deduped.putIfAbsent(message.dedupeKey(), message) }
         }
-        deduped.values.take(limit)
+        SearchOutcome(
+            messages = deduped.values.take(limit),
+            failedQueries = outcomes.mapNotNull { outcome ->
+                outcome.error?.let { mapOf("query" to outcome.query, "error" to it) }
+            },
+            truncated = deduped.size > limit || outcomes.any { it.messages.size >= limit },
+            scannedCount = outcomes.sumOf { it.messages.size },
+        )
     }
 
     private fun TelegramMessage.dedupeKey(): String =
