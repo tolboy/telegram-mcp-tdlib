@@ -35,6 +35,8 @@ class ExportChatHistoryToolTest {
         guardrailService = mockk(relaxed = true)
         objectMapper = jacksonObjectMapper().findAndRegisterModules()
         exchange = mockk(relaxed = true)
+        every { telegramClient.getHistory(any(), any(), any(), any()) } returns emptyList()
+        every { telegramClient.searchMessages(any(), any(), any(), any()) } returns emptyList()
 
         tool = ExportChatHistoryTool(
             telegramClient = telegramClient,
@@ -70,6 +72,8 @@ class ExportChatHistoryToolTest {
         assertFalse(result.isError)
         val payload = payload(result)
         assertEquals(1, payload["total"])
+        assertEquals(true, payload["complete"])
+        assertEquals(false, payload["truncated"])
         verify { guardrailService.validateChatAccess(42L) }
     }
 
@@ -108,6 +112,104 @@ class ExportChatHistoryToolTest {
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
         assertTrue(text.contains("since must be before until"))
+    }
+
+    @Test
+    fun `exact result limit does not claim history is exhausted`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.getHistory(42L, 0L, 0, 100) } returns
+            listOf(msg(2, "two", "2026-05-01T00:00:00Z"), msg(1, "one", "2026-05-01T00:00:00Z"))
+
+        val data = payload(tool.execute(exchange, mapOf("chat_id" to 42, "limit" to 2)))
+
+        assertEquals(2, data["total"])
+        assertEquals(false, data["complete"])
+        assertEquals(true, data["truncated"])
+        assertEquals(listOf("result_limit"), data["partial_reasons"])
+        verify(exactly = 1) { telegramClient.getHistory(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `continues after short pages until empty page`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.getHistory(42L, 0L, 0, 100) } returns
+            listOf(msg(2, "two", "2026-05-01T00:00:00Z"))
+        every { telegramClient.getHistory(42L, 2L, 0, 100) } returns
+            listOf(msg(1, "one", "2026-05-01T00:00:00Z"))
+
+        val data = payload(tool.execute(exchange, mapOf("chat_id" to 42)))
+
+        assertEquals(2, data["total"])
+        assertEquals(2, data["scanned_count"])
+        assertEquals(true, data["complete"])
+        verify { telegramClient.getHistory(42L, 1L, 0, 100) }
+    }
+
+    @Test
+    fun `page budget outside requested date range remains incomplete`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        var id = 100L
+        every { telegramClient.getHistory(42L, any(), 0, 100) } answers {
+            listOf(msg(id--, "newer", "2026-05-01T00:00:00Z"))
+        }
+
+        val data = payload(tool.execute(exchange, mapOf("chat_id" to 42, "until" to "2026-01-01")))
+
+        assertEquals(0, data["total"])
+        assertEquals(false, data["complete"])
+        assertEquals(listOf("page_limit"), data["partial_reasons"])
+        assertEquals(12, data["scanned_count"])
+        verify(exactly = 12) { telegramClient.getHistory(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `repeated page reports stalled cursor instead of completion`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.getHistory(42L, any(), 0, 100) } returns
+            listOf(msg(2, "two", "2026-05-01T00:00:00Z"))
+
+        val data = payload(tool.execute(exchange, mapOf("chat_id" to 42)))
+
+        assertEquals(1, data["total"])
+        assertEquals(listOf("cursor_stalled"), data["partial_reasons"])
+        assertEquals(false, data["complete"])
+        verify(exactly = 2) { telegramClient.getHistory(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `search-only completeness is scoped to requested sources`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+
+        val data = payload(tool.execute(exchange, mapOf(
+            "chat_id" to 42, "include_history" to false, "query_terms" to listOf("missing"),
+        )))
+
+        assertEquals(true, data["complete"])
+        assertEquals("requested_sources", data["completion_scope"])
+        verify(exactly = 0) { telegramClient.getHistory(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `search budget and unvisited sources remain incomplete`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.searchMessages(42L, "first", 0L, 100) } returns
+            listOf(msg(2, "two", "2026-05-01T00:00:00Z"))
+
+        val data = payload(tool.execute(exchange, mapOf(
+            "chat_id" to 42, "limit" to 1, "query_terms" to listOf("first", "second"),
+        )))
+
+        assertEquals(false, data["complete"])
+        assertEquals(listOf("result_limit"), data["partial_reasons"])
+        verify(exactly = 0) { telegramClient.searchMessages(42L, "second", any(), any()) }
+        verify(exactly = 0) { telegramClient.getHistory(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `rejects export without any source`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        val result = tool.execute(exchange, mapOf("chat_id" to 42, "include_history" to false))
+        assertTrue(result.isError)
     }
 
     private fun msg(id: Long, text: String, iso: String): TelegramMessage =

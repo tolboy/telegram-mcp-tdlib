@@ -20,9 +20,9 @@ import java.time.ZoneOffset
 /**
  * MCP tool: **export_chat_history** (read-only).
  *
- * Exports a bounded message slice for local post-processing. The tool first
- * tries normal chat history pagination and can then supplement it with targeted
- * `search_messages` queries, which is important for supergroups where the
+ * Exports a bounded message slice for local post-processing. Targeted search
+ * queries run first, followed by history if requested and capacity remains.
+ * This is important for supergroups where the
  * latest main-history slice may contain only service messages.
  */
 @Component
@@ -41,6 +41,7 @@ class ExportChatHistoryTool(
         private const val DEFAULT_LIMIT = 200
         private const val MAX_LIMIT = 500
         private const val PAGE_LIMIT = 100
+        private const val MAX_HISTORY_PAGES = 12
         private const val MAX_QUERY_TERMS = 8
         private const val MAX_QUERY_LENGTH = 128
         private const val MAX_SEARCH_PAGES_PER_TERM = 8
@@ -73,7 +74,7 @@ class ExportChatHistoryTool(
             },
             "include_history": {
               "type": "boolean",
-              "description": "Whether to try normal get_history pagination before search terms (default true)."
+              "description": "Whether to supplement query results with normal get_history pagination (default true)."
             }
           },
           "required": ["chat_id"]
@@ -108,6 +109,9 @@ class ExportChatHistoryTool(
         val limit = extractLimit(arguments)
         val includeHistory = arguments["include_history"]?.toString()?.toBooleanStrictOrNull() ?: true
         val queryTerms = extractQueryTerms(arguments)
+        if (!includeHistory && queryTerms.isEmpty()) {
+            throw InvalidToolInputException("Enable include_history or provide query_terms")
+        }
 
         guardrailService.validateChatAccess(chatId)
         queryTerms.forEach(guardrailService::validateInput)
@@ -118,15 +122,19 @@ class ExportChatHistoryTool(
         )
 
         val deduped = linkedMapOf<Long, TelegramMessage>()
-        var historyMessages = 0
-        var searchMessages = 0
-
-        if (queryTerms.isNotEmpty()) {
-            searchMessages = collectSearchHits(chatId, since, until, limit, queryTerms, deduped)
+        val searches = queryTerms.map { term ->
+            collectPages(since, until, limit, MAX_SEARCH_PAGES_PER_TERM, deduped) { cursor ->
+                telegramClient.searchMessages(chatId, term, cursor, PAGE_LIMIT)
+            }
         }
-        if (includeHistory && deduped.size < limit) {
-            historyMessages = collectHistory(chatId, since, until, limit, deduped)
-        }
+        val history = if (includeHistory) {
+            collectPages(since, until, limit, MAX_HISTORY_PAGES, deduped) { cursor ->
+                telegramClient.getHistory(chatId, cursor, 0, PAGE_LIMIT)
+            }
+        } else null
+        val sources = searches + listOfNotNull(history)
+        val partialReasons = sources.mapNotNull { it.partialReason }.toMutableSet()
+        if (deduped.size > limit) partialReasons.add("result_limit")
 
         val messages = deduped.values
             .sortedByDescending { it.date }
@@ -138,10 +146,14 @@ class ExportChatHistoryTool(
             "until" to until?.toString(),
             "limit" to limit,
             "query_terms" to queryTerms,
-            "history_messages" to historyMessages,
-            "search_messages" to searchMessages,
+            "history_messages" to (history?.scannedCount ?: 0),
+            "search_messages" to searches.sumOf { it.scannedCount },
             "total" to messages.size,
-            "truncated" to (deduped.size > limit),
+            "truncated" to partialReasons.isNotEmpty(),
+            "complete" to partialReasons.isEmpty(),
+            "completion_scope" to "requested_sources",
+            "partial_reasons" to partialReasons.toList(),
+            "scanned_count" to sources.sumOf { it.scannedCount },
             "messages" to messages,
         )
     }
@@ -195,55 +207,36 @@ class ExportChatHistoryTool(
         }
     }
 
-    private fun collectHistory(
-        chatId: Long,
+    private data class ScanOutcome(val scannedCount: Int, val partialReason: String? = null)
+
+    /** A short TDLib page does not prove exhaustion. Only an empty page or
+     * crossing the lower date bound proves completion of this source.
+     * Limits and non-advancing cursors remain explicitly incomplete.
+     */
+    private fun collectPages(
         since: Instant?,
         until: Instant?,
         limit: Int,
+        maxPages: Int,
         out: LinkedHashMap<Long, TelegramMessage>,
-    ): Int {
+        fetch: (Long) -> List<TelegramMessage>,
+    ): ScanOutcome {
         var fetched = 0
-        var fromMessageId = 0L
-        var guard = 0
-        while (out.size < limit && guard++ < 12) {
-            val batch = telegramClient.getHistory(chatId, fromMessageId, 0, PAGE_LIMIT)
-            if (batch.isEmpty()) break
+        var cursor = 0L
+        repeat(maxPages) {
+            if (out.size >= limit) return ScanOutcome(fetched, "result_limit")
+            val batch = fetch(cursor)
+            if (batch.isEmpty()) return ScanOutcome(fetched)
             fetched += batch.size
             batch.filterInWindow(since, until).forEach { out.putIfAbsent(it.messageId, it) }
-            val nextFrom = batch.map { it.messageId }.filter { it > 0L }.minOrNull() ?: break
-            if (nextFrom == fromMessageId) break
-            fromMessageId = nextFrom
-            if (since != null && batch.all { it.date.isBefore(since) }) break
-            if (batch.size < PAGE_LIMIT) break
-        }
-        return fetched
-    }
-
-    private fun collectSearchHits(
-        chatId: Long,
-        since: Instant?,
-        until: Instant?,
-        limit: Int,
-        terms: List<String>,
-        out: LinkedHashMap<Long, TelegramMessage>,
-    ): Int {
-        var fetched = 0
-        for (term in terms) {
-            var offset = 0L
-            var page = 0
-            while (out.size < limit && page++ < MAX_SEARCH_PAGES_PER_TERM) {
-                val batch = telegramClient.searchMessages(chatId, term, offset, PAGE_LIMIT)
-                if (batch.isEmpty()) break
-                fetched += batch.size
-                batch.filterInWindow(since, until).forEach { out.putIfAbsent(it.messageId, it) }
-                val nextOffset = batch.map { it.messageId }.filter { it > 0L }.minOrNull() ?: break
-                if (nextOffset == offset) break
-                offset = nextOffset
-                if (since != null && batch.all { it.date.isBefore(since) }) break
-                if (batch.size < PAGE_LIMIT) break
+            if (since != null && batch.all { it.date.isBefore(since) }) return ScanOutcome(fetched)
+            val nextCursor = batch.asSequence().map { it.messageId }.filter { it > 0L }.minOrNull()
+            if (nextCursor == null || (cursor != 0L && nextCursor >= cursor)) {
+                return ScanOutcome(fetched, "cursor_stalled")
             }
+            cursor = nextCursor
         }
-        return fetched
+        return ScanOutcome(fetched, if (out.size >= limit) "result_limit" else "page_limit")
     }
 
     private fun List<TelegramMessage>.filterInWindow(since: Instant?, until: Instant?): List<TelegramMessage> =
