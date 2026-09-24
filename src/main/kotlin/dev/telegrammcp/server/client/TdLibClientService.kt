@@ -2054,11 +2054,7 @@ class TdLibClientService(
                 future.completeExceptionally(e)
             }
         }
-        return try {
-            future.get(TIMEOUT_SECONDS, TimeUnit.SECONDS) as T
-        } catch (e: java.util.concurrent.ExecutionException) {
-            throw e.cause ?: e
-        }
+        return TdLibRequestAwaiter.await(future, function, TIMEOUT_SECONDS) as T
     }
 
     private fun awaitFinalMessage(message: TdApi.Message): TdApi.Message =

@@ -1,6 +1,7 @@
 package dev.telegrammcp.server.client
 
 import it.tdlight.jni.TdApi
+import dev.telegrammcp.server.exception.SendOutcomeUnknownException
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutionException
@@ -51,10 +52,10 @@ class MessageSendTracker {
         } catch (error: ExecutionException) {
             throw error.cause ?: error
         } catch (error: TimeoutException) {
-            throw IllegalStateException(
-                "Timed out waiting for Telegram to finalize message ${key.oldMessageId} in chat ${key.chatId}",
-                error,
-            )
+            throw SendOutcomeUnknownException(key.chatId, key.oldMessageId, error)
+        } catch (error: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw SendOutcomeUnknownException(key.chatId, key.oldMessageId, error)
         } finally {
             waiters.remove(key, active)
             earlyOutcomes.remove(key)

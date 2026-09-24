@@ -13,6 +13,7 @@ data class ToolError(
     companion object {
         fun from(error: Exception): ToolError {
             val code = when (error) {
+                is SendOutcomeUnknownException -> "SEND_OUTCOME_UNKNOWN"
                 is InvalidToolInputException, is IllegalArgumentException -> "INVALID_INPUT"
                 is ChatNotAllowedException -> "CHAT_FORBIDDEN"
                 is AccountAccessDeniedException -> "ACCOUNT_FORBIDDEN"
@@ -32,6 +33,8 @@ data class ToolError(
             val delayMs = (error as? AntiSpamException)?.retryAfterMs?.coerceAtLeast(0)
             val delaySeconds = delayMs?.let { it / 1000 + if (it % 1000 == 0L) 0 else 1 }
             val action = when (code) {
+                "SEND_OUTCOME_UNKNOWN" ->
+                    "Check the target chat for delivery before sending again; do not automatically retry."
                 "INVALID_INPUT" -> "Correct the arguments before retrying."
                 "AUTH_REQUIRED" -> "Ask the operator to authenticate the selected account."
                 "CHAT_FORBIDDEN", "ACCOUNT_FORBIDDEN", "READ_ONLY", "FILE_FORBIDDEN", "GUARDRAIL_REJECTED" ->

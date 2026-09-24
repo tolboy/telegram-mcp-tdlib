@@ -56,6 +56,23 @@ class SendMessageToolTest {
     }
 
     @Test
+    fun `unknown delivery outcome tells the caller not to resend`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.sendMessage(42L, "Hello", ParseMode.PLAIN, null, null) } throws
+            dev.telegrammcp.server.exception.SendOutcomeUnknownException(42L, 10L, java.util.concurrent.TimeoutException())
+
+        val result = tool.execute(exchange, mapOf("chat_id" to 42, "text" to "Hello"))
+
+        assertTrue(result.isError)
+        val envelope = result.structuredContent() as Map<*, *>
+        val error = (envelope["data"] as Map<*, *>)["error"] as Map<*, *>
+        kotlin.test.assertEquals("SEND_OUTCOME_UNKNOWN", error["code"])
+        kotlin.test.assertEquals(false, error["retryable"])
+        assertTrue(error["next_action"].toString().contains("do not automatically retry"))
+        verify(exactly = 1) { telegramClient.sendMessage(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
     fun `sends message with plain text`() {
         val sentMsg = TelegramMessage(
             messageId = 100, chatId = 42, chatTitle = "Test",

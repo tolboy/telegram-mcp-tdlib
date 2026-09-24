@@ -1,6 +1,7 @@
 package dev.telegrammcp.server.client
 
 import it.tdlight.jni.TdApi
+import dev.telegrammcp.server.exception.SendOutcomeUnknownException
 import org.junit.jupiter.api.Test
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
@@ -51,6 +52,19 @@ class MessageSendTrackerTest {
         val error = assertFailsWith<IllegalStateException> { tracker.awaitFinal(provisional, 1) }
         assertTrue(error.message.orEmpty().contains("400"))
         assertTrue(error.message.orEmpty().contains("rejected"))
+    }
+
+    @Test
+    fun `timeout is unknown and a late success can still be observed`() {
+        val tracker = MessageSendTracker()
+        val pending = message(10, true)
+        val error = assertFailsWith<SendOutcomeUnknownException> { tracker.awaitFinal(pending, 0) }
+        assertEquals(42L, error.chatId)
+        assertEquals(10L, error.provisionalMessageId)
+
+        val sent = message(20, false)
+        tracker.onSucceeded(TdApi.UpdateMessageSendSucceeded(sent, pending.id))
+        assertSame(sent, tracker.awaitFinal(pending, 0))
     }
 
     private fun message(id: Long, sending: Boolean): TdApi.Message = TdApi.Message().apply {
