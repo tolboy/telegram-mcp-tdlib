@@ -452,7 +452,18 @@ jobs:
           curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" \
             | tar xz mcp-publisher
           ./mcp-publisher validate
-          ./mcp-publisher login github-oidc
+          # GitHub's OIDC endpoint can return a transient 504 after all image
+          # gates pass. Retry login only; do not retry a possibly accepted publish.
+          for attempt in 1 2 3; do
+            if ./mcp-publisher login github-oidc; then
+              break
+            fi
+            if (( attempt == 3 )); then
+              echo "MCP Registry OIDC login failed after ${attempt} attempts" >&2
+              exit 1
+            fi
+            sleep "$((attempt * 10))"
+          done
           ./mcp-publisher publish
 
       - name: Create GitHub release
