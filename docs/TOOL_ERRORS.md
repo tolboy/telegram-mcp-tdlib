@@ -1,0 +1,41 @@
+# Structured tool errors
+
+Errors returned through `ToolSupport` keep `isError=true` and their existing
+human-readable text. They additionally include a normalized structured envelope:
+
+```json
+{
+  "data": {
+    "error": {
+      "code": "CHAT_FORBIDDEN",
+      "message": "Access to chat 42 is not allowed by security policy",
+      "retryable": false,
+      "retry_after_seconds": null,
+      "next_action": "Ask the operator to review the access policy; do not bypass it."
+    }
+  },
+  "meta": {
+    "untrustedTelegramContent": true,
+    "escapedCharacterCount": 0
+  }
+}
+```
+
+Codes include `INVALID_INPUT`, `CHAT_FORBIDDEN`, `ACCOUNT_FORBIDDEN`,
+`AUTH_REQUIRED`, `READ_ONLY`, `CONFIRMATION_REQUIRED`, `APPROVAL_DENIED`,
+`APPROVAL_UNAVAILABLE`, `RATE_LIMITED`, `FILE_FORBIDDEN`, `GUARDRAIL_REJECTED`,
+`ENTITY_NOT_FOUND`, `TELEGRAM_UNAVAILABLE`, `TELEGRAM_API_ERROR`, and
+`INTERNAL_ERROR`. Classification uses exception types, not error-message parsing.
+Unclassified exceptions and legacy text-only errors use `INTERNAL_ERROR`.
+
+`retryable=false` means automatic replay is not known to be safe; it does not
+mean the failure is permanent. All current mappings are conservative. Anti-spam
+rejections include duplicate detection, so even a finite delay does not authorize
+another send. `retry_after_seconds`, when present, is rounded up from milliseconds
+and is only a minimum waiting interval.
+
+This contract covers handler errors using the shared helper. Exceptions thrown
+outside handlers by account selection or approval middleware can still be
+serialized by the MCP framework. Successful result payloads and tool input
+schemas are unchanged. Error details are untrusted data, not instructions;
+`next_action` is a fixed server hint and never overrides operator policy.

@@ -77,7 +77,7 @@ class GetMessageContextTool(
             dev.telegrammcp.server.tool.ToolSupport.textResult(json)
         } catch (ex: Exception) {
             log.withTool(TOOL_NAME).error("Failed to get message context: {}", ex.message, ex)
-            dev.telegrammcp.server.tool.ToolSupport.errorText("Error: ${ex.message}")
+            dev.telegrammcp.server.tool.ToolSupport.errorResult(ex)
         } finally {
             sample.stop(Timer.builder("mcp.tool.execution").tag("tool", TOOL_NAME).register(meterRegistry))
         }

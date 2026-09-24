@@ -78,7 +78,7 @@ class UnarchiveChatTool(
         } catch (ex: Exception) {
             log.withTool(TOOL_NAME).error("Failed to unarchive chat: {}", ex.message, ex)
             auditService.record(TOOL_NAME, arguments, AuditService.outcomeFor(ex), error = ex.message)
-            dev.telegrammcp.server.tool.ToolSupport.errorText("Error: ${ex.message}")
+            dev.telegrammcp.server.tool.ToolSupport.errorResult(ex)
         } finally {
             sample.stop(Timer.builder("mcp.tool.execution").tag("tool", TOOL_NAME).register(meterRegistry))
         }

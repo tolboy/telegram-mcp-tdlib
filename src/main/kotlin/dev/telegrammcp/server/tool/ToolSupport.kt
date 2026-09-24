@@ -134,13 +134,31 @@ object ToolSupport {
     }
 
     fun errorResult(ex: Exception): McpSchema.CallToolResult =
-        errorText("Error: ${ex.message}")
+        errorResult("Error: ${ex.message}", ToolError.from(ex))
 
     fun errorText(text: String): McpSchema.CallToolResult =
-        McpSchema.CallToolResult.builder()
-            .addContent(annotatedText(UntrustedContentNormalizer.normalizeText(text).first))
+        errorResult(text, ToolError(
+            code = "INTERNAL_ERROR",
+            message = text,
+            next_action = "Inspect the error and verify any side effects before retrying.",
+        ))
+
+    private fun errorResult(text: String, error: ToolError): McpSchema.CallToolResult {
+        val normalized = UntrustedContentNormalizer.normalize(mapOf("error" to error), fallbackObjectMapper)
+        val normalizedText = UntrustedContentNormalizer.normalizeText(text)
+        return McpSchema.CallToolResult.builder()
+            .addContent(annotatedText(normalizedText.first))
+            .structuredContent(mapOf(
+                "data" to normalized.value,
+                "meta" to mapOf(
+                    "untrustedTelegramContent" to true,
+                    "escapedCharacterCount" to normalized.escapedCharacterCount,
+                ),
+            ))
+            .meta(mapOf("io.github.tolboy/untrusted-content" to true))
             .isError(true)
             .build()
+    }
 
     private fun successfulResult(
         text: String,

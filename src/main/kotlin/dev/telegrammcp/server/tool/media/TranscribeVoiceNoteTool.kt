@@ -92,7 +92,7 @@ class TranscribeVoiceNoteTool(
         } catch (ex: Exception) {
             log.withTool(TOOL_NAME).error("Failed to transcribe voice note: {}", ex.message, ex)
             auditService.record(TOOL_NAME, arguments, AuditService.outcomeFor(ex), error = ex.message)
-            ToolSupport.errorText("Error: ${ex.message}")
+            ToolSupport.errorResult(ex)
         } finally {
             sample.stop(Timer.builder("mcp.tool.execution").tag("tool", TOOL_NAME).register(meterRegistry))
         }
