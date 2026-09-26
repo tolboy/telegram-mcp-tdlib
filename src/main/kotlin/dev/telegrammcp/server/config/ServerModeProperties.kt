@@ -11,7 +11,7 @@ import java.time.Duration
  */
 @ConfigurationProperties(prefix = "server-mode")
 data class ServerModeProperties(
-    /** When true, all write/mutating tools are blocked. */
+    /** When true, writes are blocked except explicitly permitted local downloads. */
     val readOnly: Boolean = false,
 
     /** Configuration for destructive-operation caller acknowledgement. */
@@ -22,6 +22,9 @@ data class ServerModeProperties(
 
     /** Audit logging settings. */
     val audit: AuditProps = AuditProps(),
+
+    /** Permit download_media in read-only mode and reader/research profiles. */
+    val readOnlyAllowDownloads: Boolean = false,
 ) {
     data class ConfirmationProps(
         /**

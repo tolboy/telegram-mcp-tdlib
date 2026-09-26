@@ -21,8 +21,7 @@ import org.springframework.stereotype.Component
  * Downloads media from a Telegram message. The file is saved locally
  * by TDLib and the local path is returned.
  *
- * File security: download destination is validated against allowed roots
- * when `file_path` is specified; otherwise TDLib default cache is used.
+ * Files are saved in the account's TDLib cache; callers cannot choose a destination.
  */
 @Component
 class DownloadMediaTool(

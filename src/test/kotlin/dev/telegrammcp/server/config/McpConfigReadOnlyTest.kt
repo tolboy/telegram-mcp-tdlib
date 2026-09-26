@@ -23,6 +23,27 @@ import kotlin.test.assertTrue
 class McpConfigReadOnlyTest {
 
     @Test
+    fun `download opt-in is registered and executable in read-only reader`() {
+        val registry = TelegramAccountRegistry()
+        val specifications = McpConfig().syncToolSpecifications(
+            handlers = listOf(TestHandler("download_media"), TestHandler("send_message"), TestHandler("transcribe_voice_note")),
+            registry = registry,
+            accountContext = TelegramAccountContext(registry),
+            accountAccessPolicy = AccountAccessPolicy(registry),
+            serverMode = ServerModeProperties(readOnly = true, readOnlyAllowDownloads = true),
+            toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties()),
+            auditService = auditService(),
+            approvalService = approvalService(),
+        )
+        assertEquals(listOf("download_media"), specifications.map { it.tool().name() })
+        val result = specifications.single().callHandler().apply(
+            mockk<McpSyncServerExchange>(),
+            McpSchema.CallToolRequest("download_media", emptyMap(), emptyMap()),
+        )
+        assertFalse(result.isError)
+    }
+
+    @Test
     fun `read-only mode does not register write or quota-consuming tools`() {
         val registry = TelegramAccountRegistry()
         val specifications = McpConfig().syncToolSpecifications(
@@ -144,7 +165,7 @@ class McpConfigReadOnlyTest {
         // visible: the dispatch wrapper must still refuse to execute it.
         val registry = TelegramAccountRegistry()
         val brokenSurfacePolicy = mockk<ToolSurfacePolicy>(relaxed = true)
-        every { brokenSurfacePolicy.isVisible(any(), any()) } returns true
+        every { brokenSurfacePolicy.isVisible(any(), any(), any()) } returns true
         every { brokenSurfacePolicy.profile } returns McpToolProfile.ALL
 
         val specification = McpConfig().syncToolSpecifications(

@@ -59,6 +59,27 @@ class DownloadMediaToolTest {
     }
 
     @Test
+    fun `read-only download opt-in preserves chat access enforcement`() {
+        val props = dev.telegrammcp.server.config.ServerModeProperties(readOnly = true, readOnlyAllowDownloads = true)
+        val guardedTool = DownloadMediaTool(
+            telegramClient, entityResolver, guardrailService,
+            OperationGuardService(props, mockk(relaxed = true)),
+            auditService, objectMapper, SimpleMeterRegistry(),
+        )
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.downloadMedia(42L, 100L) } returns DownloadResult(
+            localPath = "/tmp/tdlib/photo.jpg", fileName = "photo.jpg", mimeType = "image/jpeg", fileSize = 100,
+        )
+        val arguments = mapOf("chat_id" to 42, "message_id" to 100)
+        assertFalse(guardedTool.execute(exchange, arguments).isError)
+
+        every { guardrailService.validateChatAccess(42L) } throws IllegalArgumentException("Chat access denied")
+        assertTrue(guardedTool.execute(exchange, arguments).isError)
+        verify(exactly = 1) { telegramClient.downloadMedia(any(), any()) }
+        verify(exactly = 2) { guardrailService.validateChatAccess(42L) }
+    }
+
+    @Test
     fun `blocks download when operation guard rejects the call`() {
         every {
             operationGuardService.checkPermission("download_media", any())

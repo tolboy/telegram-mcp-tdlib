@@ -447,7 +447,8 @@ Docker, mount the secret file into the container and set the container path.
 | `MCP_API_KEY`              | Remote API-key mode* | —       | API key for MCP endpoint auth            |
 | `MCP_API_KEY_FILE`         | No       | —               | Secret-file alternative to `MCP_API_KEY` |
 | `MCP_AUTH_HEADER`          | No       | `Authorization` | Header name for API key                  |
-| `MCP_READ_ONLY`            | No       | `true`          | Block all write/mutating tools until explicitly disabled |
+| `MCP_READ_ONLY`            | No       | `true`          | Block write/mutating tools; local downloads have a separate opt-in below |
+| `MCP_READ_ONLY_ALLOW_DOWNLOADS` | No | `false` | Permit local `download_media` in read-only mode and reader/research profiles; preserve chat/account access checks |
 | `MCP_TOOL_PROFILE`         | No       | `reader`        | `all`, `reader`, `inbox`, `community-admin`, or `research` |
 | `MCP_TOOL_ALLOW`           | No       | (profile tools) | Exact comma-separated names to retain after profile filtering |
 | `MCP_TOOL_DENY`            | No       | —               | Exact comma-separated names to hide after the allow-list |
@@ -577,7 +578,7 @@ If you use a multi-connector router, prefer explicit connector scoping per chat 
 
 ## Safety Model
 
-Telegram account credentials and TDLib session data are sensitive. Start with a test account where practical, bind the service to localhost, use a long random `MCP_API_KEY`, and keep `MCP_READ_ONLY=true` until you intentionally need writes. In read-only mode write and quota-consuming tools are absent from the MCP tool list; the execution guard remains as defense in depth. `MCP_CONFIRMATION_REQUIRED=true` adds a caller-acknowledgement step for destructive actions, but the server cannot prove that `"confirmed": true` came from a human: that flag travels inside the tool call, so a model acting on a malicious message can set it itself.
+Telegram account credentials and TDLib session data are sensitive. Start with a test account where practical, bind the service to localhost, use a long random `MCP_API_KEY`, and keep `MCP_READ_ONLY=true` until you intentionally need writes. In read-only mode write and quota-consuming tools are absent from the MCP tool list unless you explicitly enable the local-only `download_media` exception with `MCP_READ_ONLY_ALLOW_DOWNLOADS=true`; the execution guard remains as defense in depth. `MCP_CONFIRMATION_REQUIRED=true` adds a caller-acknowledgement step for destructive actions, but the server cannot prove that `"confirmed": true` came from a human: that flag travels inside the tool call, so a model acting on a malicious message can set it itself.
 
 `MCP_DESTRUCTIVE_APPROVAL=auto` closes that gap. Before each destructive tool a person is asked, and the answer comes back over a channel the model does not write to — so an injected instruction can make the model *request* a ban, but not approve one. The check runs before any Telegram call.
 
@@ -770,7 +771,7 @@ all-administrator, chat, chat-administrator, and chat-member scopes.
 | Tool | Description |
 |------|-------------|
 | `get_media_info` | Get metadata for media in a message |
-| `download_media` | Download media to a local file (hidden in read-only mode) |
+| `download_media` | Download media to the account cache (read-only requires `MCP_READ_ONLY_ALLOW_DOWNLOADS=true`) |
 | `send_file` | Upload and send a file |
 | `send_voice` | Send a voice note (OGG/Opus) to a chat (write, file security) |
 | `transcribe_voice_note` | Request Telegram's native transcript on a voice message (Premium/trial quota; no new message is sent) |

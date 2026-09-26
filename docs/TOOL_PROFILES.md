@@ -8,13 +8,21 @@ The default is `reader`; selecting `all` is always explicit.
 | Profile | Intended use | Write tools advertised? |
 |---|---|---|
 | `all` | Full Telegram administration and automation | Yes, subject to normal server policy |
-| `reader` | Safe account exploration and analysis | Never |
+| `reader` | Safe account exploration and analysis | Only local downloads, when explicitly enabled |
 | `inbox` | Personal messages, drafts, media, contacts, and privacy | Yes, when `MCP_READ_ONLY=false` |
 | `community-admin` | Group/channel moderation, permissions, topics, and bot commands | Yes, when `MCP_READ_ONLY=false` |
-| `research` | Evidence-based account/public-chat discovery | Never |
+| `research` | Evidence-based account/public-chat discovery | Only local downloads, when explicitly enabled |
 
-Profiles compose with the safety model. `MCP_READ_ONLY=true` always removes
+Profiles compose with the safety model. `MCP_READ_ONLY=true` removes
 write and quota-consuming operations, even from `inbox` and `community-admin`.
+The optional `MCP_READ_ONLY_ALLOW_DOWNLOADS=true` exception permits only
+`download_media`, including in `reader` and `research`. It defaults to `false`.
+This exception also applies to those two profiles when global read-only is off.
+Downloads write into the selected account's TDLib cache; callers cannot choose
+an arbitrary destination. Telegram mutations and transcription remain blocked
+in read-only mode. Downloads retain `readOnlyHint=false` because they write
+local files. Exact-name allow/deny filters still apply; restart after changing
+the setting. This is a server-wide permission, not a per-client grant.
 Chat allow-lists, account scopes, confirmation requirements, audit logging,
 and anti-spam checks still run when an advertised tool is invoked.
 

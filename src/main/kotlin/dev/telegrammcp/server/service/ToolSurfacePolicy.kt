@@ -17,13 +17,13 @@ class ToolSurfacePolicy(
     val profile: McpToolProfile
         get() = properties.toolProfile
 
-    fun isVisible(toolName: String, readOnly: Boolean): Boolean =
-        allowedByProfile(toolName) &&
+    fun isVisible(toolName: String, readOnly: Boolean, allowDownloads: Boolean = false): Boolean =
+        allowedByProfile(toolName, allowDownloads) &&
             allowedByExactNames(toolName) &&
-            (!readOnly || toolName !in OperationGuardService.WRITE_TOOLS)
+            !OperationGuardService.blockedByReadOnly(toolName, readOnly, allowDownloads)
 
-    fun visibleToolNames(toolNames: Collection<String>, readOnly: Boolean): List<String> =
-        toolNames.filter { isVisible(it, readOnly) }
+    fun visibleToolNames(toolNames: Collection<String>, readOnly: Boolean, allowDownloads: Boolean = false): List<String> =
+        toolNames.filter { isVisible(it, readOnly, allowDownloads) }
 
     fun validateConfiguredNames(registeredToolNames: Collection<String>) {
         val registered = registeredToolNames.toSet()
@@ -43,13 +43,13 @@ class ToolSurfacePolicy(
     private fun allowedByExactNames(toolName: String): Boolean =
         (normalizedAllow.isEmpty() || toolName in normalizedAllow) && toolName !in normalizedDeny
 
-    private fun allowedByProfile(toolName: String): Boolean = when (profile) {
+    private fun allowedByProfile(toolName: String, allowDownloads: Boolean): Boolean = when (profile) {
         McpToolProfile.ALL -> true
-        McpToolProfile.READER -> toolName !in OperationGuardService.WRITE_TOOLS
+        McpToolProfile.READER -> !OperationGuardService.blockedByReadOnly(toolName, true, allowDownloads)
         McpToolProfile.INBOX -> toolName in INBOX_TOOL_NAMES
         McpToolProfile.COMMUNITY_ADMIN -> toolName in COMMUNITY_ADMIN_TOOL_NAMES
         McpToolProfile.RESEARCH ->
-            toolName in RESEARCH_TOOL_NAMES && toolName !in OperationGuardService.WRITE_TOOLS
+            toolName in RESEARCH_TOOL_NAMES && !OperationGuardService.blockedByReadOnly(toolName, true, allowDownloads)
     }
 
     companion object {

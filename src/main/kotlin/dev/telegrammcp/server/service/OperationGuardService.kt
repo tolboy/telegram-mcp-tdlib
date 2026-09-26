@@ -10,7 +10,7 @@ import org.springframework.stereotype.Service
 /**
  * Guards tool execution based on server operational policies:
  *
- * 1. **Read-only mode** — blocks all write/mutating tools
+ * 1. **Read-only mode** — blocks writes except explicitly permitted local downloads
  * 2. **Caller-acknowledgement mode** — requires explicit `"confirmed": true`
  *    for destructive operations (delete, ban, leave, etc.). The MCP host is
  *    responsible for obtaining human approval when its policy requires it.
@@ -87,6 +87,10 @@ class OperationGuardService(
             "register_internal_chat",
         )
 
+        /** Downloads still write local files; this exception does not change MCP hints. */
+        fun blockedByReadOnly(toolName: String, readOnly: Boolean, allowDownloads: Boolean = false): Boolean =
+            readOnly && toolName in WRITE_TOOLS && !(allowDownloads && toolName == "download_media")
+
         /** Default destructive tools requiring confirmation. */
         val DEFAULT_DESTRUCTIVE_TOOLS = setOf(
             "delete_message",
@@ -158,7 +162,7 @@ class OperationGuardService(
     /** Revalidate access for a receipt replay without charging another send. */
     fun checkPolicy(toolName: String, arguments: Map<String, Any>) {
         // 1. Read-only mode check
-        if (props.readOnly && toolName in WRITE_TOOLS) {
+        if (blockedByReadOnly(toolName, props.readOnly, props.readOnlyAllowDownloads)) {
             log.warn("Blocked write tool '{}' — server is in read-only mode", toolName)
             throw ReadOnlyModeException(toolName)
         }

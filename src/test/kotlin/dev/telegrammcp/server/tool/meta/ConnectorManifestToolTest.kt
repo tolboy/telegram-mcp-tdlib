@@ -25,6 +25,21 @@ class ConnectorManifestToolTest {
     private val objectMapper = jacksonObjectMapper().findAndRegisterModules()
 
     @Test
+    fun `read-only manifest includes opted-in download and excludes Telegram writes`() {
+        val tool = ConnectorManifestTool(
+            handlersProvider = handlersProvider(listOf(fakeTool("download_media", "Download"), fakeTool("send_message", "Send"))),
+            serverMode = ServerModeProperties(readOnly = true, readOnlyAllowDownloads = true),
+            toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties()),
+            auditService = mockk<AuditService>(relaxed = true),
+            objectMapper = objectMapper,
+            meterRegistry = SimpleMeterRegistry(),
+        )
+        val result = tool.execute(mockk<McpSyncServerExchange>(relaxed = true), emptyMap())
+        val payload = objectMapper.readTree((result.content.first() as McpSchema.TextContent).text())
+        assertEquals(listOf("_manifest", "download_media"), payload["tools"].map { it["name"].asText() })
+    }
+
+    @Test
     fun `definition exposes manifest tool without arguments`() {
         val tool = ConnectorManifestTool(
             handlersProvider = handlersProvider(emptyList()),

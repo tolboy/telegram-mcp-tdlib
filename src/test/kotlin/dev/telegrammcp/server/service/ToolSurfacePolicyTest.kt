@@ -10,6 +10,39 @@ import kotlin.test.assertTrue
 class ToolSurfacePolicyTest {
 
     @Test
+    fun `download opt-in exempts only local downloads across all profiles`() {
+        for (profile in McpToolProfile.entries) {
+            val policy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = profile))
+            assertFalse(policy.isVisible("download_media", readOnly = true), profile.name)
+            assertTrue(policy.isVisible("download_media", readOnly = true, allowDownloads = true), profile.name)
+            for (tool in OperationGuardService.WRITE_TOOLS - "download_media") {
+                assertFalse(policy.isVisible(tool, readOnly = true, allowDownloads = true), "$profile: $tool")
+            }
+        }
+    }
+
+    @Test
+    fun `download opt-in cannot bypass exact filters`() {
+        val denied = ToolSurfacePolicy(McpSecurityProperties(toolDeny = listOf("download_media")))
+        val excluded = ToolSurfacePolicy(McpSecurityProperties(toolAllow = listOf("get_history")))
+        assertFalse(denied.isVisible("download_media", true, true))
+        assertFalse(excluded.isVisible("download_media", true, true))
+    }
+
+    @Test
+    fun `direct guard permits downloads while blocking every other write`() {
+        val props = dev.telegrammcp.server.config.ServerModeProperties(readOnly = true, readOnlyAllowDownloads = true)
+        val guard = OperationGuardService(props, io.mockk.mockk(relaxed = true))
+        guard.checkPermission("download_media", emptyMap())
+        for (tool in OperationGuardService.WRITE_TOOLS - "download_media") {
+            assertFailsWith<dev.telegrammcp.server.exception.ReadOnlyModeException> {
+                guard.checkPermission(tool, emptyMap())
+            }
+        }
+        assertFalse(OperationGuardService.annotationsFor("download_media").readOnlyHint())
+    }
+
+    @Test
     fun `reader is the safe default profile`() {
         val policy = ToolSurfacePolicy(McpSecurityProperties())
 

@@ -160,6 +160,7 @@ mcp:
 server-mode:
   # When true, all write/mutating tools are blocked (messages, contacts, media upload)
   read-only: ${MCP_READ_ONLY:true}
+  read-only-allow-downloads: ${MCP_READ_ONLY_ALLOW_DOWNLOADS:false}
   confirmation:
     # Caller acknowledgement for destructive tools. This does not prove that
     # a human supplied "confirmed": true; MCP hosts own human-approval UX.

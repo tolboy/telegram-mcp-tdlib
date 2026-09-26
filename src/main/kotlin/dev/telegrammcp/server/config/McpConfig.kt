@@ -58,7 +58,7 @@ class McpConfig {
         toolSurfacePolicy.validateConfiguredNames(definitions.map { (_, tool) -> tool.name() })
 
         val visibleDefinitions = definitions.filter { (_, tool) ->
-            toolSurfacePolicy.isVisible(tool.name(), serverMode.readOnly)
+            toolSurfacePolicy.isVisible(tool.name(), serverMode.readOnly, serverMode.readOnlyAllowDownloads)
         }
         val hiddenCount = definitions.size - visibleDefinitions.size
 
@@ -78,7 +78,7 @@ class McpConfig {
                     // Defense in depth: read-only mode already hides write
                     // tools at registration, but a client may replay a cached
                     // tool list. Execution must fail closed regardless.
-                    serverMode.readOnly && tool.name() in OperationGuardService.WRITE_TOOLS ->
+                    OperationGuardService.blockedByReadOnly(tool.name(), serverMode.readOnly, serverMode.readOnlyAllowDownloads) ->
                         auditService.executeWithFallbackAudit(
                             toolName = tool.name(),
                             arguments = arguments,
