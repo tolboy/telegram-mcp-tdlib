@@ -77,7 +77,7 @@ val springAiMcpVersion = "2.0.1"
 val tdlightVersion = "3.5.3+td.1.8.65"
 val tdlightNativesVersion = "4.0.589"
 val resilience4jVersion = "2.4.0"
-val caffeineVersion = "3.2.4"
+val caffeineVersion = "3.3.0"
 val logstashVersion = "9.0"
 val mockkVersion = "1.14.11"
 
