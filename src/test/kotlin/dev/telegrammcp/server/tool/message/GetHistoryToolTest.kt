@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -66,7 +68,7 @@ class GetHistoryToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.getHistory(42L, 0L, 0, 20) } returns messages
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
 
         assertFalse(result.isError)
         verify { guardrailService.validateChatAccess(42L) }
@@ -74,7 +76,7 @@ class GetHistoryToolTest {
 
     @Test
     fun `execute returns error when chat_id is missing`() {
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -86,7 +88,7 @@ class GetHistoryToolTest {
         every { entityResolver.resolve(1L as Any) } returns 1L
         every { telegramClient.getHistory(1L, 0L, 0, 100) } returns emptyList()
 
-        tool.execute(exchange, mapOf("chat_id" to 1L, "limit" to 999))
+        tool.executeChecked(exchange, mapOf("chat_id" to 1L, "limit" to 999))
 
         verify { telegramClient.getHistory(1L, 0L, 0, 100) }
     }
@@ -96,7 +98,7 @@ class GetHistoryToolTest {
         every { entityResolver.resolve(1L as Any) } returns 1L
         every { telegramClient.getHistory(1L, 500L, 0, 20) } returns emptyList()
 
-        tool.execute(exchange, mapOf("chat_id" to 1L, "from_message_id" to 500L))
+        tool.executeChecked(exchange, mapOf("chat_id" to 1L, "from_message_id" to 500L))
 
         verify { telegramClient.getHistory(1L, 500L, 0, 20) }
     }

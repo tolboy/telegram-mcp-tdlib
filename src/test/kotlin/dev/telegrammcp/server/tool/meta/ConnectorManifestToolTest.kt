@@ -1,5 +1,7 @@
 package dev.telegrammcp.server.tool.meta
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.config.McpSecurityProperties
 import dev.telegrammcp.server.config.McpToolProfile
@@ -34,7 +36,7 @@ class ConnectorManifestToolTest {
             objectMapper = objectMapper,
             meterRegistry = SimpleMeterRegistry(),
         )
-        val result = tool.execute(mockk<McpSyncServerExchange>(relaxed = true), emptyMap())
+        val result = tool.executeChecked(mockk<McpSyncServerExchange>(relaxed = true), emptyMap())
         val payload = objectMapper.readTree((result.content.first() as McpSchema.TextContent).text())
         assertEquals(listOf("_manifest", "download_media"), payload["tools"].map { it["name"].asText() })
     }
@@ -83,7 +85,7 @@ class ConnectorManifestToolTest {
             meterRegistry = SimpleMeterRegistry(),
         )
 
-        val result = manifestTool.execute(mockk<McpSyncServerExchange>(relaxed = true), emptyMap())
+        val result = manifestTool.executeChecked(mockk<McpSyncServerExchange>(relaxed = true), emptyMap())
 
         assertFalse(result.isError)
         val payload = objectMapper.readTree((result.content.first() as McpSchema.TextContent).text())
@@ -109,7 +111,7 @@ class ConnectorManifestToolTest {
             meterRegistry = SimpleMeterRegistry(),
         )
 
-        val result = manifestTool.execute(mockk<McpSyncServerExchange>(relaxed = true), emptyMap())
+        val result = manifestTool.executeChecked(mockk<McpSyncServerExchange>(relaxed = true), emptyMap())
         val payload = objectMapper.readTree((result.content.first() as McpSchema.TextContent).text())
 
         assertEquals(listOf("_manifest", "get_history"), payload["tools"].map { it["name"].asText() })
@@ -126,7 +128,7 @@ class ConnectorManifestToolTest {
             meterRegistry = SimpleMeterRegistry(),
         )
 
-        val result = manifestTool.execute(mockk<McpSyncServerExchange>(relaxed = true), emptyMap())
+        val result = manifestTool.executeChecked(mockk<McpSyncServerExchange>(relaxed = true), emptyMap())
         val payload = objectMapper.readTree((result.content.first() as McpSchema.TextContent).text())
 
         assertEquals("inbox", payload["toolProfile"].asText())
@@ -147,7 +149,7 @@ class ConnectorManifestToolTest {
             ),
         )
 
-        val result = manifestTool.execute(mockk<McpSyncServerExchange>(relaxed = true), emptyMap())
+        val result = manifestTool.executeChecked(mockk<McpSyncServerExchange>(relaxed = true), emptyMap())
         val payload = objectMapper.readTree((result.content.first() as McpSchema.TextContent).text())
 
         assertEquals("1.15.0", payload["serverVersion"].asText())

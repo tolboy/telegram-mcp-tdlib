@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.chat
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -64,7 +66,7 @@ class SubscribePublicChannelToolTest {
         every { entityResolver.resolve("public_channel" as Any) } returns 300L
         every { telegramClient.joinPublicChat("public_channel", 300L) } returns chat
 
-        val result = tool.execute(exchange, mapOf("channel" to "public_channel"))
+        val result = tool.executeChecked(exchange, mapOf("channel" to "public_channel"))
 
         assertFalse(result.isError)
         verify { guardrailService.validateDerivedChatAccess(300L) }
@@ -79,7 +81,7 @@ class SubscribePublicChannelToolTest {
         every { telegramClient.joinPublicChat("public_channel", 300L) } throws
             RuntimeException("USER_ALREADY_PARTICIPANT")
 
-        val result = tool.execute(exchange, mapOf("channel" to "public_channel"))
+        val result = tool.executeChecked(exchange, mapOf("channel" to "public_channel"))
 
         assertFalse(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -93,7 +95,7 @@ class SubscribePublicChannelToolTest {
             guardrailService.validateDerivedChatAccess(300L)
         } throws dev.telegrammcp.server.exception.ChatNotAllowedException()
 
-        val result = tool.execute(exchange, mapOf("channel" to "public_channel"))
+        val result = tool.executeChecked(exchange, mapOf("channel" to "public_channel"))
 
         assertTrue(result.isError)
         verify(exactly = 0) { telegramClient.joinPublicChat(any(), any()) }
@@ -101,7 +103,7 @@ class SubscribePublicChannelToolTest {
 
     @Test
     fun `returns error when channel is missing`() {
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()

@@ -1,5 +1,7 @@
 package dev.telegrammcp.server.tool.media
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -70,7 +72,7 @@ class TranscribeVoiceNoteToolTest {
             text = "Hello from Telegram",
         )
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to "100"))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to "100"))
 
         assertFalse(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -91,7 +93,7 @@ class TranscribeVoiceNoteToolTest {
             partialText = "Hello",
         )
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to 100))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to 100))
 
         assertFalse(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -103,7 +105,7 @@ class TranscribeVoiceNoteToolTest {
     fun `does not call Telegram when message id is invalid`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to "not-a-number"))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to "not-a-number"))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -116,7 +118,7 @@ class TranscribeVoiceNoteToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.transcribeVoiceNote(42L, 100L) } throws IllegalStateException("Premium subscription is required")
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to 100))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to 100))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()

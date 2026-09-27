@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.chat
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -59,7 +61,7 @@ class CreateChannelToolTest {
         val chat = ChatInfo(chatId = 100L, title = "MyChannel", type = ChatType.CHANNEL)
         every { telegramClient.createSupergroupOrChannel("MyChannel", "", false, false) } returns chat
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("title" to "MyChannel", "confirmed" to true),
         )
@@ -75,7 +77,7 @@ class CreateChannelToolTest {
         val chat = ChatInfo(chatId = 200L, title = "MySupergroup", type = ChatType.SUPERGROUP)
         every { telegramClient.createSupergroupOrChannel("MySupergroup", "", true, false) } returns chat
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("title" to "MySupergroup", "is_supergroup" to true, "confirmed" to true),
         )
@@ -89,7 +91,7 @@ class CreateChannelToolTest {
         val chat = ChatInfo(chatId = 300L, title = "MemoryHub", type = ChatType.SUPERGROUP)
         every { telegramClient.createSupergroupOrChannel("MemoryHub", "Topics", true, true) } returns chat
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf(
                 "title" to "MemoryHub",
@@ -106,7 +108,7 @@ class CreateChannelToolTest {
 
     @Test
     fun `returns error when is_forum is true for channel`() {
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("title" to "NotForum", "is_forum" to true, "confirmed" to true),
         )
@@ -118,7 +120,7 @@ class CreateChannelToolTest {
 
     @Test
     fun `returns error when title is missing`() {
-        val result = tool.execute(exchange, mapOf("confirmed" to true))
+        val result = tool.executeChecked(exchange, mapOf("confirmed" to true))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -128,7 +130,7 @@ class CreateChannelToolTest {
     @Test
     fun `returns error when title exceeds max length`() {
         val longTitle = "A".repeat(129)
-        val result = tool.execute(exchange, mapOf("title" to longTitle, "confirmed" to true))
+        val result = tool.executeChecked(exchange, mapOf("title" to longTitle, "confirmed" to true))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()

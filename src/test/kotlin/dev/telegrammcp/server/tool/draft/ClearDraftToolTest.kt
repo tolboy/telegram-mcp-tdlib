@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.draft
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -60,7 +62,7 @@ class ClearDraftToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.clearDraft(42L) } returns true
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
 
         assertFalse(result.isError)
         verify { operationGuardService.checkPermission("clear_draft", any()) }
@@ -68,7 +70,7 @@ class ClearDraftToolTest {
 
     @Test
     fun `returns error when chat_id is missing`() {
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
         assertTrue(result.isError)
     }
 }

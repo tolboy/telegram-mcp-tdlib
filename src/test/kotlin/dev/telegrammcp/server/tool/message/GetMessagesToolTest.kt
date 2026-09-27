@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -63,7 +65,7 @@ class GetMessagesToolTest {
         // default context_size = 5, so total = 5*2+1 = 11, offset = -5
         every { telegramClient.getHistory(42L, 100L, -5, 11) } returns messages
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to 100))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to 100))
 
         assertFalse(result.isError)
         verify { guardrailService.validateChatAccess(42L) }
@@ -75,7 +77,7 @@ class GetMessagesToolTest {
         // context_size = 10, total = 10*2+1 = 21, offset = -10
         every { telegramClient.getHistory(42L, 100L, -10, 21) } returns emptyList()
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 100, "context_size" to 10),
         )
@@ -90,7 +92,7 @@ class GetMessagesToolTest {
         // context_size clamped to 50, total = 50*2+1 = 101, offset = -50
         every { telegramClient.getHistory(42L, 100L, -50, 101) } returns emptyList()
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 100, "context_size" to 999),
         )
@@ -101,7 +103,7 @@ class GetMessagesToolTest {
 
     @Test
     fun `returns error when chat_id is missing`() {
-        val result = tool.execute(exchange, mapOf("message_id" to 100))
+        val result = tool.executeChecked(exchange, mapOf("message_id" to 100))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -112,7 +114,7 @@ class GetMessagesToolTest {
     fun `returns error when message_id is missing`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -123,7 +125,7 @@ class GetMessagesToolTest {
     fun `returns error for invalid message_id type`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to "not_a_number"),
         )
@@ -138,7 +140,7 @@ class GetMessagesToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.getHistory(42L, 100L, -5, 11) } returns emptyList()
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to "100"),
         )

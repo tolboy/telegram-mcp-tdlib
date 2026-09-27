@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.chat
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -55,7 +57,7 @@ class GetBannedUsersToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.getBannedChatMembers(42L, 50) } returns emptyList()
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
 
         assertFalse(result.isError)
         verify { guardrailService.validateChatAccess(42L) }
@@ -70,7 +72,7 @@ class GetBannedUsersToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.getBannedChatMembers(42L, 50) } returns banned
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
 
         assertFalse(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -82,7 +84,7 @@ class GetBannedUsersToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.getBannedChatMembers(42L, 20) } returns emptyList()
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "limit" to 20))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "limit" to 20))
 
         assertFalse(result.isError)
         verify { telegramClient.getBannedChatMembers(42L, 20) }
@@ -90,7 +92,7 @@ class GetBannedUsersToolTest {
 
     @Test
     fun `returns error when chat_id is missing`() {
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()

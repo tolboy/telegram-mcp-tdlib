@@ -1,5 +1,7 @@
 package dev.telegrammcp.server.tool.chat
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -74,7 +76,7 @@ class CreateTopicToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.createForumTopic(42L, "Memory", null, null) } returns topic
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "name" to "Memory"))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "name" to "Memory"))
 
         assertFalse(result.isError)
         verify { operationGuardService.checkPermission("create_topic", mapOf("chat_id" to 42, "name" to "Memory")) }
@@ -103,7 +105,7 @@ class CreateTopicToolTest {
         every { entityResolver.resolve("@forum" as Any) } returns 42L
         every { telegramClient.createForumTopic(42L, "Pinned Notes", 0xFFD67E, 777L) } returns topic
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf(
                 "chat_id" to "@forum",
@@ -119,7 +121,7 @@ class CreateTopicToolTest {
 
     @Test
     fun `returns error when name is missing`() {
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -130,7 +132,7 @@ class CreateTopicToolTest {
     fun `returns error when icon color is invalid`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "name" to "Memory", "icon_color" to "blue"),
         )

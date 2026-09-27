@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.chat
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -66,7 +68,7 @@ class EditChatPhotoToolTest {
         every { fileSecurityService.validateForUpload("/tmp/photo.jpg") } returns Path.of("/tmp/photo.jpg")
         every { telegramClient.setChatPhoto(42L, any()) } returns true
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "file_path" to "/tmp/photo.jpg"),
         )
@@ -78,14 +80,14 @@ class EditChatPhotoToolTest {
 
     @Test
     fun `returns error when chat_id is missing`() {
-        val result = tool.execute(exchange, mapOf("file_path" to "/tmp/photo.jpg"))
+        val result = tool.executeChecked(exchange, mapOf("file_path" to "/tmp/photo.jpg"))
         assertTrue(result.isError)
     }
 
     @Test
     fun `returns error when file_path is missing`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
         assertTrue(result.isError)
     }
 }

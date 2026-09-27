@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -61,7 +63,7 @@ class GetMessageContextToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.getMessageContext(42L, 98L, 6) } returns messages
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 98),
         )
@@ -77,7 +79,7 @@ class GetMessageContextToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.getMessageContext(42L, 100L, 20) } returns messages
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 100, "context_size" to 20),
         )
@@ -90,7 +92,7 @@ class GetMessageContextToolTest {
     fun `returns error when message_id is missing`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()

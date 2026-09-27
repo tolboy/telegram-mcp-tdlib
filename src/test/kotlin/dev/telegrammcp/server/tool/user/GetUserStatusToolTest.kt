@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.user
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -51,14 +53,14 @@ class GetUserStatusToolTest {
         every { entityResolver.resolve(99 as Any) } returns 99L
         every { telegramClient.getUserStatus(99L) } returns "online"
 
-        val result = tool.execute(exchange, mapOf("user_id" to 99))
+        val result = tool.executeChecked(exchange, mapOf("user_id" to 99))
 
         assertFalse(result.isError)
     }
 
     @Test
     fun `returns error when user_id is missing`() {
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
         assertTrue(result.isError)
     }
 }

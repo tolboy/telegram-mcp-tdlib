@@ -1,5 +1,7 @@
 package dev.telegrammcp.server.tool.chat
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -60,7 +62,7 @@ class SetSlowModeToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.setChatSlowModeDelay(42L, 60) } returns true
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "delay_seconds" to 60, "confirmed" to true))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "delay_seconds" to 60, "confirmed" to true))
 
         assertFalse(result.isError)
         verify { telegramClient.setChatSlowModeDelay(42L, 60) }
@@ -71,7 +73,7 @@ class SetSlowModeToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.setChatSlowModeDelay(42L, 0) } returns true
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "delay_seconds" to 0, "confirmed" to true))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "delay_seconds" to 0, "confirmed" to true))
 
         assertFalse(result.isError)
         verify { telegramClient.setChatSlowModeDelay(42L, 0) }
@@ -81,7 +83,7 @@ class SetSlowModeToolTest {
     fun `rejects a delay Telegram does not accept`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "delay_seconds" to 45, "confirmed" to true))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "delay_seconds" to 45, "confirmed" to true))
 
         assertTrue(result.isError)
         verify(exactly = 0) { telegramClient.setChatSlowModeDelay(any(), any()) }

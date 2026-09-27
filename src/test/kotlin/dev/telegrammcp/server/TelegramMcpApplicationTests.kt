@@ -48,6 +48,8 @@ class TelegramMcpApplicationTests {
         val names = handlers.map { it.definition().name() }
 
         assertEquals(111, names.size)
+        assertEquals(names.toSet(), dev.telegrammcp.server.tool.ToolContractCatalog.schemas.keys,
+            "Every registered tool must have an explicit output contract")
         assertTrue("get_send_operation" in names)
         assertEquals(names.size, names.toSet().size)
         assertTrue("search_public_messages" in names)

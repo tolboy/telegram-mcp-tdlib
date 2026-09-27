@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -61,7 +63,7 @@ class SendReactionToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.addReaction(42L, 100L, "👍", false) } returns true
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 100, "emoji" to "👍"),
         )
@@ -76,7 +78,7 @@ class SendReactionToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.addReaction(42L, 100L, "❤️", true) } returns true
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 100, "emoji" to "❤️", "is_big" to true),
         )
@@ -87,7 +89,7 @@ class SendReactionToolTest {
 
     @Test
     fun `returns error when chat_id is missing`() {
-        val result = tool.execute(exchange, mapOf("message_id" to 100, "emoji" to "👍"))
+        val result = tool.executeChecked(exchange, mapOf("message_id" to 100, "emoji" to "👍"))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -98,7 +100,7 @@ class SendReactionToolTest {
     fun `returns error when message_id is missing`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "emoji" to "👍"))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "emoji" to "👍"))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -109,7 +111,7 @@ class SendReactionToolTest {
     fun `returns error when emoji is missing`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to 100))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to 100))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()

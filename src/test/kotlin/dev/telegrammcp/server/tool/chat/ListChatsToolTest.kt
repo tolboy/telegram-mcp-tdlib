@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.chat
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -48,7 +50,7 @@ class ListChatsToolTest {
         )
         every { telegramClient.getChats(50) } returns chats
 
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
 
         assertFalse(result.isError)
     }
@@ -61,7 +63,7 @@ class ListChatsToolTest {
         )
         every { telegramClient.getChats(50) } returns chats
 
-        val result = tool.execute(exchange, mapOf("filter" to "group"))
+        val result = tool.executeChecked(exchange, mapOf("filter" to "group"))
 
         assertFalse(result.isError)
         // The response should only contain the group
@@ -78,7 +80,7 @@ class ListChatsToolTest {
         )
         every { telegramClient.getChats(50) } returns chats
 
-        val result = tool.execute(exchange, mapOf("unread_only" to true))
+        val result = tool.executeChecked(exchange, mapOf("unread_only" to true))
 
         assertFalse(result.isError)
         val text = (result.content.first() as io.modelcontextprotocol.spec.McpSchema.TextContent).text()
@@ -96,7 +98,7 @@ class ListChatsToolTest {
         every { guardrailService.isChatAllowed(1) } returns true
         every { guardrailService.isChatAllowed(2) } returns false
 
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
 
         assertFalse(result.isError)
         val text = (result.content.first() as io.modelcontextprotocol.spec.McpSchema.TextContent).text()

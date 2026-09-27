@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.chat
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -59,7 +61,7 @@ class UnmuteChatToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.unmuteChat(42L) } returns true
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
 
         assertFalse(result.isError)
         verify { telegramClient.unmuteChat(42L) }

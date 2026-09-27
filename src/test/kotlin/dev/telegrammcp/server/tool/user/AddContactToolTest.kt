@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.user
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -56,7 +58,7 @@ class AddContactToolTest {
     fun `adds contact with first name only`() {
         every { telegramClient.addContact(99L, "John", null, null) } returns true
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("user_id" to 99, "first_name" to "John"),
         )
@@ -69,7 +71,7 @@ class AddContactToolTest {
     fun `adds contact with full info`() {
         every { telegramClient.addContact(99L, "John", "Doe", "+1234567890") } returns true
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("user_id" to 99, "first_name" to "John", "last_name" to "Doe", "phone_number" to "+1234567890"),
         )
@@ -81,7 +83,7 @@ class AddContactToolTest {
 
     @Test
     fun `returns error when user_id is missing`() {
-        val result = tool.execute(exchange, mapOf("first_name" to "John"))
+        val result = tool.executeChecked(exchange, mapOf("first_name" to "John"))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -90,7 +92,7 @@ class AddContactToolTest {
 
     @Test
     fun `returns error when first_name is missing`() {
-        val result = tool.execute(exchange, mapOf("user_id" to 99))
+        val result = tool.executeChecked(exchange, mapOf("user_id" to 99))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()

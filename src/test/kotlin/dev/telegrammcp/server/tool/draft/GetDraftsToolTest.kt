@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.draft
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -55,7 +57,7 @@ class GetDraftsToolTest {
         )
         every { telegramClient.getDrafts() } returns drafts
 
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
 
         assertFalse(result.isError)
     }
@@ -64,7 +66,7 @@ class GetDraftsToolTest {
     fun `returns empty list when no drafts`() {
         every { telegramClient.getDrafts() } returns emptyList()
 
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
 
         assertFalse(result.isError)
     }
@@ -78,7 +80,7 @@ class GetDraftsToolTest {
         every { guardrailService.isChatAllowed(42L) } returns true
         every { guardrailService.isChatAllowed(99L) } returns false
 
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
 
         assertFalse(result.isError)
         val text = (result.content.first() as io.modelcontextprotocol.spec.McpSchema.TextContent).text()

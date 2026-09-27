@@ -1,5 +1,7 @@
 package dev.telegrammcp.server.tool.chat
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -61,7 +63,7 @@ class SetForumTopicsEnabledToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.setForumTopicsEnabled(42L, true, true) } returns true
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
 
         assertFalse(result.isError)
         verify { operationGuardService.checkPermission("set_forum_topics_enabled", mapOf("chat_id" to 42)) }
@@ -74,7 +76,7 @@ class SetForumTopicsEnabledToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.setForumTopicsEnabled(42L, false, false) } returns true
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "enabled" to false, "has_forum_tabs" to false),
         )
@@ -85,7 +87,7 @@ class SetForumTopicsEnabledToolTest {
 
     @Test
     fun `returns error when chat_id is missing`() {
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()

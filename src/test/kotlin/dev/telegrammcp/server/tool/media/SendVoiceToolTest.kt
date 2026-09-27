@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.media
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -69,7 +71,7 @@ class SendVoiceToolTest {
         every { fileSecurityService.validateForUpload("/tmp/voice.ogg") } returns Path.of("/tmp/voice.ogg")
         every { telegramClient.sendVoice(42L, any(), 30, "caption") } returns msg
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "file_path" to "/tmp/voice.ogg", "duration" to 30, "caption" to "caption"),
         )
@@ -81,14 +83,14 @@ class SendVoiceToolTest {
 
     @Test
     fun `returns error when chat_id is missing`() {
-        val result = tool.execute(exchange, mapOf("file_path" to "/tmp/voice.ogg"))
+        val result = tool.executeChecked(exchange, mapOf("file_path" to "/tmp/voice.ogg"))
         assertTrue(result.isError)
     }
 
     @Test
     fun `returns error when file_path is missing`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
         assertTrue(result.isError)
     }
 }

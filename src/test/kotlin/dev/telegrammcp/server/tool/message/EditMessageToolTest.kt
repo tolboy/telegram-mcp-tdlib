@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -67,7 +69,7 @@ class EditMessageToolTest {
             operationGuardService.checkPermission("edit_message", any())
         } throws AntiSpamException("edit_message", "rate limit 20 ops per 60s")
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 55, "text" to "Updated text"),
         )
@@ -85,7 +87,7 @@ class EditMessageToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.editMessage(42L, 55L, "Updated text", ParseMode.PLAIN) } returns editedMsg
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 55, "text" to "Updated text"),
         )
@@ -104,7 +106,7 @@ class EditMessageToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.editMessage(42L, 55L, "<b>Bold</b>", ParseMode.HTML) } returns editedMsg
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 55, "text" to "<b>Bold</b>", "parse_mode" to "html"),
         )
@@ -114,7 +116,7 @@ class EditMessageToolTest {
 
     @Test
     fun `returns error when chat_id is missing`() {
-        val result = tool.execute(exchange, mapOf("message_id" to 55, "text" to "update"))
+        val result = tool.executeChecked(exchange, mapOf("message_id" to 55, "text" to "update"))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -125,7 +127,7 @@ class EditMessageToolTest {
     fun `returns error when message_id is missing`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "text" to "update"))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "text" to "update"))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -136,7 +138,7 @@ class EditMessageToolTest {
     fun `returns error when text is missing`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to 55))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to 55))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -147,7 +149,7 @@ class EditMessageToolTest {
     fun `returns error when text is blank`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 55, "text" to "  "),
         )
@@ -161,7 +163,7 @@ class EditMessageToolTest {
     fun `returns error for invalid parse_mode`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 55, "text" to "test", "parse_mode" to "xml"),
         )

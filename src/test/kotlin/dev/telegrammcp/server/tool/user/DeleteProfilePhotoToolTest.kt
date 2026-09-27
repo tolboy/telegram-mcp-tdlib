@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.user
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -50,7 +52,7 @@ class DeleteProfilePhotoToolTest {
     fun `deletes profile photo successfully`() {
         every { telegramClient.deleteProfilePhoto(null) } returns true
 
-        val result = tool.execute(exchange, mapOf("confirmed" to true))
+        val result = tool.executeChecked(exchange, mapOf("confirmed" to true))
 
         assertFalse(result.isError)
         verify { operationGuardService.checkPermission("delete_profile_photo", any()) }
@@ -60,7 +62,7 @@ class DeleteProfilePhotoToolTest {
     fun `deletes specific photo by id`() {
         every { telegramClient.deleteProfilePhoto(123L) } returns true
 
-        val result = tool.execute(exchange, mapOf("photo_id" to 123, "confirmed" to true))
+        val result = tool.executeChecked(exchange, mapOf("photo_id" to 123, "confirmed" to true))
 
         assertFalse(result.isError)
         verify { telegramClient.deleteProfilePhoto(123L) }

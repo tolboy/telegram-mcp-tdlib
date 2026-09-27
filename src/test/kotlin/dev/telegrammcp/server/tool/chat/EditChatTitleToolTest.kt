@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.chat
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -61,7 +63,7 @@ class EditChatTitleToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.setChatTitle(42L, "New Title") } returns true
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "title" to "New Title"),
         )
@@ -74,7 +76,7 @@ class EditChatTitleToolTest {
     fun `returns error when title is blank`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "title" to "  "))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "title" to "  "))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -85,7 +87,7 @@ class EditChatTitleToolTest {
     fun `returns error when title is missing`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
 
         assertTrue(result.isError)
     }

@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.media
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -49,7 +51,7 @@ class GetStickerSetsToolTest {
         )
         every { telegramClient.getInstalledStickerSets(50) } returns sets
 
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
 
         assertFalse(result.isError)
     }
@@ -58,7 +60,7 @@ class GetStickerSetsToolTest {
     fun `respects custom limit`() {
         every { telegramClient.getInstalledStickerSets(10) } returns emptyList()
 
-        val result = tool.execute(exchange, mapOf("limit" to 10))
+        val result = tool.executeChecked(exchange, mapOf("limit" to 10))
 
         assertFalse(result.isError)
     }

@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.draft
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -60,7 +62,7 @@ class SaveDraftToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.saveDraft(42L, "Hello draft", null) } returns true
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "text" to "Hello draft"),
         )
@@ -76,7 +78,7 @@ class SaveDraftToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.saveDraft(42L, "Reply draft", 100L) } returns true
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "text" to "Reply draft", "reply_to_message_id" to 100),
         )
@@ -86,14 +88,14 @@ class SaveDraftToolTest {
 
     @Test
     fun `returns error when chat_id is missing`() {
-        val result = tool.execute(exchange, mapOf("text" to "Hello"))
+        val result = tool.executeChecked(exchange, mapOf("text" to "Hello"))
         assertTrue(result.isError)
     }
 
     @Test
     fun `returns error when text is missing`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
         assertTrue(result.isError)
     }
 }

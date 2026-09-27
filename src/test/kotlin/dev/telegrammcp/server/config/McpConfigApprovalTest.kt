@@ -39,7 +39,7 @@ class McpConfigApprovalTest {
 
         // A denial surfaces the same way as the other dispatch-level guards:
         // as a failed call, not a result the model could mistake for success.
-        assertFailsWith<ApprovalDeniedException> {
+        assertToolError("APPROVAL_DENIED") {
             specification.callHandler().apply(
                 decliningExchange(),
                 McpSchema.CallToolRequest("ban_user", mapOf("chat_id" to 1, "user_id" to 2), emptyMap()),
@@ -108,7 +108,7 @@ class McpConfigApprovalTest {
         val handler = CountingHandler("delete_message")
         val specification = specificationFor(handler, auditService(), ServerModeProperties.ApprovalMode.ELICITATION)
 
-        assertFailsWith<ApprovalDeniedException> {
+        assertToolError("APPROVAL_DENIED") {
             specification.callHandler().apply(
                 decliningExchange(),
                 McpSchema.CallToolRequest("delete_message", mapOf("confirmed" to true), emptyMap()),

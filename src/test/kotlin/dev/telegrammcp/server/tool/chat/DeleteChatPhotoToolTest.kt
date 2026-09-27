@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.chat
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -60,7 +62,7 @@ class DeleteChatPhotoToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.deleteChatPhoto(42L) } returns true
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "confirmed" to true),
         )
@@ -71,7 +73,7 @@ class DeleteChatPhotoToolTest {
 
     @Test
     fun `returns error when chat_id is missing`() {
-        val result = tool.execute(exchange, mapOf("confirmed" to true))
+        val result = tool.executeChecked(exchange, mapOf("confirmed" to true))
         assertTrue(result.isError)
     }
 }

@@ -107,7 +107,7 @@ class McpConfigMultiAccountTest {
             approvalService = approvalService(),
         ).single()
 
-        assertFailsWith<AccountAccessDeniedException> {
+        assertToolError("ACCOUNT_FORBIDDEN") {
             specification.callHandler().apply(
                 mockk<McpSyncServerExchange>(),
                 McpSchema.CallToolRequest(

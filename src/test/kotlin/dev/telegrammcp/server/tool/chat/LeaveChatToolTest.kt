@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.chat
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -61,7 +63,7 @@ class LeaveChatToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.leaveChat(42L) } returns true
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "confirmed" to true))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "confirmed" to true))
 
         assertFalse(result.isError)
         verify { operationGuardService.checkPermission("leave_chat", any()) }
@@ -69,7 +71,7 @@ class LeaveChatToolTest {
 
     @Test
     fun `returns error when chat_id is missing`() {
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()

@@ -1,5 +1,7 @@
 package dev.telegrammcp.server.tool.chat
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -70,7 +72,7 @@ class ListInviteLinksToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.getChatInviteLinks(42L, false, 20) } returns listOf(linkInfo())
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
 
         assertFalse(result.isError)
         val text = (result.content().first() as McpSchema.TextContent).text()
@@ -83,7 +85,7 @@ class ListInviteLinksToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.getChatInviteLinks(42L, true, 5) } returns listOf(linkInfo(revoked = true))
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "include_revoked" to true, "limit" to 5))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "include_revoked" to true, "limit" to 5))
 
         assertFalse(result.isError)
         verify { telegramClient.getChatInviteLinks(42L, true, 5) }
@@ -132,7 +134,7 @@ class RevokeInviteLinkToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.revokeChatInviteLink(42L, "https://t.me/+abc123") } returns listOf(linkInfo(revoked = true))
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "invite_link" to "https://t.me/+abc123", "confirmed" to true),
         )
@@ -146,7 +148,7 @@ class RevokeInviteLinkToolTest {
     fun `requires invite_link`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "confirmed" to true))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "confirmed" to true))
 
         assertTrue(result.isError)
         verify(exactly = 0) { telegramClient.revokeChatInviteLink(any(), any()) }

@@ -1,5 +1,7 @@
 package dev.telegrammcp.server.tool.meta
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.exception.ChatNotAllowedException
 import dev.telegrammcp.server.service.AntiSpamGuardService
@@ -44,7 +46,7 @@ class RegisterInternalChatToolTest {
 
     @Test
     fun `validates allow-list before registering internal chat`() {
-        val result = tool.execute(
+        val result = tool.executeChecked(
             mockk<McpSyncServerExchange>(relaxed = true),
             mapOf("chat_id" to 42L, "confirmed" to true),
         )
@@ -60,7 +62,7 @@ class RegisterInternalChatToolTest {
     fun `does not register chat rejected by allow-list`() {
         every { guardrailService.validateChatAccess(42L) } throws ChatNotAllowedException(42L)
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             mockk<McpSyncServerExchange>(relaxed = true),
             mapOf("chat_id" to 42L, "confirmed" to true),
         )
@@ -73,7 +75,7 @@ class RegisterInternalChatToolTest {
     fun `success response does not disclose the complete internal chat registry`() {
         every { antiSpamGuardService.internalChatIds(any()) } returns setOf(42L, 999_999L)
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             mockk<McpSyncServerExchange>(relaxed = true),
             mapOf("chat_id" to "42", "confirmed" to true),
         )

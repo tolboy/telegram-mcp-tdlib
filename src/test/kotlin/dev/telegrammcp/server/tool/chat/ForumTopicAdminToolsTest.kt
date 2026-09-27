@@ -1,5 +1,7 @@
 package dev.telegrammcp.server.tool.chat
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -49,7 +51,7 @@ class ForumTopicAdminToolsTest {
         } returns true
 
         val args = mapOf("chat_id" to 42, "message_thread_id" to 1001, "name" to "Renamed")
-        val result = tool.execute(exchange, args)
+        val result = tool.executeChecked(exchange, args)
 
         assertFalse(result.isError)
         assertEquals("edit_forum_topic", tool.definition().name())
@@ -67,7 +69,7 @@ class ForumTopicAdminToolsTest {
             telegramClient.editForumTopic(42L, 1002L, "Alias title", false, null)
         } returns true
 
-        val result = tool.execute(exchange, mapOf("chat_id" to "@forum", "topic_id" to "1002", "title" to "Alias title"))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to "@forum", "topic_id" to "1002", "title" to "Alias title"))
 
         assertFalse(result.isError)
         verify { telegramClient.editForumTopic(42L, 1002L, "Alias title", false, null) }
@@ -78,7 +80,7 @@ class ForumTopicAdminToolsTest {
         val tool = editTool()
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_thread_id" to 1001))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_thread_id" to 1001))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -92,7 +94,7 @@ class ForumTopicAdminToolsTest {
         every { telegramClient.closeForumTopic(42L, 1001L) } returns true
 
         val args = mapOf("chat_id" to 42, "message_thread_id" to 1001)
-        val result = tool.execute(exchange, args)
+        val result = tool.executeChecked(exchange, args)
 
         assertFalse(result.isError)
         assertEquals("close_forum_topic", tool.definition().name())
@@ -108,7 +110,7 @@ class ForumTopicAdminToolsTest {
         every { telegramClient.reopenForumTopic(42L, 1001L) } returns true
 
         val args = mapOf("chat_id" to 42, "thread_id" to 1001)
-        val result = tool.execute(exchange, args)
+        val result = tool.executeChecked(exchange, args)
 
         assertFalse(result.isError)
         assertEquals("reopen_forum_topic", tool.definition().name())

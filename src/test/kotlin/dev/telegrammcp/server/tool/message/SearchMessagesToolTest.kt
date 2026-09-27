@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -62,7 +64,7 @@ class SearchMessagesToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.searchMessages(42L, "kotlin", 0L, 20) } returns messages
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "query" to "kotlin"),
         )
@@ -77,7 +79,7 @@ class SearchMessagesToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.searchMessages(42L, "test", 50L, 10) } returns emptyList()
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "query" to "test", "limit" to 10, "offset" to 50),
         )
@@ -91,7 +93,7 @@ class SearchMessagesToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.searchMessages(42L, "test", 0L, 100) } returns emptyList()
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "query" to "test", "limit" to 999),
         )
@@ -102,7 +104,7 @@ class SearchMessagesToolTest {
 
     @Test
     fun `returns error when chat_id is missing`() {
-        val result = tool.execute(exchange, mapOf("query" to "test"))
+        val result = tool.executeChecked(exchange, mapOf("query" to "test"))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -113,7 +115,7 @@ class SearchMessagesToolTest {
     fun `returns error when query is missing`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -124,7 +126,7 @@ class SearchMessagesToolTest {
     fun `returns error when query is blank`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "query" to "  "),
         )
@@ -139,7 +141,7 @@ class SearchMessagesToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         val longQuery = "a".repeat(257)
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "query" to longQuery),
         )
@@ -154,7 +156,7 @@ class SearchMessagesToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.searchMessages(42L, "test", 25L, 20) } returns emptyList()
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "query" to "test", "offset" to "25"),
         )
@@ -166,7 +168,7 @@ class SearchMessagesToolTest {
     fun `returns error for invalid offset`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "query" to "test", "offset" to "not_a_number"),
         )

@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.user
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -57,7 +59,7 @@ class SetProfilePhotoToolTest {
         every { fileSecurityService.validateForUpload("/tmp/photo.jpg") } returns Path.of("/tmp/photo.jpg")
         every { telegramClient.setProfilePhoto(any()) } returns true
 
-        val result = tool.execute(exchange, mapOf("file_path" to "/tmp/photo.jpg"))
+        val result = tool.executeChecked(exchange, mapOf("file_path" to "/tmp/photo.jpg"))
 
         assertFalse(result.isError)
         verify { operationGuardService.checkPermission("set_profile_photo", any()) }
@@ -66,7 +68,7 @@ class SetProfilePhotoToolTest {
 
     @Test
     fun `returns error when file_path is missing`() {
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
         assertTrue(result.isError)
     }
 }

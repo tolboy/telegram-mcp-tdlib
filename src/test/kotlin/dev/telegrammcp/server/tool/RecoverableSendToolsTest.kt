@@ -1,5 +1,7 @@
 package dev.telegrammcp.server.tool
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.model.TelegramMessage
@@ -56,8 +58,8 @@ class RecoverableSendToolsTest {
         val exchange = mockk<McpSyncServerExchange>(relaxed = true)
         for ((tool, input) in cases) {
             val arguments = input + ("idempotency_key" to tool.definition().name())
-            assertFalse(tool.execute(exchange, arguments).isError, tool.definition().name())
-            val result = tool.execute(exchange, arguments)
+            assertFalse(tool.executeChecked(exchange, arguments).isError, tool.definition().name())
+            val result = tool.executeChecked(exchange, arguments)
             assertFalse(result.isError, tool.definition().name())
             val receipt = (result.structuredContent() as Map<*, *>)["data"] as Map<*, *>
             assertEquals(true, receipt["replayed"])
@@ -74,11 +76,11 @@ class RecoverableSendToolsTest {
         operations.execute(past, 42, listOf("schedule_message", 42L, "later", 100, 0, false, "PLAIN"), {}, scheduled = true) {
             ScheduledMessage(message)
         }
-        assertFalse(cases.last().first.execute(exchange, past).isError)
+        assertFalse(cases.last().first.executeChecked(exchange, past).isError)
         verify(exactly = 1) { client.scheduleMessage(any(), any(), any(), any(), any(), any()) }
 
         Files.writeString(file, "changed content")
-        val changed = cases.first().first.execute(exchange, cases.first().second + ("idempotency_key" to "send_file"))
+        val changed = cases.first().first.executeChecked(exchange, cases.first().second + ("idempotency_key" to "send_file"))
         assertTrue(changed.isError)
         verify(exactly = 1) { client.sendFile(any(), any(), any()) }
     }

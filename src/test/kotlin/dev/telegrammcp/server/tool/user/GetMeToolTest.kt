@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.user
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -52,7 +54,7 @@ class GetMeToolTest {
         )
         every { telegramClient.getMe() } returns userInfo
 
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
 
         assertFalse(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -64,7 +66,7 @@ class GetMeToolTest {
     fun `returns error when client throws`() {
         every { telegramClient.getMe() } throws RuntimeException("Not authenticated")
 
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()

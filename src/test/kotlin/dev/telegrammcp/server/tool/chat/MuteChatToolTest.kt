@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.chat
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -59,7 +61,7 @@ class MuteChatToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.muteChat(42L, Int.MAX_VALUE) } returns true
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
 
         assertFalse(result.isError)
         verify { telegramClient.muteChat(42L, Int.MAX_VALUE) }
@@ -70,7 +72,7 @@ class MuteChatToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.muteChat(42L, 3600) } returns true
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "duration" to 3600))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "duration" to 3600))
 
         assertFalse(result.isError)
         verify { telegramClient.muteChat(42L, 3600) }

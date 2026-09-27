@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.user
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -62,7 +64,7 @@ class ResolveUsernameToolTest {
             userId = 42, firstName = "Test", username = "testuser",
         )
 
-        val result = tool.execute(exchange, mapOf("identifier" to "@testuser"))
+        val result = tool.executeChecked(exchange, mapOf("identifier" to "@testuser"))
 
         assertFalse(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -78,7 +80,7 @@ class ResolveUsernameToolTest {
             chatId = -100123, title = "My Channel", type = ChatType.CHANNEL,
         )
 
-        val result = tool.execute(exchange, mapOf("identifier" to -100123))
+        val result = tool.executeChecked(exchange, mapOf("identifier" to -100123))
 
         assertFalse(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -88,7 +90,7 @@ class ResolveUsernameToolTest {
 
     @Test
     fun `returns error when identifier is missing`() {
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -100,7 +102,7 @@ class ResolveUsernameToolTest {
         every { entityResolver.resolve("@unknown" as Any) } throws
             dev.telegrammcp.server.exception.EntityNotFoundException("@unknown")
 
-        val result = tool.execute(exchange, mapOf("identifier" to "@unknown"))
+        val result = tool.executeChecked(exchange, mapOf("identifier" to "@unknown"))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()

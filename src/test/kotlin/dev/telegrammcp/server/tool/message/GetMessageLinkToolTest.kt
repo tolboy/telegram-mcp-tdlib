@@ -1,5 +1,7 @@
 package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -54,7 +56,7 @@ class GetMessageLinkToolTest {
         every { telegramClient.getMessageLink(42L, 99L, true, true) } returns
             TelegramMessageLink(42L, 99L, "https://t.me/channel/99", true)
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf(
                 "chat_id" to "@channel",
@@ -73,7 +75,7 @@ class GetMessageLinkToolTest {
     fun `returns error for invalid boolean flag`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 99, "for_album" to "yes"),
         )

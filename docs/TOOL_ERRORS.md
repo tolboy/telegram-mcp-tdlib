@@ -35,7 +35,7 @@ not a confirmed rejection and must not trigger automatic resend. The message
 includes the destination chat and, when known, the provisional message ID.
 Explicit Telegram rejections remain distinct from local wait timeouts.
 
-For keyed text sends/replies, use `get_send_operation` to inspect the persistent
+For keyed sends, use `get_send_operation` to inspect the persistent
 receipt; see [send idempotency](SEND_IDEMPOTENCY.md). Unknown receipts still
 require checking the target chat. The provisional ID is not an advertised final
 message ID or a durable operation handle. Journal errors use
@@ -47,8 +47,8 @@ rejections include duplicate detection, so even a finite delay does not authoriz
 another send. `retry_after_seconds`, when present, is rounded up from milliseconds
 and is only a minimum waiting interval.
 
-This contract covers handler errors using the shared helper. Exceptions thrown
-outside handlers by account selection or approval middleware can still be
-serialized by the MCP framework. Successful result payloads and tool input
-schemas are unchanged. Error details are untrusted data, not instructions;
+This contract covers shared handler errors and account-selection/approval
+failures at MCP dispatch. HTTP authentication and malformed protocol requests
+remain transport errors. Successful data payloads and tool input schemas are
+unchanged. Error details are untrusted data, not instructions;
 `next_action` is a fixed server hint and never overrides operator policy.

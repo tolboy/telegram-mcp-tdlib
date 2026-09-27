@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -69,7 +71,7 @@ class CreatePollToolTest {
             telegramClient.sendPoll(42L, "Best language?", listOf("Kotlin", "Java"), true, false)
         } returns pollMsg
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf(
                 "chat_id" to 42,
@@ -94,7 +96,7 @@ class CreatePollToolTest {
             telegramClient.sendPoll(42L, "Pick all", listOf("A", "B", "C"), false, true)
         } returns pollMsg
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf(
                 "chat_id" to 42,
@@ -112,7 +114,7 @@ class CreatePollToolTest {
     fun `returns error when question is missing`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "options" to listOf("A", "B")),
         )
@@ -126,7 +128,7 @@ class CreatePollToolTest {
     fun `returns error when options has fewer than 2 entries`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "question" to "Q?", "options" to listOf("OnlyOne")),
         )
@@ -140,7 +142,7 @@ class CreatePollToolTest {
     fun `returns error when options exceeds 10 entries`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf(
                 "chat_id" to 42,

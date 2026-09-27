@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.user
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -59,7 +61,7 @@ class GetLastInteractionToolTest {
         every { entityResolver.resolve(99 as Any) } returns 99L
         every { telegramClient.getLastInteractionWithContact(99L) } returns msg
 
-        val result = tool.execute(exchange, mapOf("contact_id" to 99))
+        val result = tool.executeChecked(exchange, mapOf("contact_id" to 99))
 
         assertFalse(result.isError)
         verify(exactly = 2) { guardrailService.validateDerivedChatAccess(99L) }
@@ -70,7 +72,7 @@ class GetLastInteractionToolTest {
         every { entityResolver.resolve(99 as Any) } returns 99L
         every { telegramClient.getLastInteractionWithContact(99L) } returns null
 
-        val result = tool.execute(exchange, mapOf("contact_id" to 99))
+        val result = tool.executeChecked(exchange, mapOf("contact_id" to 99))
 
         assertFalse(result.isError)
         verify(exactly = 1) { guardrailService.validateDerivedChatAccess(99L) }
@@ -78,7 +80,7 @@ class GetLastInteractionToolTest {
 
     @Test
     fun `returns error when contact_id is missing`() {
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
         assertTrue(result.isError)
     }
 }

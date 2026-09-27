@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.user
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -52,7 +54,7 @@ class ListContactsToolTest {
         )
         every { telegramClient.getContacts() } returns contacts
 
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
 
         assertFalse(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -68,7 +70,7 @@ class ListContactsToolTest {
         )
         every { telegramClient.getContacts() } returns contacts
 
-        val result = tool.execute(exchange, mapOf("query" to "alice"))
+        val result = tool.executeChecked(exchange, mapOf("query" to "alice"))
 
         assertFalse(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -83,7 +85,7 @@ class ListContactsToolTest {
         )
         every { telegramClient.getContacts() } returns contacts
 
-        val result = tool.execute(exchange, mapOf("query" to "xyz"))
+        val result = tool.executeChecked(exchange, mapOf("query" to "xyz"))
 
         assertFalse(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -94,7 +96,7 @@ class ListContactsToolTest {
     fun `returns error when client throws`() {
         every { telegramClient.getContacts() } throws RuntimeException("Not available")
 
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()

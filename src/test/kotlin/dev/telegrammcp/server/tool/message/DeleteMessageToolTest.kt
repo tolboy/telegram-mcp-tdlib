@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -62,7 +64,7 @@ class DeleteMessageToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.deleteMessages(42L, listOf(1L, 2L, 3L), true) } returns true
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_ids" to listOf(1, 2, 3)),
         )
@@ -77,7 +79,7 @@ class DeleteMessageToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.deleteMessages(42L, listOf(1L), false) } returns true
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_ids" to listOf(1), "revoke" to false),
         )
@@ -87,7 +89,7 @@ class DeleteMessageToolTest {
 
     @Test
     fun `returns error when chat_id is missing`() {
-        val result = tool.execute(exchange, mapOf("message_ids" to listOf(1)))
+        val result = tool.executeChecked(exchange, mapOf("message_ids" to listOf(1)))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -98,7 +100,7 @@ class DeleteMessageToolTest {
     fun `returns error when message_ids is missing`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -109,7 +111,7 @@ class DeleteMessageToolTest {
     fun `returns error when message_ids is empty`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_ids" to emptyList<Int>()),
         )

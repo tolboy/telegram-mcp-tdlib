@@ -1,5 +1,7 @@
 package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -60,7 +62,7 @@ class VotePollToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.setPollAnswer(42L, 100L, listOf(0, 2)) } returns true
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to 100, "option_ids" to listOf(0, 2)))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to 100, "option_ids" to listOf(0, 2)))
 
         assertFalse(result.isError)
         verify { telegramClient.setPollAnswer(42L, 100L, listOf(0, 2)) }
@@ -70,7 +72,7 @@ class VotePollToolTest {
     fun `rejects negative option indexes`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to 100, "option_ids" to listOf(-1)))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to 100, "option_ids" to listOf(-1)))
 
         assertTrue(result.isError)
         verify(exactly = 0) { telegramClient.setPollAnswer(any(), any(), any()) }
@@ -80,7 +82,7 @@ class VotePollToolTest {
     fun `rejects missing option_ids`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to 100))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to 100))
 
         assertTrue(result.isError)
     }
@@ -128,7 +130,7 @@ class ClosePollToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.stopPoll(42L, 100L) } returns true
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to 100, "confirmed" to true))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to 100, "confirmed" to true))
 
         assertFalse(result.isError)
         verify { telegramClient.stopPoll(42L, 100L) }
@@ -139,7 +141,7 @@ class ClosePollToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.stopPoll(42L, 100L) } returns true
 
-        tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to 100))
+        tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to 100))
 
         verify { operationGuardService.checkPermission("close_poll", any()) }
     }

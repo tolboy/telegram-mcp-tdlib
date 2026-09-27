@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.media
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -71,10 +73,10 @@ class DownloadMediaToolTest {
             localPath = "/tmp/tdlib/photo.jpg", fileName = "photo.jpg", mimeType = "image/jpeg", fileSize = 100,
         )
         val arguments = mapOf("chat_id" to 42, "message_id" to 100)
-        assertFalse(guardedTool.execute(exchange, arguments).isError)
+        assertFalse(guardedTool.executeChecked(exchange, arguments).isError)
 
         every { guardrailService.validateChatAccess(42L) } throws IllegalArgumentException("Chat access denied")
-        assertTrue(guardedTool.execute(exchange, arguments).isError)
+        assertTrue(guardedTool.executeChecked(exchange, arguments).isError)
         verify(exactly = 1) { telegramClient.downloadMedia(any(), any()) }
         verify(exactly = 2) { guardrailService.validateChatAccess(42L) }
     }
@@ -85,7 +87,7 @@ class DownloadMediaToolTest {
             operationGuardService.checkPermission("download_media", any())
         } throws ReadOnlyModeException("download_media")
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to 100))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to 100))
 
         assertTrue(result.isError)
         verify(exactly = 0) { telegramClient.downloadMedia(any(), any()) }
@@ -102,7 +104,7 @@ class DownloadMediaToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.downloadMedia(42L, 100L) } returns downloadResult
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to 100))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to 100))
 
         assertFalse(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -113,7 +115,7 @@ class DownloadMediaToolTest {
 
     @Test
     fun `returns error when chat_id is missing`() {
-        val result = tool.execute(exchange, mapOf("message_id" to 100))
+        val result = tool.executeChecked(exchange, mapOf("message_id" to 100))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -124,7 +126,7 @@ class DownloadMediaToolTest {
     fun `returns error when message_id is missing`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -135,7 +137,7 @@ class DownloadMediaToolTest {
     fun `returns error when message_id is not a number`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to "not-a-number"))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to "not-a-number"))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -147,7 +149,7 @@ class DownloadMediaToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.downloadMedia(42L, 100L) } throws RuntimeException("No media in message")
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to 100))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to 100))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -165,7 +167,7 @@ class DownloadMediaToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.downloadMedia(42L, 200L) } returns downloadResult
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to "200"))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to "200"))
 
         assertFalse(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -183,7 +185,7 @@ class DownloadMediaToolTest {
         every { entityResolver.resolve("@somechat" as Any) } returns 99L
         every { telegramClient.downloadMedia(99L, 55L) } returns downloadResult
 
-        val result = tool.execute(exchange, mapOf("chat_id" to "@somechat", "message_id" to 55))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to "@somechat", "message_id" to 55))
 
         assertFalse(result.isError)
         verify { guardrailService.validateChatAccess(99L) }

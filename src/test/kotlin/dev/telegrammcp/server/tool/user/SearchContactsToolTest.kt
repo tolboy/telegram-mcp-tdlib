@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.user
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -55,7 +57,7 @@ class SearchContactsToolTest {
         )
         every { telegramClient.searchContactsByQuery("Alice", 50) } returns contacts
 
-        val result = tool.execute(exchange, mapOf("query" to "Alice"))
+        val result = tool.executeChecked(exchange, mapOf("query" to "Alice"))
 
         assertFalse(result.isError)
         verify { guardrailService.validateInput("Alice") }
@@ -63,7 +65,7 @@ class SearchContactsToolTest {
 
     @Test
     fun `returns error when query is missing`() {
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
         assertTrue(result.isError)
     }
 }

@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -63,7 +65,7 @@ class GetMessageReactionsToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.getMessageReactions(42L, 100L, 50) } returns summary
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to 100))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to 100))
 
         assertFalse(result.isError)
         verify { guardrailService.validateChatAccess(42L) }
@@ -77,7 +79,7 @@ class GetMessageReactionsToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.getMessageReactions(42L, 100L, 10) } returns summary
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to 100, "limit" to 10))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to 100, "limit" to 10))
 
         assertFalse(result.isError)
         verify { telegramClient.getMessageReactions(42L, 100L, 10) }
@@ -95,7 +97,7 @@ class GetMessageReactionsToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.getMessageReactions(42L, 100L, 50) } returns summary
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to 100))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to 100))
 
         assertFalse(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -111,7 +113,7 @@ class GetMessageReactionsToolTest {
     fun `returns error when message_id is missing`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()

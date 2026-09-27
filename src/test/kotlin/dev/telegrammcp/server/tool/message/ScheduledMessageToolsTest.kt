@@ -1,5 +1,7 @@
 package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.model.ParseMode
@@ -40,7 +42,7 @@ class ScheduledMessageToolsTest {
             telegramClient.scheduleMessage(42L, "planned", future.epochSecond.toInt(), 0, false, ParseMode.PLAIN)
         } returns scheduled(42L)
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "text" to "planned", "send_at" to future.toString()))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "text" to "planned", "send_at" to future.toString()))
 
         assertFalse(result.isError)
         verify { operationGuard.checkPermission("schedule_message", any()) }
@@ -53,7 +55,7 @@ class ScheduledMessageToolsTest {
         val tool = ScheduleMessageTool(telegramClient, entityResolver, guardrails, operationGuard, audit, mapper, SimpleMeterRegistry())
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "text" to "planned", "send_at" to 1))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "text" to "planned", "send_at" to 1))
 
         assertTrue(result.isError)
         verify(exactly = 0) { telegramClient.scheduleMessage(any(), any(), any(), any(), any(), any()) }
@@ -65,7 +67,7 @@ class ScheduledMessageToolsTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.cancelScheduledMessage(42L, 7L) } returns true
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to 7))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to 7))
 
         assertFalse(result.isError)
         verify { operationGuard.checkPermission("cancel_scheduled_message", any()) }
@@ -81,7 +83,7 @@ class ScheduledMessageToolsTest {
             telegramClient.rescheduleMessage(42L, 7L, future.epochSecond.toInt(), 0)
         } returns scheduled(42L, 9L)
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to 7, "send_at" to future.toString()))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to 7, "send_at" to future.toString()))
         val payload = mapper.readTree((result.content.first() as McpSchema.TextContent).text())
 
         assertFalse(result.isError)

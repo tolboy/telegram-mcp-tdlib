@@ -1,4 +1,4 @@
-﻿package dev.telegrammcp.server.config
+package dev.telegrammcp.server.config
 
 import dev.telegrammcp.server.client.TelegramAccountContext
 import dev.telegrammcp.server.client.TelegramAccountRegistry
@@ -70,34 +70,35 @@ class McpConfig {
             log.info("Registering MCP tool: {} — {}", tool.name(), tool.description())
             SyncToolSpecification(tool) { exchange, request ->
                 val arguments = request.arguments() ?: emptyMap()
-                // Once per session, and on any tool: an operator should learn
-                // that approval cannot be requested before a destructive call
-                // fails, not from the failure itself.
-                approvalService.warnIfClientCannotApprove(exchange)
-                when {
-                    // Defense in depth: read-only mode already hides write
-                    // tools at registration, but a client may replay a cached
-                    // tool list. Execution must fail closed regardless.
-                    OperationGuardService.blockedByReadOnly(tool.name(), serverMode.readOnly, serverMode.readOnlyAllowDownloads) ->
-                        auditService.executeWithFallbackAudit(
-                            toolName = tool.name(),
-                            arguments = arguments,
-                            errorOutcome = AuditOutcome.BLOCKED_READONLY,
-                        ) {
-                            ToolSupport.errorResult(ReadOnlyModeException(tool.name()))
-                        }
+                val result = try {
+                    // Once per session, and on any tool: an operator should learn
+                    // that approval cannot be requested before a destructive call
+                    // fails, not from the failure itself.
+                    approvalService.warnIfClientCannotApprove(exchange)
+                    when {
+                        // Defense in depth: read-only mode already hides write
+                        // tools at registration, but a client may replay a cached
+                        // tool list. Execution must fail closed regardless.
+                        OperationGuardService.blockedByReadOnly(tool.name(), serverMode.readOnly, serverMode.readOnlyAllowDownloads) ->
+                            auditService.executeWithFallbackAudit(
+                                toolName = tool.name(),
+                                arguments = arguments,
+                                errorOutcome = AuditOutcome.BLOCKED_READONLY,
+                            ) {
+                                ToolSupport.errorResult(ReadOnlyModeException(tool.name()))
+                            }
 
-                    handler is AccountAgnosticMcpToolHandler ->
-                        auditService.executeWithFallbackAudit(tool.name(), arguments) {
-                            approvalService.requireApproval(exchange, tool.name(), arguments)
-                            handler.execute(exchange, arguments)
-                        }
+                        handler is AccountAgnosticMcpToolHandler ->
+                            auditService.executeWithFallbackAudit(tool.name(), arguments) {
+                                approvalService.requireApproval(exchange, tool.name(), arguments)
+                                handler.execute(exchange, arguments)
+                            }
 
-                    else -> {
-                        val routedArguments = arguments - AccountAccessPolicy.ACCOUNT_ARGUMENT
-                        val selectionStarted = System.nanoTime()
-                        val account = try {
-                            accountAccessPolicy.selectAccount(arguments)
+                        else -> {
+                            val routedArguments = arguments - AccountAccessPolicy.ACCOUNT_ARGUMENT
+                            val selectionStarted = System.nanoTime()
+                            val account = try {
+                                accountAccessPolicy.selectAccount(arguments)
                         } catch (error: Exception) {
                             auditService.record(
                                 toolName = tool.name(),
@@ -124,6 +125,10 @@ class McpConfig {
                         }
                     }
                 }
+                } catch (error: Exception) {
+                    ToolSupport.errorResult(error)
+                }
+                dev.telegrammcp.server.tool.ToolPagination.decorate(tool, result)
             }
         }.also {
             if (!serverMode.readOnly && toolSurfacePolicy.profile == McpToolProfile.ALL) {

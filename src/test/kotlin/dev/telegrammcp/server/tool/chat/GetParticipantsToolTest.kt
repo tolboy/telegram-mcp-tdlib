@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.chat
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -60,7 +62,7 @@ class GetParticipantsToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.getChatMembers(42L, "", 0, 50) } returns members
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
 
         assertFalse(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -77,7 +79,7 @@ class GetParticipantsToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.getChatMembers(42L, "alice", 0, 50) } returns members
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "query" to "alice"),
         )
@@ -91,7 +93,7 @@ class GetParticipantsToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.getChatMembers(42L, "", 10, 25) } returns emptyList()
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "limit" to 25, "offset" to 10),
         )
@@ -105,7 +107,7 @@ class GetParticipantsToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.getChatMembers(42L, "", 0, 200) } returns emptyList()
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "limit" to 999),
         )
@@ -116,7 +118,7 @@ class GetParticipantsToolTest {
 
     @Test
     fun `returns error when chat_id is missing`() {
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -127,7 +129,7 @@ class GetParticipantsToolTest {
     fun `returns error for invalid limit type`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "limit" to "not_a_number"),
         )
@@ -141,7 +143,7 @@ class GetParticipantsToolTest {
     fun `returns error for invalid offset type`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "offset" to "not_a_number"),
         )
@@ -156,7 +158,7 @@ class GetParticipantsToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.getChatMembers(42L, "", 0, 50) } throws RuntimeException("Access denied")
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()

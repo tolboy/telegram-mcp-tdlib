@@ -1,5 +1,7 @@
 package dev.telegrammcp.server.tool.chat
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.model.BotCommand
@@ -41,7 +43,7 @@ class P3SettingsToolsTest {
         every { entityResolver.resolve("@team" as Any) } returns -10042L
         every { telegramClient.setPrivacySettingRules(capture(captured)) } returns true
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf(
                 "setting" to "show_status",
@@ -78,7 +80,7 @@ class P3SettingsToolsTest {
         every { telegramClient.getChatPermissions(42L) } returns ChatPermissions(canSendBasicMessages = true, canSendPhotos = true)
         every { telegramClient.setChatPermissions(42L, any()) } returns true
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "permissions" to mapOf("can_send_photos" to false), "confirmed" to true),
         )
@@ -94,7 +96,7 @@ class P3SettingsToolsTest {
         every { entityResolver.resolve("@team" as Any) } returns -10042L
         every { telegramClient.setBotCommands(any(), any(), any()) } returns true
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf(
                 "scope" to "chat_member",
@@ -121,7 +123,7 @@ class P3SettingsToolsTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.setChatMemberAdministratorRights(42L, 55L, any()) } returns true
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "user_id" to 55, "rights" to mapOf("can_delete_messages" to true), "confirmed" to true),
         )

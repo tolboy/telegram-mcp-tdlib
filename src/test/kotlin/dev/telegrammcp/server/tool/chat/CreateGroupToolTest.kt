@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.chat
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -59,7 +61,7 @@ class CreateGroupToolTest {
         val chatInfo = ChatInfo(chatId = 100, title = "New Group", type = ChatType.GROUP)
         every { telegramClient.createBasicGroup("New Group", listOf(1L, 2L)) } returns chatInfo
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("title" to "New Group", "user_ids" to listOf(1, 2)),
         )
@@ -71,7 +73,7 @@ class CreateGroupToolTest {
 
     @Test
     fun `returns error when title is missing`() {
-        val result = tool.execute(exchange, mapOf("user_ids" to listOf(1)))
+        val result = tool.executeChecked(exchange, mapOf("user_ids" to listOf(1)))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -80,7 +82,7 @@ class CreateGroupToolTest {
 
     @Test
     fun `returns error when title is blank`() {
-        val result = tool.execute(exchange, mapOf("title" to " ", "user_ids" to listOf(1)))
+        val result = tool.executeChecked(exchange, mapOf("title" to " ", "user_ids" to listOf(1)))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -89,7 +91,7 @@ class CreateGroupToolTest {
 
     @Test
     fun `returns error when user_ids is empty`() {
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("title" to "Test", "user_ids" to emptyList<Int>()),
         )

@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.chat
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -58,7 +60,7 @@ class SearchPublicChatsToolTest {
         every { guardrailService.isChatAllowed(1L) } returns true
         every { telegramClient.searchPublicChats("kotlin", 20) } returns chats
 
-        val result = tool.execute(exchange, mapOf("query" to "kotlin"))
+        val result = tool.executeChecked(exchange, mapOf("query" to "kotlin"))
 
         assertFalse(result.isError)
         verify { guardrailService.validateInput("kotlin") }
@@ -75,7 +77,7 @@ class SearchPublicChatsToolTest {
         every { guardrailService.isChatAllowed(1L) } returns true
         every { guardrailService.isChatAllowed(2L) } returns false
 
-        val result = tool.execute(exchange, mapOf("query" to "kotlin"))
+        val result = tool.executeChecked(exchange, mapOf("query" to "kotlin"))
 
         assertFalse(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -85,13 +87,13 @@ class SearchPublicChatsToolTest {
 
     @Test
     fun `returns error when query is missing`() {
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
         assertTrue(result.isError)
     }
 
     @Test
     fun `returns error when query is blank`() {
-        val result = tool.execute(exchange, mapOf("query" to "  "))
+        val result = tool.executeChecked(exchange, mapOf("query" to "  "))
         assertTrue(result.isError)
     }
 }

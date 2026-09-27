@@ -1,5 +1,7 @@
 package dev.telegrammcp.server.tool.user
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -62,7 +64,7 @@ class GetCommonChatsToolTest {
         every { guardrailService.isChatAllowed(any()) } returns true
         every { telegramClient.getGroupsInCommon(7L, 50) } returns listOf(chat(1L, "Team"), chat(2L, "Friends"))
 
-        val result = tool.execute(exchange, mapOf("user_id" to "@alice"))
+        val result = tool.executeChecked(exchange, mapOf("user_id" to "@alice"))
 
         assertFalse(result.isError)
         val text = (result.content().first() as McpSchema.TextContent).text()
@@ -77,7 +79,7 @@ class GetCommonChatsToolTest {
         every { guardrailService.isChatAllowed(1L) } returns true
         every { guardrailService.isChatAllowed(2L) } returns false
 
-        val result = tool.execute(exchange, mapOf("user_id" to 7))
+        val result = tool.executeChecked(exchange, mapOf("user_id" to 7))
 
         assertFalse(result.isError)
         val text = (result.content().first() as McpSchema.TextContent).text()

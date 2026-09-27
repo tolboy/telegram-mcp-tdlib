@@ -1,5 +1,7 @@
 package dev.telegrammcp.server.tool.chat
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -60,7 +62,7 @@ class SetChatDescriptionToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.setChatDescription(42L, "About us") } returns true
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "description" to "About us"))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "description" to "About us"))
 
         assertFalse(result.isError)
         verify { telegramClient.setChatDescription(42L, "About us") }
@@ -71,7 +73,7 @@ class SetChatDescriptionToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.setChatDescription(42L, "") } returns true
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "description" to ""))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "description" to ""))
 
         assertFalse(result.isError)
         verify { telegramClient.setChatDescription(42L, "") }
@@ -81,7 +83,7 @@ class SetChatDescriptionToolTest {
     fun `rejects overlong description`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "description" to "x".repeat(256)))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "description" to "x".repeat(256)))
 
         assertTrue(result.isError)
         verify(exactly = 0) { telegramClient.setChatDescription(any(), any()) }

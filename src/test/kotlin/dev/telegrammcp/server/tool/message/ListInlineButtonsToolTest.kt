@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -57,7 +59,7 @@ class ListInlineButtonsToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.listInlineButtons(42L, 100L) } returns buttons
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 100),
         )
@@ -74,7 +76,7 @@ class ListInlineButtonsToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.listInlineButtons(42L, 200L) } returns emptyList()
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 200),
         )
@@ -88,7 +90,7 @@ class ListInlineButtonsToolTest {
     fun `returns error when message_id is missing`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()

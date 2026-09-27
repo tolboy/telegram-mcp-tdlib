@@ -1,5 +1,7 @@
 package dev.telegrammcp.server.tool.chat
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -63,7 +65,7 @@ class ReorderChatFoldersToolTest {
     fun `reorders folders`() {
         every { telegramClient.reorderChatFolders(listOf(3, 1, 2), 0) } returns true
 
-        val result = tool.execute(exchange, mapOf("folder_ids" to listOf(3, 1, 2)))
+        val result = tool.executeChecked(exchange, mapOf("folder_ids" to listOf(3, 1, 2)))
 
         assertFalse(result.isError)
         verify { telegramClient.reorderChatFolders(listOf(3, 1, 2), 0) }
@@ -73,7 +75,7 @@ class ReorderChatFoldersToolTest {
     fun `passes main list position`() {
         every { telegramClient.reorderChatFolders(listOf(1, 2), 1) } returns true
 
-        val result = tool.execute(exchange, mapOf("folder_ids" to listOf(1, 2), "main_list_position" to 1))
+        val result = tool.executeChecked(exchange, mapOf("folder_ids" to listOf(1, 2), "main_list_position" to 1))
 
         assertFalse(result.isError)
         verify { telegramClient.reorderChatFolders(listOf(1, 2), 1) }
@@ -86,7 +88,7 @@ class ReorderChatFoldersToolTest {
         } returns ChatFolderDetails(3, ChatFolderDefinition(title = "Work", includedChatIds = listOf(42L)))
         every { telegramClient.reorderChatFolders(listOf(3), 0) } returns true
 
-        val result = tool.execute(exchange, mapOf("folder_ids" to listOf(3)))
+        val result = tool.executeChecked(exchange, mapOf("folder_ids" to listOf(3)))
 
         assertFalse(result.isError)
         verify { guardrailService.validateDerivedChatAccess(42L) }
@@ -94,7 +96,7 @@ class ReorderChatFoldersToolTest {
 
     @Test
     fun `rejects empty folder list`() {
-        val result = tool.execute(exchange, mapOf("folder_ids" to emptyList<Int>()))
+        val result = tool.executeChecked(exchange, mapOf("folder_ids" to emptyList<Int>()))
 
         assertTrue(result.isError)
         verify(exactly = 0) { telegramClient.reorderChatFolders(any(), any()) }
@@ -102,7 +104,7 @@ class ReorderChatFoldersToolTest {
 
     @Test
     fun `rejects non-positive folder ids`() {
-        val result = tool.execute(exchange, mapOf("folder_ids" to listOf(0, 1)))
+        val result = tool.executeChecked(exchange, mapOf("folder_ids" to listOf(0, 1)))
 
         assertTrue(result.isError)
         verify(exactly = 0) { telegramClient.reorderChatFolders(any(), any()) }

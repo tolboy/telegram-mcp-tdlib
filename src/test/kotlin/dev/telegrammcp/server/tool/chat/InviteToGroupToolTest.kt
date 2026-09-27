@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.chat
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -60,7 +62,7 @@ class InviteToGroupToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.addChatMembers(42L, listOf(1L, 2L)) } returns true
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "user_ids" to listOf(1, 2)),
         )
@@ -73,7 +75,7 @@ class InviteToGroupToolTest {
     fun `returns error when user_ids is empty`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "user_ids" to emptyList<Int>()),
         )

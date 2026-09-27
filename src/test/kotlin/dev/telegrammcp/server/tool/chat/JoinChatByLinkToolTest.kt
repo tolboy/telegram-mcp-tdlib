@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.chat
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -59,7 +61,7 @@ class JoinChatByLinkToolTest {
         val chat = ChatInfo(chatId = 200L, title = "NewChat", type = ChatType.GROUP)
         every { telegramClient.joinChatByInviteLink("https://t.me/+abc") } returns chat
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("link" to "https://t.me/+abc", "confirmed" to true),
         )
@@ -72,7 +74,7 @@ class JoinChatByLinkToolTest {
 
     @Test
     fun `returns error when link is missing`() {
-        val result = tool.execute(exchange, mapOf("confirmed" to true))
+        val result = tool.executeChecked(exchange, mapOf("confirmed" to true))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -81,7 +83,7 @@ class JoinChatByLinkToolTest {
 
     @Test
     fun `returns error when link is blank`() {
-        val result = tool.execute(exchange, mapOf("link" to "  ", "confirmed" to true))
+        val result = tool.executeChecked(exchange, mapOf("link" to "  ", "confirmed" to true))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()

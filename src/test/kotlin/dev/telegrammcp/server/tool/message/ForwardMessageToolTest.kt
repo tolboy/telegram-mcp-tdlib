@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -67,7 +69,7 @@ class ForwardMessageToolTest {
         every { entityResolver.resolve(2 as Any) } returns 2L
         every { telegramClient.forwardMessages(1L, 2L, listOf(10L)) } returns forwarded
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("from_chat_id" to 1, "to_chat_id" to 2, "message_ids" to listOf(10)),
         )
@@ -79,7 +81,7 @@ class ForwardMessageToolTest {
 
     @Test
     fun `returns error when from_chat_id is missing`() {
-        val result = tool.execute(exchange, mapOf("to_chat_id" to 2, "message_ids" to listOf(1)))
+        val result = tool.executeChecked(exchange, mapOf("to_chat_id" to 2, "message_ids" to listOf(1)))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -90,7 +92,7 @@ class ForwardMessageToolTest {
     fun `returns error when to_chat_id is missing`() {
         every { entityResolver.resolve(1 as Any) } returns 1L
 
-        val result = tool.execute(exchange, mapOf("from_chat_id" to 1, "message_ids" to listOf(1)))
+        val result = tool.executeChecked(exchange, mapOf("from_chat_id" to 1, "message_ids" to listOf(1)))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -102,7 +104,7 @@ class ForwardMessageToolTest {
         every { entityResolver.resolve(1 as Any) } returns 1L
         every { entityResolver.resolve(2 as Any) } returns 2L
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("from_chat_id" to 1, "to_chat_id" to 2, "message_ids" to emptyList<Int>()),
         )

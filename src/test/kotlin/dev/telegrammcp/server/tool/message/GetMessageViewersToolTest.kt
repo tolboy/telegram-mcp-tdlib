@@ -1,5 +1,7 @@
 package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -61,7 +63,7 @@ class GetMessageViewersToolTest {
             MessageViewerInfo(userId = 7L, userName = "Alice", viewDate = Instant.parse("2026-07-01T10:00:00Z")),
         )
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to 100))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to 100))
 
         assertFalse(result.isError)
         val text = (result.content().first() as McpSchema.TextContent).text()
@@ -73,7 +75,7 @@ class GetMessageViewersToolTest {
     fun `requires message_id`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
 
         assertTrue(result.isError)
     }

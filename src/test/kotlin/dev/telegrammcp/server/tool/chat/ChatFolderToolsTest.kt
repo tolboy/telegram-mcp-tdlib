@@ -1,5 +1,7 @@
 package dev.telegrammcp.server.tool.chat
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.model.ChatFolderDefinition
@@ -51,7 +53,7 @@ class ChatFolderToolsTest {
             telegramClient.getChatFolder(2)
         } returns ChatFolderDetails(2, ChatFolderDefinition(title = "Forbidden sentinel", includedChatIds = listOf(99L)))
 
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
 
         assertFalse(result.isError)
         val text = (result.content.first() as io.modelcontextprotocol.spec.McpSchema.TextContent).text()
@@ -66,7 +68,7 @@ class ChatFolderToolsTest {
         every { entityResolver.resolve(12 as Any) } returns 12L
         every { telegramClient.createChatFolder(any()) } returns ChatFolderInfo(3, "Work")
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf(
                 "title" to "Work",
@@ -100,7 +102,7 @@ class ChatFolderToolsTest {
         } returns ChatFolderDetails(3, ChatFolderDefinition(title = "Work", includedChatIds = listOf(11L)))
         every { telegramClient.deleteChatFolder(3) } returns true
 
-        val result = tool.execute(exchange, mapOf("folder_id" to 3, "confirmed" to true))
+        val result = tool.executeChecked(exchange, mapOf("folder_id" to 3, "confirmed" to true))
 
         assertFalse(result.isError)
         verify { operationGuard.checkPermission("delete_chat_folder", any()) }
@@ -113,7 +115,7 @@ class ChatFolderToolsTest {
         val tool = ConfigureChatFolderTool(telegramClient, entityResolver, guardrails, operationGuard, audit, mapper, SimpleMeterRegistry())
         every { guardrails.hasChatAllowList() } returns true
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf(
                 "title" to "All groups",

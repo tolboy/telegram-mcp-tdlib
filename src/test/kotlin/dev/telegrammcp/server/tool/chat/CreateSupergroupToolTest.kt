@@ -1,5 +1,7 @@
 package dev.telegrammcp.server.tool.chat
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -58,7 +60,7 @@ class CreateSupergroupToolTest {
             telegramClient.createSupergroupOrChannel("Community Updates", "", true, true)
         } returns ChatInfo(chatId = -1001L, title = "Community Updates", type = ChatType.CHANNEL)
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("title" to "Community Updates", "confirmed" to true),
         )
@@ -77,7 +79,7 @@ class CreateSupergroupToolTest {
             telegramClient.createSupergroupOrChannel("Community Updates", "", true, true)
         } returns ChatInfo(chatId = -1002L, title = "Community Updates", type = ChatType.SUPERGROUP)
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("title" to "Community Updates", "confirmed" to true),
         )

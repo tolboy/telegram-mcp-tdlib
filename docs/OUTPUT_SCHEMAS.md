@@ -1,32 +1,45 @@
 # Typed MCP output contracts
 
-The following tools advertise explicit JSON Schemas for `structuredContent`:
+All 111 tools advertise explicit JSON Schemas for `structuredContent`. The
+catalog in `ToolContractCatalog.kt` binds each tool to its wire DTO or named
+response shape. DTO fields, nullability, collections and enums are expanded
+from their declared Kotlin types; map-shaped responses are registered explicitly.
+An inventory test prevents a new tool from silently missing its contract.
 
-- `send_message` and `reply_to_message`: a Telegram message for calls without
-  an idempotency key, or a delivery receipt for keyed calls.
-- `get_send_operation`: a delivery receipt.
-- `export_chat_history`: bounded messages, counters, date window and completeness.
-- `search_public_messages`: per-chat results/failures and timeout coverage.
+The envelope remains `{ "data": ..., "meta": ... }`. Its data schema permits
+success shapes or the shared `{ "error": ... }` shape. Existing text content,
+field names and unkeyed send results remain compatible. Account selection and
+approval failures now return the same structured error envelope with isError=true;
+HTTP authentication and protocol errors remain transport-level errors.
 
-The envelope remains `{ "data": ..., "meta": ... }`. Its `data` schema permits
-the tool's success shapes or the shared `{ "error": ... }` shape. Both success
-and error responses retain their previous text content, flags and structured
-field names. Other tools retain the existing generic data schema.
+Schemas describe required properties, nested fields, status values and enum
+choices. SENT and SCHEDULED receipts require positive message IDs; UNKNOWN and
+NOT_FOUND require a null ID. Dates accept the existing Jackson ISO and numeric
+representations. Objects reject undeclared properties, except explicitly typed
+maps such as manifest tool groups. Schema changes must accompany wire changes.
 
-Schemas describe field types, required properties, status values and known
-nested message/poll structures. A `SENT` receipt requires a positive message ID;
-`UNKNOWN` and `NOT_FOUND` require a null message ID. Message dates accept both
-existing Jackson timestamp representations (numeric epoch seconds or ISO text).
-Unknown properties are rejected in the typed shapes, so extending their wire
-format requires updating the schema and its tests together.
+## List and pagination contract
 
-Output variants use inline `anyOf`; input schemas remain unchanged and keep the
-existing conservative client-compatibility profile. No new runtime validation
-gate is inserted before or after Telegram writes. Output validation runs in
-tests with the MCP SDK's JSON Schema validator against real handler results,
-including policy errors, incomplete research results and receipt replays.
-These tests are not a claim of acceptance by every desktop client's UI/version.
+At MCP dispatch, successful read tools returning an array also receive meta.page:
 
-Schemas validate structure, not delivery or search completeness. Inspect receipt
-`status` and research `complete`/`completion_scope` fields. A valid structured
-response does not prove that Telegram delivered a message or exhausted a search.
+```json
+{"returned_count":20,"complete":null,"continuation_parameters":["from_message_id"],"scope":"returned_items"}
+```
+
+This metadata does not change legacy text or data arrays. The count describes
+returned items after filtering, not source cardinality. A null complete means
+exhaustion was not established, even for an empty or short page. Continuation
+parameters list existing pagination inputs advertised by that tool (offset or
+from_message_id); an empty list means no continuation is exposed. Keep other
+query parameters unchanged and deduplicate boundary IDs when advancing a
+message cursor. No next cursor is fabricated from a filtered list. Persistent
+resume tokens and full-export jobs belong to stage 6 of the implementation plan.
+Research tools retain their more precise completeness fields within data.
+
+## Verification boundary
+
+Handler tests validate actual success and error results with the MCP SDK's JSON
+Schema validator. Catalog-wide negative checks reject arbitrary objects and
+accept the shared error shape. No runtime output rejection is added after writes:
+a serialization-contract bug must not invite another Telegram send. These checks
+cover mocked Telegram responses, not every desktop client's UI or live TDLib.

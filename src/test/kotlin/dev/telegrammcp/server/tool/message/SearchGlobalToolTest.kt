@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -58,7 +60,7 @@ class SearchGlobalToolTest {
         )
         every { telegramClient.searchGlobal("kotlin", 20) } returns messages
 
-        val result = tool.execute(exchange, mapOf("query" to "kotlin"))
+        val result = tool.executeChecked(exchange, mapOf("query" to "kotlin"))
 
         assertFalse(result.isError)
         verify { guardrailService.validateInput("kotlin") }
@@ -68,7 +70,7 @@ class SearchGlobalToolTest {
     fun `searches globally with custom limit`() {
         every { telegramClient.searchGlobal("test", 5) } returns emptyList()
 
-        val result = tool.execute(exchange, mapOf("query" to "test", "limit" to 5))
+        val result = tool.executeChecked(exchange, mapOf("query" to "test", "limit" to 5))
 
         assertFalse(result.isError)
     }
@@ -82,7 +84,7 @@ class SearchGlobalToolTest {
         every { guardrailService.isChatAllowed(10L) } returns true
         every { guardrailService.isChatAllowed(20L) } returns false
 
-        val result = tool.execute(exchange, mapOf("query" to "private"))
+        val result = tool.executeChecked(exchange, mapOf("query" to "private"))
 
         assertFalse(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -92,7 +94,7 @@ class SearchGlobalToolTest {
 
     @Test
     fun `returns error when query is missing`() {
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -101,7 +103,7 @@ class SearchGlobalToolTest {
 
     @Test
     fun `returns error when query is blank`() {
-        val result = tool.execute(exchange, mapOf("query" to "  "))
+        val result = tool.executeChecked(exchange, mapOf("query" to "  "))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -112,7 +114,7 @@ class SearchGlobalToolTest {
     fun `returns error when query exceeds max length`() {
         val longQuery = "a".repeat(257)
 
-        val result = tool.execute(exchange, mapOf("query" to longQuery))
+        val result = tool.executeChecked(exchange, mapOf("query" to longQuery))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()

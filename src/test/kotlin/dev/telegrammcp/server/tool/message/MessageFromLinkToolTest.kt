@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -54,7 +56,7 @@ class MessageFromLinkToolTest {
         val msg = TelegramMessage(789, 123, "Channel", "Alice", text = "Hello", date = Instant.now())
         every { telegramClient.getMessageByLink("https://t.me/c/123/789") } returns msg
 
-        val result = tool.execute(exchange, mapOf("link" to "https://t.me/c/123/789"))
+        val result = tool.executeChecked(exchange, mapOf("link" to "https://t.me/c/123/789"))
 
         assertFalse(result.isError)
         verify { guardrailService.validateInput("https://t.me/c/123/789") }
@@ -63,13 +65,13 @@ class MessageFromLinkToolTest {
 
     @Test
     fun `returns error when link is missing`() {
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
         assertTrue(result.isError)
     }
 
     @Test
     fun `returns error when link is not a valid t_me URL`() {
-        val result = tool.execute(exchange, mapOf("link" to "https://example.com/123"))
+        val result = tool.executeChecked(exchange, mapOf("link" to "https://example.com/123"))
         assertTrue(result.isError)
     }
 }

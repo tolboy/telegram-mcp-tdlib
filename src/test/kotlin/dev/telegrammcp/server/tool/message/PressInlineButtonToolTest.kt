@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -61,7 +63,7 @@ class PressInlineButtonToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.pressInlineButton(42L, 100L, 0, null) } returns "Button pressed"
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 100, "button_index" to 0),
         )
@@ -75,7 +77,7 @@ class PressInlineButtonToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.pressInlineButton(42L, 100L, null, "OK") } returns "Done"
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 100, "button_text" to "OK"),
         )
@@ -88,7 +90,7 @@ class PressInlineButtonToolTest {
     fun `returns error when neither button_index nor button_text is provided`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 100),
         )

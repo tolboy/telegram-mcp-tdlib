@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.media
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -70,7 +72,7 @@ class SendFileToolTest {
         every { fileSecurityService.validateForUpload("/data/test.pdf") } returns Path.of("/data/test.pdf")
         every { telegramClient.sendFile(42L, any(), null) } returns sentMsg
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "file_path" to "/data/test.pdf"),
         )
@@ -85,7 +87,7 @@ class SendFileToolTest {
         every { operationGuardService.checkPermission("send_file", any()) } throws
             ReadOnlyModeException("send_file")
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "file_path" to "/data/test.pdf"),
         )
@@ -101,7 +103,7 @@ class SendFileToolTest {
         every { fileSecurityService.validateForUpload("/etc/passwd") } throws
             FileSecurityException("Path is outside allowed file system roots")
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "file_path" to "/etc/passwd"),
         )
@@ -115,7 +117,7 @@ class SendFileToolTest {
     fun `returns error when file_path is missing`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -133,7 +135,7 @@ class SendFileToolTest {
         every { fileSecurityService.validateForUpload("/data/doc.pdf") } returns Path.of("/data/doc.pdf")
         every { telegramClient.sendFile(42L, any(), "See this file") } returns sentMsg
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "file_path" to "/data/doc.pdf", "caption" to "See this file"),
         )

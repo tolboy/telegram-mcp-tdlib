@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -61,7 +63,7 @@ class PinMessageToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.pinMessage(42L, 10L, false) } returns true
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to 10))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to 10))
 
         assertFalse(result.isError)
         verify { guardrailService.validateChatAccess(42L) }
@@ -72,7 +74,7 @@ class PinMessageToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.pinMessage(42L, 10L, true) } returns true
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 10, "disable_notification" to true),
         )
@@ -82,7 +84,7 @@ class PinMessageToolTest {
 
     @Test
     fun `returns error when chat_id is missing`() {
-        val result = tool.execute(exchange, mapOf("message_id" to 10))
+        val result = tool.executeChecked(exchange, mapOf("message_id" to 10))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
@@ -93,7 +95,7 @@ class PinMessageToolTest {
     fun `returns error when message_id is missing`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
 
-        val result = tool.execute(exchange, mapOf("chat_id" to 42))
+        val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()

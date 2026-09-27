@@ -28,6 +28,7 @@ object ToolSupport {
                 "properties" to mapOf(
                     "untrustedTelegramContent" to mapOf("type" to "boolean"),
                     "escapedCharacterCount" to mapOf("type" to "integer", "minimum" to 0),
+                    "page" to ToolPagination.schema,
                 ),
                 "required" to listOf("untrustedTelegramContent", "escapedCharacterCount"),
                 "additionalProperties" to false,
@@ -64,7 +65,7 @@ object ToolSupport {
         null,
         description,
         if (name in RecoverableSend.toolNames) withIdempotencyKey(inputSchema) else inputSchema,
-        if (dataSchema == null) outputSchema else typedOutputSchema(dataSchema),
+        (dataSchema ?: ToolContractCatalog.schemas[name])?.let(::typedOutputSchema) ?: outputSchema,
         null,
         emptyMap(),
         emptyList(),

@@ -1,5 +1,7 @@
 ﻿package dev.telegrammcp.server.tool.user
 
+import dev.telegrammcp.server.tool.executeChecked
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -55,7 +57,7 @@ class UpdateProfileToolTest {
     fun `updates profile successfully`() {
         every { telegramClient.updateProfile("John", "Doe", "Hello!") } returns true
 
-        val result = tool.execute(
+        val result = tool.executeChecked(
             exchange,
             mapOf("first_name" to "John", "last_name" to "Doe", "bio" to "Hello!"),
         )
@@ -66,19 +68,19 @@ class UpdateProfileToolTest {
 
     @Test
     fun `returns error when no fields provided`() {
-        val result = tool.execute(exchange, emptyMap())
+        val result = tool.executeChecked(exchange, emptyMap())
         assertTrue(result.isError)
     }
 
     @Test
     fun `returns error when first_name is too long`() {
-        val result = tool.execute(exchange, mapOf("first_name" to "a".repeat(65)))
+        val result = tool.executeChecked(exchange, mapOf("first_name" to "a".repeat(65)))
         assertTrue(result.isError)
     }
 
     @Test
     fun `returns error when bio is too long`() {
-        val result = tool.execute(exchange, mapOf("bio" to "b".repeat(71)))
+        val result = tool.executeChecked(exchange, mapOf("bio" to "b".repeat(71)))
         assertTrue(result.isError)
     }
 }
