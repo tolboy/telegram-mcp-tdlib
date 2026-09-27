@@ -52,6 +52,7 @@ class ScheduleMessageTool(
     private val auditService: AuditService,
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
+    private val sendOperations: dev.telegrammcp.server.service.SendOperationService? = null,
 ) : McpToolHandler {
     companion object {
         const val TOOL_NAME = "schedule_message"
@@ -76,19 +77,28 @@ class ScheduleMessageTool(
 
     override fun execute(exchange: McpSyncServerExchange, arguments: Map<String, Any>): McpSchema.CallToolResult =
         ToolSupport.execute(TOOL_NAME, arguments, objectMapper, meterRegistry, log, "Failed to schedule message", auditService) {
-            operationGuardService.checkPermission(TOOL_NAME, arguments)
+            dev.telegrammcp.server.tool.RecoverableSend.check(operationGuardService, TOOL_NAME, arguments)
             val chatId = ScheduledMessageInputs.resolveChat(arguments, entityResolver, guardrailService)
             val text = arguments["text"]?.toString()?.takeIf { it.isNotBlank() }
                 ?: throw InvalidToolInputException("text is required")
             guardrailService.validateInput(text)
-            telegramClient.scheduleMessage(
+            val sendAt = ScheduledMessageInputs.futureEpochSeconds(arguments, "send_at", requireFuture = false)
+            val repeatPeriod = ScheduledMessageInputs.repeatPeriod(arguments)
+            val silent = ScheduledMessageInputs.optionalBoolean(arguments, "disable_notification")
+            val parseMode = ToolInputParsers.parseMode(arguments)
+            dev.telegrammcp.server.tool.RecoverableSend.execute(sendOperations, operationGuardService, TOOL_NAME,
+                arguments, chatId, listOf(text, sendAt, repeatPeriod, silent, parseMode.name), scheduled = true) {
+                // Replay remains possible after the originally requested time has passed.
+                ScheduledMessageInputs.futureEpochSeconds(arguments, "send_at")
+                telegramClient.scheduleMessage(
                 chatId = chatId,
                 text = text,
-                sendAtEpochSeconds = ScheduledMessageInputs.futureEpochSeconds(arguments, "send_at"),
-                repeatPeriodSeconds = ScheduledMessageInputs.repeatPeriod(arguments),
-                disableNotification = ScheduledMessageInputs.optionalBoolean(arguments, "disable_notification"),
-                parseMode = ToolInputParsers.parseMode(arguments),
-            )
+                sendAtEpochSeconds = sendAt,
+                repeatPeriodSeconds = repeatPeriod,
+                disableNotification = silent,
+                parseMode = parseMode,
+                )
+            }
         }
 }
 
@@ -171,7 +181,7 @@ private object ScheduledMessageInputs {
         return chatId
     }
 
-    fun futureEpochSeconds(arguments: Map<String, Any>, name: String): Int {
+    fun futureEpochSeconds(arguments: Map<String, Any>, name: String, requireFuture: Boolean = true): Int {
         val raw = arguments[name] ?: throw InvalidToolInputException("$name is required")
         val seconds = when (raw) {
             is Number -> raw.toLong()
@@ -179,7 +189,7 @@ private object ScheduledMessageInputs {
                 .getOrElse { throw InvalidToolInputException("$name must be an ISO-8601 instant or Unix epoch seconds") }
         }
         if (seconds !in 1..Int.MAX_VALUE.toLong()) throw InvalidToolInputException("$name must be within TDLib's supported epoch range")
-        if (seconds <= Instant.now().epochSecond) throw InvalidToolInputException("$name must be in the future")
+        if (requireFuture && seconds <= Instant.now().epochSecond) throw InvalidToolInputException("$name must be in the future")
         return seconds.toInt()
     }
 

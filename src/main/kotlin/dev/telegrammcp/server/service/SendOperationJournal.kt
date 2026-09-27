@@ -24,13 +24,17 @@ class SendOperationJournal(private val root: Path, private val mapper: ObjectMap
         val fingerprint: String,
     )
 
-    data class Completion(val messageId: Long)
+    data class Completion(val messageId: Long, val messageIds: List<Long>? = null, val scheduled: Boolean = false)
 
-    data class Receipt(val operationId: String, val chatId: Long, val status: String, val messageId: Long? = null) {
+    data class Receipt(val operationId: String, val chatId: Long, val status: String, val messageId: Long? = null,
+        val messageIds: List<Long>? = null) {
         fun payload(replayed: Boolean? = null): Map<String, Any?> = linkedMapOf<String, Any?>(
             "operation_id" to operationId, "chat_id" to chatId,
             "status" to status, "message_id" to messageId,
-        ).also { if (replayed != null) it["replayed"] = replayed }
+        ).also {
+            if (replayed != null) it["replayed"] = replayed
+            if (messageIds != null) it["message_ids"] = messageIds
+        }
     }
 
     /** beforeSend runs only for a new operation, before the durable reservation. */
@@ -41,7 +45,10 @@ class SendOperationJournal(private val root: Path, private val mapper: ObjectMap
         fingerprint: String,
         beforeSend: () -> Unit,
         send: () -> Long,
-    ): Map<String, Any?> = locked(account, key) { path, operationId ->
+    ): Map<String, Any?> = sendCompletion(account, key, chatId, fingerprint, beforeSend) { Completion(send()) }
+
+    fun sendCompletion(account: String, key: String, chatId: Long, fingerprint: String,
+        beforeSend: () -> Unit, send: () -> Completion): Map<String, Any?> = locked(account, key) { path, operationId ->
         if (Files.exists(path, NOFOLLOW_LINKS)) {
             val (reservation, receipt) = read(path)
             if (reservation.chatId != chatId || reservation.fingerprint != fingerprint) {
@@ -54,10 +61,10 @@ class SendOperationJournal(private val root: Path, private val mapper: ObjectMap
         persist(path, mapper.writeValueAsBytes(reservation), create = true)
         // Any exception after reservation leaves UNKNOWN. Even a seemingly
         // definitive local failure can follow a successful Telegram send.
-        val messageId = send()
-        if (messageId <= 0) throw SendJournalException()
-        persist(path, mapper.writeValueAsBytes(Completion(messageId)), create = false)
-        Receipt(operationId, chatId, "SENT", messageId).payload(replayed = false)
+        val completion = send()
+        validateCompletion(completion)
+        persist(path, mapper.writeValueAsBytes(completion), create = false)
+        receipt(reservation, completion).payload(replayed = false)
     }
 
     fun status(account: String, key: String, chatId: Long): Map<String, Any?> = locked(account, key) { path, operationId ->
@@ -70,6 +77,22 @@ class SendOperationJournal(private val root: Path, private val mapper: ObjectMap
         receipt.payload()
     }
 
+    /** A separate lock lets TDLib persist a late receipt while the original caller still waits. */
+    fun recordLate(account: String, key: String, chatId: Long, messageId: Long) {
+        recordLateCompletion(account, key, chatId, Completion(messageId))
+    }
+
+    fun recordLateCompletion(account: String, key: String, chatId: Long, completion: Completion) {
+        SendOperationJournal(root.resolve("late"), mapper).sendCompletion(account, key, chatId, "late-delivery", {}) { completion }
+    }
+
+    fun recoverLate(account: String, key: String, chatId: Long, receipt: Map<String, Any?>): Map<String, Any?> {
+        if (receipt["status"] != "UNKNOWN") return receipt
+        val late = SendOperationJournal(root.resolve("late"), mapper).status(account, key, chatId)
+        return if (late["status"] in setOf("SENT", "SCHEDULED")) receipt + late.filterKeys { it in setOf("status", "message_id", "message_ids") }
+        else receipt
+    }
+
     private fun read(path: Path): Pair<Reservation, Receipt> = io {
         require(!Files.isSymbolicLink(path) && Files.size(path) <= 8192)
         val lines = Files.readAllLines(path)
@@ -77,10 +100,21 @@ class SendOperationJournal(private val root: Path, private val mapper: ObjectMap
         val reservation = mapper.readValue(lines[0], Reservation::class.java)
         require(reservation.version == 1)
         val completion = lines.getOrNull(1)?.let { mapper.readValue(it, Completion::class.java) }
-        require(completion == null || completion.messageId > 0)
-        reservation to Receipt(reservation.operationId, reservation.chatId,
-            if (completion == null) "UNKNOWN" else "SENT", completion?.messageId)
+        if (completion != null) validateCompletion(completion)
+        reservation to receipt(reservation, completion)
     }
+
+    private fun validateCompletion(completion: Completion) {
+        if (completion.messageId <= 0 || completion.messageIds?.let {
+                it.isEmpty() || it.any { id -> id <= 0 } || it.first() != completion.messageId
+            } == true) throw SendJournalException()
+    }
+
+    private fun receipt(reservation: Reservation, completion: Completion?) = Receipt(
+        reservation.operationId, reservation.chatId,
+        when { completion == null -> "UNKNOWN"; completion.scheduled -> "SCHEDULED"; else -> "SENT" },
+        completion?.messageId, completion?.messageIds,
+    )
 
     private fun persist(path: Path, json: ByteArray, create: Boolean) = io {
         val options = if (create) setOf(CREATE_NEW, WRITE, NOFOLLOW_LINKS) else setOf(WRITE, APPEND, NOFOLLOW_LINKS)

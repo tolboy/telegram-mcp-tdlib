@@ -18,6 +18,25 @@ class SendOperationJournalTest {
     private fun journal() = SendOperationJournal(directory, jacksonObjectMapper())
 
     @Test
+    fun `late receipt survives reopen without changing operation identity or resending`() {
+        val store = journal()
+        assertFailsWith<IllegalStateException> {
+            store.send("work", "key", 42, "payload", {}) { error("timeout") }
+        }
+        val unknown = store.status("work", "key", 42)
+        assertEquals("UNKNOWN", store.recoverLate("work", "key", 42, unknown)["status"])
+        store.recordLate("work", "key", 42, 120)
+        val reopened = journal()
+        val replay = reopened.send("work", "key", 42, "payload", { fail("quota") }) { fail("duplicate") }
+        val recovered = reopened.recoverLate("work", "key", 42, replay)
+        assertEquals("SENT", recovered["status"])
+        assertEquals(120L, recovered["message_id"])
+        assertEquals(unknown["operation_id"], recovered["operation_id"])
+        assertEquals(true, recovered["replayed"])
+        assertEquals("UNKNOWN", reopened.recoverLate("personal", "key", 42, unknown)["status"])
+    }
+
+    @Test
     fun `receipt survives restart without a second send or quota charge`() {
         var sends = 0
         var charges = 0

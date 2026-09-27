@@ -34,6 +34,7 @@ class SendFileTool(
     private val auditService: AuditService,
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
+    private val sendOperations: dev.telegrammcp.server.service.SendOperationService? = null,
 ) : McpToolHandler {
 
     private val log = StructuredLogger.forClass<SendFileTool>()
@@ -84,7 +85,7 @@ class SendFileTool(
         auditService = auditService,
     ) {
             // Check write permissions first
-            operationGuardService.checkPermission(TOOL_NAME, arguments)
+            dev.telegrammcp.server.tool.RecoverableSend.check(operationGuardService, TOOL_NAME, arguments)
 
             val chatId = resolveChatId(arguments)
             val rawFilePath = arguments["file_path"]?.toString()
@@ -101,7 +102,11 @@ class SendFileTool(
                 guardrailService.validateInput(caption)
             }
 
-            telegramClient.sendFile(chatId, validatedPath.toString(), caption)
+            dev.telegrammcp.server.tool.RecoverableSend.execute(sendOperations, operationGuardService, TOOL_NAME,
+                arguments, chatId, listOf(validatedPath.toString(), caption,
+                    dev.telegrammcp.server.tool.RecoverableSend.fileFingerprint(arguments, validatedPath))) {
+                telegramClient.sendFile(chatId, validatedPath.toString(), caption)
+            }
     }
 
     private fun resolveChatId(args: Map<String, Any>): Long {

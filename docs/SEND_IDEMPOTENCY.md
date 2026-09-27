@@ -1,9 +1,10 @@
-# Recoverable text sends
+# Recoverable sends
 
-`send_message` and `reply_to_message` accept an optional `idempotency_key`.
+`send_message`, `reply_to_message`, `send_file`, `send_voice`, `send_sticker`,
+`forward_message` and `schedule_message` accept an optional `idempotency_key`.
 Use a new random key (for example a UUID) for each intentional send. Keep the
 same key and parameters when recovering from a lost response. Keys are scoped
-to the configured account label and shared between both tools.
+to the configured account label and shared between these tools.
 
 ```json
 {"chat_id":"self","text":"Meeting notes","idempotency_key":"notes-2026-09-24-001"}
@@ -43,6 +44,7 @@ access, and a key for a different chat cannot reveal its receipt.
 | Result | Meaning and recovery |
 |---|---|
 | `SENT` | A final Telegram message ID was saved. This is not a read receipt. |
+| `SCHEDULED` | Telegram accepted a scheduled message; this does not confirm eventual delivery. |
 | `UNKNOWN` | A reservation exists without a saved final result. Delivery may have happened; inspect the chat. Repeating the key will not send again. |
 | `NOT_FOUND` | No saved reservation exists in this account's current journal. This says nothing about unkeyed sends or deleted/restored journals. |
 | `OPERATION_IN_PROGRESS` error | Another caller holds the operation lock. Wait and query status. |
@@ -51,9 +53,27 @@ access, and a key for a different chat cannot reveal its receipt.
 
 An error after reservation conservatively leaves `UNKNOWN`, even when it may
 have occurred before actual delivery. This favors avoiding duplicate messages.
-There is no automatic reconciliation of late Telegram updates or automatic
-retry of a reserved operation. `isError=false` means the receipt lookup worked;
-only `status=SENT` confirms a stored send result.
+Late successful Telegram responses and send updates observed by the running
+process are saved independently of the original caller's timeout. Status lookup
+and replay reconcile these saved receipts, including after a later restart.
+An observation waits at most 24 hours. If the process stops before receiving the
+update, or no final response is observed, the result stays `UNKNOWN`; the server
+does not guess from matching text in history. There is no automatic retry of a
+reserved operation. `isError=false` means the receipt lookup worked;
+`status=SENT` confirms a stored send result and `SCHEDULED` confirms a queued result.
+
+Forwarding returns `message_ids` for batches (and `message_id` for the first
+result). A batch remains `UNKNOWN` unless every requested result is observed;
+partial forwarding must never be retried as a new batch automatically. At most
+100 distinct positive message IDs may be forwarded in one call.
+
+Upload fingerprints include the validated path and a SHA-256 content digest.
+Keep that file immutable during upload and retain it for replay: current file
+security is revalidated before reading the journal, and changed file content
+conflicts with the original key. The server does not snapshot user files.
+Scheduled receipts can be replayed after their original send time; changing or
+cancelling a scheduled message is a separate operation and does not alter its
+original receipt. Existing version-1 single-message journal records remain readable.
 
 ## Storage and limits
 
@@ -77,4 +97,6 @@ Guarantees cover process interruption with the journal intact, not arbitrary
 storage loss, power failure, remote filesystems or distributed exactly-once
 delivery. The journal does not deduplicate sends made without a key, with a
 different key, through another application, or from another journal directory.
-Media, forwarding and scheduled-message tools do not support these keys yet.
+Edits, deletions, poll creation and other operations outside the seven listed
+send tools do not accept these keys. This mechanism is not a transaction across
+multiple Telegram requests.

@@ -63,12 +63,20 @@ object ToolSupport {
         name,
         null,
         description,
-        inputSchema,
+        if (name in RecoverableSend.toolNames) withIdempotencyKey(inputSchema) else inputSchema,
         if (dataSchema == null) outputSchema else typedOutputSchema(dataSchema),
         null,
         emptyMap(),
         emptyList(),
     )
+
+    private fun withIdempotencyKey(schema: Map<String, Any>): Map<String, Any> {
+        @Suppress("UNCHECKED_CAST")
+        val properties = schema["properties"] as? Map<String, Any> ?: emptyMap()
+        return schema + ("properties" to (properties + ("idempotency_key" to mapOf(
+            "type" to "string", "description" to "Stable key for one intended send; reuse to recover without sending again",
+        ))))
+    }
 
     /** Keep the existing envelope, including structured error responses. */
     private fun typedOutputSchema(dataSchema: Map<String, Any>): Map<String, Any> {

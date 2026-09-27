@@ -2047,9 +2047,13 @@ class TdLibClientService(
     @Suppress("UNCHECKED_CAST")
     private fun <T : TdApi.Object> send(function: TdApi.Function<*>): T {
         val future = CompletableFuture<TdApi.Object>()
+        val observer = if (function is TdApi.SendMessage || function is TdApi.ForwardMessages)
+            SendObservationContext.capture() else null
         client.send(function) { result ->
             try {
-                future.complete(result.get())
+                val value = result.get()
+                if (observer != null) SendObservationContext.delivered(value, messageSendTracker, observer)
+                future.complete(value)
             } catch (e: Exception) {
                 future.completeExceptionally(e)
             }

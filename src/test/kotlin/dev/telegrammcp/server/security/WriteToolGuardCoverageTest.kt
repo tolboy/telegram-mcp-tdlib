@@ -39,7 +39,7 @@ class WriteToolGuardCoverageTest {
 
             if (writeTools.isEmpty()) return@forEach
 
-            val guardCalls = Regex("""checkPermission\(""").findAll(source).count()
+            val guardCalls = Regex("""checkPermission\(|RecoverableSend\.check\(""").findAll(source).count()
             if (guardCalls < writeTools.size) {
                 violations += "${file.fileName}: declares write tool(s) ${writeTools.sorted()} " +
                     "but contains only $guardCalls checkPermission call(s)"

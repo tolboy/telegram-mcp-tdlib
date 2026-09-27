@@ -39,10 +39,11 @@ object ToolOutputSchemas {
     private fun receiptVariant(status: Map<String, Any>, messageId: Map<String, Any>) = obj(mapOf(
         "operation_id" to (text + ("pattern" to "^[0-9a-f]{64}$")),
         "chat_id" to integer, "status" to status, "message_id" to messageId, "replayed" to boolean,
+        "message_ids" to (array(integer + ("minimum" to 1)) + ("minItems" to 1)),
     ), listOf("operation_id", "chat_id", "status", "message_id"))
 
     val receipt = mapOf<String, Any>("anyOf" to listOf(
-        receiptVariant(values("SENT"), integer + ("minimum" to 1)),
+        receiptVariant(values("SENT", "SCHEDULED"), integer + ("minimum" to 1)),
         receiptVariant(values("UNKNOWN", "NOT_FOUND"), mapOf("type" to "null")),
     ))
 

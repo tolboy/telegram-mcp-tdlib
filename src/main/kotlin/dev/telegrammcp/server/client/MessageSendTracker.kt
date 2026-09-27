@@ -26,6 +26,24 @@ class MessageSendTracker {
 
     private val waiters = ConcurrentHashMap<Key, CompletableFuture<Outcome>>()
     private val earlyOutcomes = ConcurrentHashMap<Key, TimedOutcome>()
+    private val observers = ConcurrentHashMap<Key, CompletableFuture<TdApi.Message>>()
+    private val observedOutcomes = ConcurrentHashMap<Key, TimedOutcome>()
+
+    /** Independent of blocking waiters, so a caller timeout does not discard late delivery. */
+    fun observeFinal(message: TdApi.Message): CompletableFuture<TdApi.Message> {
+        if (message.sendingState == null) return CompletableFuture.completedFuture(message)
+        val key = Key(message.chatId, message.id)
+        val future = observers.computeIfAbsent(key) { CompletableFuture<TdApi.Message>().orTimeout(24, TimeUnit.HOURS) }
+        future.whenComplete { _, _ -> observers.remove(key, future) }
+        observedOutcomes.remove(key)?.let { completeObserver(key, it.outcome) }
+        return future
+    }
+
+    private fun completeObserver(key: Key, outcome: Outcome) {
+        val observer = observers.remove(key) ?: return
+        try { observer.complete(outcome.unwrap(key)) }
+        catch (error: Exception) { observer.completeExceptionally(error) }
+    }
 
     fun onSucceeded(update: TdApi.UpdateMessageSendSucceeded) {
         complete(Key(update.message.chatId, update.oldMessageId), Outcome.Success(update.message))
@@ -63,6 +81,9 @@ class MessageSendTracker {
     }
 
     private fun complete(key: Key, outcome: Outcome) {
+        observedOutcomes.entries.removeIf { it.value.isExpired() }
+        observedOutcomes[key] = TimedOutcome(outcome, System.nanoTime())
+        completeObserver(key, outcome)
         val waiter = waiters.remove(key)
         if (waiter != null) {
             waiter.complete(outcome)

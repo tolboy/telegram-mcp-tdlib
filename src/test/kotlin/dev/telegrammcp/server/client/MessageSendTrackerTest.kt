@@ -13,6 +13,25 @@ import kotlin.test.assertTrue
 class MessageSendTrackerTest {
 
     @Test
+    fun `durable observer survives synchronous wait timeout`() {
+        val tracker = MessageSendTracker()
+        val pending = message(10, true)
+        val observation = tracker.observeFinal(pending)
+        assertFailsWith<SendOutcomeUnknownException> { tracker.awaitFinal(pending, 0) }
+        tracker.onSucceeded(TdApi.UpdateMessageSendSucceeded(message(20, false), 10))
+        assertEquals(20L, observation.get(1, TimeUnit.SECONDS).id)
+    }
+
+    @Test
+    fun `observer and blocking waiter both receive an early outcome`() {
+        val tracker = MessageSendTracker()
+        val pending = message(10, true)
+        tracker.onSucceeded(TdApi.UpdateMessageSendSucceeded(message(20, false), 10))
+        assertEquals(20L, tracker.observeFinal(pending).get(1, TimeUnit.SECONDS).id)
+        assertEquals(20L, tracker.awaitFinal(pending, 0).id)
+    }
+
+    @Test
     fun `returns an already final message unchanged`() {
         val tracker = MessageSendTracker()
         val message = message(id = 10, sending = false)

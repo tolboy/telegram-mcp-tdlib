@@ -1,4 +1,4 @@
-﻿package dev.telegrammcp.server.tool.media
+package dev.telegrammcp.server.tool.media
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -32,6 +32,7 @@ class SendStickerTool(
     private val auditService: AuditService,
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
+    private val sendOperations: dev.telegrammcp.server.service.SendOperationService? = null,
 ) : McpToolHandler {
 
     private val log = StructuredLogger.forClass<SendStickerTool>()
@@ -63,7 +64,7 @@ class SendStickerTool(
         val sample = Timer.start(meterRegistry)
 
         return try {
-            operationGuardService.checkPermission(TOOL_NAME, arguments)
+            dev.telegrammcp.server.tool.RecoverableSend.check(operationGuardService, TOOL_NAME, arguments)
 
             val chatId = entityResolver.resolve(
                 arguments["chat_id"] ?: throw InvalidToolInputException("chat_id is required"),
@@ -76,7 +77,11 @@ class SendStickerTool(
             guardrailService.validateChatAccess(chatId)
 
             log.withTool(TOOL_NAME).info("Sending sticker '{}' to chat {}", validatedPath, chatId)
-            val message = telegramClient.sendSticker(chatId, validatedPath.toString(), emoji)
+            val message = dev.telegrammcp.server.tool.RecoverableSend.execute(sendOperations, operationGuardService, TOOL_NAME,
+                arguments, chatId, listOf(validatedPath.toString(), emoji,
+                    dev.telegrammcp.server.tool.RecoverableSend.fileFingerprint(arguments, validatedPath))) {
+                telegramClient.sendSticker(chatId, validatedPath.toString(), emoji)
+            }
             auditService.record(TOOL_NAME, arguments, AuditOutcome.SUCCESS)
 
             val json = objectMapper.writeValueAsString(message)

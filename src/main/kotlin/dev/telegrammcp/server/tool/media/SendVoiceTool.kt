@@ -1,4 +1,4 @@
-﻿package dev.telegrammcp.server.tool.media
+package dev.telegrammcp.server.tool.media
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -32,6 +32,7 @@ class SendVoiceTool(
     private val auditService: AuditService,
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
+    private val sendOperations: dev.telegrammcp.server.service.SendOperationService? = null,
 ) : McpToolHandler {
 
     private val log = StructuredLogger.forClass<SendVoiceTool>()
@@ -64,7 +65,7 @@ class SendVoiceTool(
         val sample = Timer.start(meterRegistry)
 
         return try {
-            operationGuardService.checkPermission(TOOL_NAME, arguments)
+            dev.telegrammcp.server.tool.RecoverableSend.check(operationGuardService, TOOL_NAME, arguments)
 
             val chatId = entityResolver.resolve(
                 arguments["chat_id"] ?: throw InvalidToolInputException("chat_id is required"),
@@ -81,7 +82,11 @@ class SendVoiceTool(
             if (caption != null) guardrailService.validateInput(caption)
 
             log.withTool(TOOL_NAME).info("Sending voice '{}' to chat {}", validatedPath, chatId)
-            val message = telegramClient.sendVoice(chatId, validatedPath.toString(), duration, caption)
+            val message = dev.telegrammcp.server.tool.RecoverableSend.execute(sendOperations, operationGuardService, TOOL_NAME,
+                arguments, chatId, listOf(validatedPath.toString(), duration, caption,
+                    dev.telegrammcp.server.tool.RecoverableSend.fileFingerprint(arguments, validatedPath))) {
+                telegramClient.sendVoice(chatId, validatedPath.toString(), duration, caption)
+            }
             auditService.record(TOOL_NAME, arguments, AuditOutcome.SUCCESS)
 
             val json = objectMapper.writeValueAsString(message)

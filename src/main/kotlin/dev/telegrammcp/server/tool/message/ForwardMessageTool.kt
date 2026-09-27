@@ -1,4 +1,4 @@
-﻿package dev.telegrammcp.server.tool.message
+package dev.telegrammcp.server.tool.message
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
@@ -30,6 +30,7 @@ class ForwardMessageTool(
     private val auditService: AuditService,
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
+    private val sendOperations: dev.telegrammcp.server.service.SendOperationService? = null,
 ) : McpToolHandler {
 
     private val log = StructuredLogger.forClass<ForwardMessageTool>()
@@ -72,7 +73,7 @@ class ForwardMessageTool(
         val sample = Timer.start(meterRegistry)
 
         return try {
-            operationGuardService.checkPermission(TOOL_NAME, arguments)
+            dev.telegrammcp.server.tool.RecoverableSend.check(operationGuardService, TOOL_NAME, arguments)
 
             val fromChatId = entityResolver.resolve(
                 arguments["from_chat_id"] ?: throw InvalidToolInputException("from_chat_id is required"),
@@ -81,17 +82,27 @@ class ForwardMessageTool(
                 arguments["to_chat_id"] ?: throw InvalidToolInputException("to_chat_id is required"),
             )
             val messageIds = (arguments["message_ids"] as? List<*>)
-                ?.mapNotNull { (it as? Number)?.toLong() }
+                ?.map { value ->
+                    val number = value as? Number ?: throw InvalidToolInputException("message_ids must contain integers")
+                    number.toLong().also {
+                        if (it <= 0 || number.toDouble() != it.toDouble()) throw InvalidToolInputException("message_ids must contain positive integers")
+                    }
+                }
                 ?: throw InvalidToolInputException("message_ids is required and must be a list of numbers")
 
             if (messageIds.isEmpty()) throw InvalidToolInputException("message_ids must not be empty")
+            if (messageIds.size > 100 || messageIds.distinct().size != messageIds.size)
+                throw InvalidToolInputException("message_ids must contain 1-100 distinct IDs")
 
             log.withTool(TOOL_NAME).info("Forwarding {} messages from chat {} to chat {}", messageIds.size, fromChatId, toChatId)
 
             guardrailService.validateChatAccess(fromChatId)
             guardrailService.validateChatAccess(toChatId)
 
-            val forwarded = telegramClient.forwardMessages(fromChatId, toChatId, messageIds)
+            val forwarded = dev.telegrammcp.server.tool.RecoverableSend.execute(sendOperations, operationGuardService, TOOL_NAME,
+                arguments, toChatId, listOf(fromChatId, messageIds), expectedCount = messageIds.size) {
+                telegramClient.forwardMessages(fromChatId, toChatId, messageIds)
+            }
             val json = objectMapper.writeValueAsString(forwarded)
 
             auditService.record(TOOL_NAME, arguments, AuditOutcome.SUCCESS)
