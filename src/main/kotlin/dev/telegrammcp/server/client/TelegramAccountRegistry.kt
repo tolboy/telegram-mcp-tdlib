@@ -1,6 +1,7 @@
 package dev.telegrammcp.server.client
 
 import dev.telegrammcp.server.exception.TelegramUnavailableException
+import kotlinx.coroutines.asContextElement
 import org.slf4j.LoggerFactory
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.InvocationTargetException
@@ -83,6 +84,8 @@ class TelegramAccountContext(
     private val registry: TelegramAccountRegistry,
 ) {
     private val selected = ThreadLocal<String?>()
+
+    fun coroutineContext(): kotlin.coroutines.CoroutineContext = selected.asContextElement()
 
     fun <T> withAccount(label: String, action: () -> T): T {
         val normalized = TelegramAccountRegistry.normalizeLabel(label)

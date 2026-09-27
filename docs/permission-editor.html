@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Telegram MCP · Permissions</title>
+<style>
+:root{color-scheme:light;--ink:#183b3c;--muted:#536c6d;--line:#cddbd8;--accent:#176c60}*{box-sizing:border-box}body{margin:0;background:#f2f6f3;color:var(--ink);font:16px/1.55 system-ui,sans-serif}main{max-width:1080px;margin:auto;padding:44px 24px}h1{font-size:36px;letter-spacing:-1px;margin:8px 0}h2{font-size:20px;margin:0 0 16px}.eyebrow{font-size:12px;font-weight:750;letter-spacing:2px;color:var(--accent)}p{max-width:780px;color:var(--muted)}.toolbar{display:flex;gap:12px;flex-wrap:wrap;margin:26px 0}.card{background:white;border:1px solid var(--line);border-radius:12px;padding:22px;margin:18px 0}button,.file{font:inherit;border:1px solid var(--line);border-radius:7px;padding:9px 16px;background:white;cursor:pointer;color:var(--ink)}button.primary{background:var(--accent);color:white;border-color:var(--accent)}button:hover,.file:hover{filter:brightness(.95)}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid #e5ad4b;outline-offset:2px}.fields{display:grid;grid-template-columns:1fr 1fr;gap:18px}.label{display:block;font-weight:650;font-size:14px}input[type=text],textarea{font:inherit;display:block;width:100%;border:1px solid var(--line);border-radius:6px;padding:10px;background:#fcfdfc;color:var(--ink);margin-top:6px}fieldset{border:0;margin:18px 0 0;padding:0}legend{font-weight:650;font-size:14px}.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:7px}.actions label{padding:6px 10px;border-radius:6px;background:#f0f5f2}.hint{font-size:13px;color:var(--muted);margin:6px 0}.card-head{display:flex;justify-content:space-between;gap:20px;align-items:center;margin-bottom:16px}.card-head h2{margin:0}.remove{font-size:13px;color:#8d3030}.scope{margin-top:18px}.status{padding:12px 16px;border-radius:7px;background:#e3eee7;white-space:pre-wrap}.status.error{background:#f9e4df;color:#782a20}pre{overflow:auto;max-height:370px;background:#edf3ef;border-radius:7px;padding:18px;font:13px/1.6 ui-monospace,monospace}.empty{border:1px dashed var(--line);padding:24px;text-align:center;color:var(--muted)}details{margin-top:24px}summary{cursor:pointer;font-weight:650}code{font-size:.9em}footer{margin-top:28px;font-size:13px;color:var(--muted)}@media(max-width:620px){main{padding:24px 16px}.fields{grid-template-columns:1fr}h1{font-size:29px}.card{padding:16px}}
+</style>
+<main>
+<div class="eyebrow">TELEGRAM MCP / LOCAL SETTINGS</div>
+<h1>Control who can do what</h1>
+<p>Create explicit grants for each client and Telegram account. With a permission file enabled, operations without a matching grant are denied. Existing read-only mode, account restrictions and approval requirements still apply.</p>
+<div class="toolbar">
+<button id="add" class="primary">Add grant</button>
+<button id="import-button">Import JSON</button><input id="import" type="file" accept=".json,application/json" hidden>
+<button id="export">Save permission file</button>
+</div>
+<div id="status" class="status" role="status" aria-live="polite">No grants: all account operations will be denied.</div>
+<div id="grants"></div>
+<details open><summary>Review generated file</summary><pre id="preview"></pre></details>
+<section class="card"><h2>Apply your changes</h2><ol>
+<li>Save the reviewed JSON file to a local folder accessible to the server.</li>
+<li>Set <code>MCP_PERMISSIONS_FILE</code> to its absolute path.</li>
+<li>Restart the server and reconnect the MCP client.</li>
+</ol><p class="hint">This editor works offline. It does not connect to Telegram, read credentials, change a running server or enable write mode. Keep the file under your control; clients must not be able to edit it.</p></section>
+<footer>Client identities: named API-key ID, OAuth principal, <code>stdio</code> for local STDIO, or <code>local-dev</code> for keyless loopback HTTP. Use <code>*</code> for all configured accounts only when intended. Grants are additive; removing one grant does not revoke access granted by another.</footer>
+</main>
+<script>
+'use strict';
+const actions=['read','download','mutate','quota','policy'];
+const labels={read:'Read',download:'Download files',mutate:'Change Telegram',quota:'Use transcription quota',policy:'Change anti-spam policy'};
+const grants=document.getElementById('grants'),status=document.getElementById('status'),preview=document.getElementById('preview');
+let rows=[];
+function check(doc){
+ if(!doc||doc.version!==1||!Array.isArray(doc.grants)||Object.keys(doc).some(k=>!['version','grants'].includes(k)))throw Error('Expected version 1 with a grants array.');
+ if(doc.grants.length>1000)throw Error('At most 1,000 grants are supported.');
+ for(const g of doc.grants){
+  if(!g||Object.keys(g).some(k=>!['client','account','actions','chat_ids'].includes(k)))throw Error('Unknown grant field.');
+  if(typeof g.client!=='string'||!g.client.trim()||g.client==='*'||g.client.length>256)throw Error('Enter an exact client identity. Client wildcards are not accepted.');
+  if(typeof g.account!=='string'||!(g.account==='*'||/^[a-z0-9][a-z0-9_-]{0,63}$/.test(g.account)))throw Error('Use a lowercase account label or *.');
+  if(!Array.isArray(g.actions)||!g.actions.length||g.actions.some(a=>!actions.includes(a)))throw Error('Select at least one known action for every grant.');
+  if(g.chat_ids!==null&&(!Array.isArray(g.chat_ids)||g.chat_ids.length>10000||g.chat_ids.some(n=>!Number.isSafeInteger(n)||n===0)))throw Error('Specify chat_ids explicitly: null for all chats, or nonzero integer IDs. This editor supports safe JavaScript integers.');
+ }
+ return doc;
+}
+function collect(){return check({version:1,grants:rows.map(row=>({client:row.client.value.trim(),account:row.account.value.trim(),actions:row.actions.filter(x=>x.checked).map(x=>x.value),chat_ids:row.all.checked?null:row.chats.value.trim()?row.chats.value.trim().split(/[\s,]+/).map(v=>/^-?\d+$/.test(v)?Number(v):NaN):[]}))});}
+function refresh(){const old=document.getElementById("download-ready");if(old){URL.revokeObjectURL(old.href);old.remove();}try{const doc=collect();preview.textContent=JSON.stringify(doc,null,2);status.className='status';status.textContent=doc.grants.length?`${doc.grants.length} grant(s) ready for review. ${doc.grants.filter(g=>g.chat_ids===null).length} allow access without a chat restriction.`:'No grants: all account operations will be denied.';return doc;}catch(e){status.className='status error';status.textContent=e.message;preview.textContent='Fix the highlighted configuration before saving.';return null;}}
+function field(label,value){const el=document.createElement('label');el.className='label';el.textContent=label;const input=document.createElement('input');input.type='text';input.value=value;el.append(input);return {el,input};}
+function add(g={client:'stdio',account:'default',actions:['read'],chat_ids:[]}){
+ const card=document.createElement('section');card.className='card';
+ const header=document.createElement('div');header.className='card-head';const title=document.createElement('h2');title.textContent='Access grant';header.append(title);
+ const remove=document.createElement('button');remove.className='remove';remove.textContent='Remove grant';header.append(remove);card.append(header);
+ const fields=document.createElement('div');fields.className='fields';const client=field('Client identity',g.client),account=field('Account label',g.account);fields.append(client.el,account.el);card.append(fields);
+ const fieldset=document.createElement('fieldset');const legend=document.createElement('legend');legend.textContent='Allowed actions';fieldset.append(legend);const choices=document.createElement('div');choices.className='actions';const inputs=[];
+ for(const action of actions){const label=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.value=action;input.checked=g.actions.includes(action);label.append(input,document.createTextNode(' '+labels[action]));choices.append(label);inputs.push(input);}fieldset.append(choices);card.append(fieldset);
+ const scope=document.createElement('div');scope.className='scope';const allLabel=document.createElement('label'),all=document.createElement('input');all.type='checkbox';all.checked=g.chat_ids===null;allLabel.append(all,document.createTextNode(' All chats, including account-wide operations'));scope.append(allLabel);
+ const chats=field('Allowed chat IDs (comma or space separated)',(g.chat_ids||[]).join(', '));chats.input.disabled=all.checked;scope.append(chats.el);const hint=document.createElement('p');hint.className='hint';hint.textContent='An empty list grants access to no chats. Account-wide tools require All chats. IDs are numeric, not usernames.';scope.append(hint);card.append(scope);
+ const row={client:client.input,account:account.input,actions:inputs,all,chats:chats.input};rows.push(row);grants.append(card);
+ all.addEventListener('change',()=>{chats.input.disabled=all.checked;refresh();});card.addEventListener('input',refresh);remove.addEventListener('click',()=>{rows=rows.filter(r=>r!==row);card.remove();refresh();});refresh();
+}
+document.getElementById('add').addEventListener('click',()=>add());
+document.getElementById('import-button').addEventListener('click',()=>document.getElementById('import').click());
+document.getElementById('import').addEventListener('change',async e=>{try{const file=e.target.files[0];if(!file)return;if(file.size>1048576)throw Error('File exceeds 1 MiB.');const doc=check(JSON.parse(await file.text()));rows=[];grants.replaceChildren();doc.grants.forEach(add);refresh();}catch(error){status.className='status error';status.textContent=error.message;}finally{e.target.value='';}});
+document.getElementById('export').addEventListener('click',()=>{const doc=refresh();if(!doc)return;const url=URL.createObjectURL(new Blob([JSON.stringify(doc,null,2)+'\n'],{type:'application/json'}));let link=document.getElementById('download-ready');if(link){URL.revokeObjectURL(link.href);}else{link=document.createElement('a');link.id='download-ready';link.className='file';document.querySelector('.toolbar').append(link);}link.href=url;link.download='permissions.json';link.textContent='Download permissions.json';status.textContent='File prepared. Use Download permissions.json if saving did not start.';link.click();});
+refresh();
+</script>
+</html>

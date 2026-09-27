@@ -45,6 +45,7 @@ class McpConfig {
         toolSurfacePolicy: ToolSurfacePolicy,
         auditService: AuditService,
         approvalService: DestructiveApprovalService,
+        permissions: dev.telegrammcp.server.security.AccessPermissionService? = null,
     ): List<SyncToolSpecification> {
         val definitions = handlers.map { handler -> handler to handler.definition() }
         val duplicateNames = definitions
@@ -119,8 +120,11 @@ class McpConfig {
                                 // approval prompt sees the original selector so
                                 // the operator knows which account is affected;
                                 // handlers and audit still receive routed args.
-                                approvalService.requireApproval(exchange, tool.name(), arguments)
-                                handler.execute(exchange, routedArguments)
+                                val invoke = {
+                                    approvalService.requireApproval(exchange, tool.name(), arguments)
+                                    handler.execute(exchange, routedArguments)
+                                }
+                                if (permissions == null) invoke() else permissions.withPermission(tool.name(), account, invoke)
                             }
                         }
                     }

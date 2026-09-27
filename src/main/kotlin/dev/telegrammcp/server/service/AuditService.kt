@@ -236,6 +236,7 @@ class AuditService(
             -> AuditOutcome.BLOCKED_APPROVAL
             is AntiSpamException -> AuditOutcome.BLOCKED_ANTISPAM
             is GuardrailViolationException,
+            is dev.telegrammcp.server.security.PermissionDeniedException,
             is AccountAccessDeniedException,
             is ChatNotAllowedException,
             is FileSecurityException,

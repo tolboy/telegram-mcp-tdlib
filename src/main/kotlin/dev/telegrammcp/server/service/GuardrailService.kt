@@ -21,6 +21,7 @@ import java.util.regex.Pattern
 class GuardrailService(
     private val mcpProps: McpSecurityProperties,
     private val telegramProps: TelegramProperties,
+    private val permissions: dev.telegrammcp.server.security.AccessPermissionService? = null,
 ) {
 
     private val log = StructuredLogger.forClass<GuardrailService>()
@@ -62,8 +63,7 @@ class GuardrailService(
      * @throws ChatNotAllowedException if the chat is explicitly not allowed
      */
     fun validateChatAccess(chatId: Long) {
-        val allowed = telegramProps.security.allowedChatIds
-        if (allowed.isNotEmpty() && chatId !in allowed) {
+        if (!isChatAllowed(chatId)) {
             log.warn("Chat {} is not in the allow-list", chatId)
             throw ChatNotAllowedException(chatId)
         }
@@ -75,11 +75,12 @@ class GuardrailService(
      */
     fun isChatAllowed(chatId: Long): Boolean {
         val allowed = telegramProps.security.allowedChatIds
-        return allowed.isEmpty() || chatId in allowed
+        val scoped = permissions?.requestChatIds()
+        return (allowed.isEmpty() || chatId in allowed) && (scoped == null || chatId in scoped)
     }
 
     /** True when the operator restricted the connector to explicit chat IDs. */
-    fun hasChatAllowList(): Boolean = telegramProps.security.allowedChatIds.isNotEmpty()
+    fun hasChatAllowList(): Boolean = telegramProps.security.allowedChatIds.isNotEmpty() || permissions?.requestChatIds() != null
 
     /**
      * Validates a chat ID learned from Telegram without echoing the rejected ID

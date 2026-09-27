@@ -15,6 +15,8 @@ data class McpSecurityProperties(
     val toolAllow: List<String> = emptyList(),
     /** Optional exact-name deny-list, applied after [toolAllow]. */
     val toolDeny: List<String> = emptyList(),
+    /** Optional reviewed JSON grants; an empty path retains existing access policy. */
+    val permissionsFile: String = "",
 ) {
     val authenticationConfigured: Boolean
         get() = security.apiKey.isNotBlank() ||

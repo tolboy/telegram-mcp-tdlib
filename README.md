@@ -449,6 +449,7 @@ Docker, mount the secret file into the container and set the container path.
 | `MCP_AUTH_HEADER`          | No       | `Authorization` | Header name for API key                  |
 | `MCP_READ_ONLY`            | No       | `true`          | Block write/mutating tools; local downloads have a separate opt-in below |
 | `MCP_READ_ONLY_ALLOW_DOWNLOADS` | No | `false` | Permit local `download_media` in read-only mode and reader/research profiles; preserve chat/account access checks |
+| `MCP_PERMISSIONS_FILE` | No | empty | Reviewed JSON grants for client/account/action/chat access; see [permissions](docs/PERMISSIONS.md) and the [local editor](docs/permission-editor.html) |
 | `MCP_TOOL_PROFILE`         | No       | `reader`        | `all`, `reader`, `inbox`, `community-admin`, or `research` |
 | `MCP_TOOL_ALLOW`           | No       | (profile tools) | Exact comma-separated names to retain after profile filtering |
 | `MCP_TOOL_DENY`            | No       | —               | Exact comma-separated names to hide after the allow-list |

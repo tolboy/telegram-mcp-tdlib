@@ -47,6 +47,7 @@ class SearchMessagesForIntentTool(
     private val auditService: AuditService,
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
+    private val accountContext: dev.telegrammcp.server.client.TelegramAccountContext? = null,
 ) : McpToolHandler {
 
     private val log = StructuredLogger.forClass<SearchMessagesForIntentTool>()
@@ -139,7 +140,9 @@ class SearchMessagesForIntentTool(
         val chatSemaphore = Semaphore(fanout.maxConcurrentChats.coerceAtLeast(1))
         val timedOut = java.util.concurrent.atomic.AtomicBoolean(false)
         val completedResults = ConcurrentHashMap<Int, Map<String, Any>>()
-        val results: List<Map<String, Any>> = runBlocking {
+        val requestContext = (accountContext?.coroutineContext() ?: kotlin.coroutines.EmptyCoroutineContext) +
+            dev.telegrammcp.server.security.AccessPermissionContext.coroutineContext()
+        val results: List<Map<String, Any>> = runBlocking(requestContext) {
             try {
                 withTimeout(fanout.toolCallTimeoutMs) {
                     coroutineScope {

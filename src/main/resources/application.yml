@@ -125,6 +125,7 @@ mcp:
   # Unknown names fail startup so misspellings cannot silently weaken policy.
   tool-allow: ${MCP_TOOL_ALLOW:}
   tool-deny: ${MCP_TOOL_DENY:}
+  permissions-file: ${MCP_PERMISSIONS_FILE:}
   security:
     mode: ${MCP_AUTH_MODE:api-key}
     api-key: ${MCP_API_KEY:}

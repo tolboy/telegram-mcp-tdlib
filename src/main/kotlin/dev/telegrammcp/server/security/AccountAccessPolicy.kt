@@ -13,6 +13,7 @@ import java.util.Locale
 class AccountAccessPolicy(
     private val registry: TelegramAccountRegistry,
     private val securityProperties: McpSecurityProperties = McpSecurityProperties(),
+    private val permissions: AccessPermissionService? = null,
 ) {
 
     fun selectAccount(arguments: Map<String, Any>): String {
@@ -22,23 +23,23 @@ class AccountAccessPolicy(
             !registry.isMultiAccount() && registry.labels().size == 1 -> registry.labels().single()
             else -> throw IllegalArgumentException(
                 "'account' is required when multiple Telegram accounts are configured. " +
-                    "Available accounts: ${registry.labels().joinToString()}",
+                    "Available accounts: ${visibleAccounts().joinToString()}",
             )
         }
 
         require(registry.has(account)) {
-            "Unknown Telegram account '$account'. Available accounts: ${registry.labels().joinToString()}"
+            "Unknown Telegram account '$account'. Available accounts: ${visibleAccounts().joinToString()}"
         }
         val allowed = allowedAccounts()
-        if (allowed != null && account !in allowed) {
+        if ((allowed != null && account !in allowed) || permissions?.isAccountVisible(account) == false) {
             throw AccountAccessDeniedException(account)
         }
         return account
     }
 
     fun visibleAccounts(): List<String> {
-        val allowed = allowedAccounts() ?: return registry.labels()
-        return registry.labels().filter { it in allowed }
+        val allowed = allowedAccounts()
+        return registry.labels().filter { (allowed == null || it in allowed) && permissions?.isAccountVisible(it) != false }
     }
 
     private fun allowedAccounts(): Set<String>? {

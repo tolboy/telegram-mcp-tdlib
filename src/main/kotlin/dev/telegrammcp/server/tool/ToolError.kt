@@ -13,6 +13,7 @@ data class ToolError(
     companion object {
         fun from(error: Exception): ToolError {
             val code = when (error) {
+                is dev.telegrammcp.server.security.PermissionDeniedException -> "PERMISSION_DENIED"
                 is SendOperationConflictException -> "IDEMPOTENCY_CONFLICT"
                 is SendOperationBusyException -> "OPERATION_IN_PROGRESS"
                 is SendJournalException -> "SEND_JOURNAL_UNAVAILABLE"
@@ -43,7 +44,7 @@ data class ToolError(
                     "Check the target chat for delivery before sending again; do not automatically retry."
                 "INVALID_INPUT" -> "Correct the arguments before retrying."
                 "AUTH_REQUIRED" -> "Ask the operator to authenticate the selected account."
-                "CHAT_FORBIDDEN", "ACCOUNT_FORBIDDEN", "READ_ONLY", "FILE_FORBIDDEN", "GUARDRAIL_REJECTED" ->
+                "PERMISSION_DENIED", "CHAT_FORBIDDEN", "ACCOUNT_FORBIDDEN", "READ_ONLY", "FILE_FORBIDDEN", "GUARDRAIL_REJECTED" ->
                     "Ask the operator to review the access policy; do not bypass it."
                 "CONFIRMATION_REQUIRED", "APPROVAL_DENIED", "APPROVAL_UNAVAILABLE" ->
                     "Obtain operator approval through the configured approval flow before proceeding."
