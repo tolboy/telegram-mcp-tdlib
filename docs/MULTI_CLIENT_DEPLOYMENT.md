@@ -46,6 +46,9 @@ The published compose stack exposes the endpoint on loopback. Keep
 keys when different clients need different account access. A non-loopback bind
 must have API-key or OAuth protection.
 
+For managed local start/status/stop and generated attachments, see
+[Managed local daemon](LOCAL_DAEMON.md).
+
 ## Operations
 
 - Stop the daemon gracefully before session maintenance or re-authentication.

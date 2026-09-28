@@ -3,6 +3,17 @@
 Notable changes to Telegram MCP Server are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- Add compact inbox, conversation and changes-since tools with explicit normalized
+  JSON budgets, scope metadata and existing account/chat access controls.
+- Add pull-driven persistent history exports with resume/status/page/cancel/delete,
+  atomic checkpoints and account/client ownership. Add a bounded local TDLib
+  change journal with explicit coverage gaps.
+- Add managed local daemon start/status/stop and client attachment, with private
+  credentials, loopback HTTP, process identity checks and a repeatable two-session
+  lifecycle smoke script. See `docs/LOCAL_DAEMON.md` and `docs/TASKS_AND_EXPORTS.md`.
+
 ## 1.16.2 - 2026-09-23
 
 The `v1.16.1` tag did not publish artifacts: its HTTP smoke clients still used

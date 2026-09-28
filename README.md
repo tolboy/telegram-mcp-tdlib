@@ -131,6 +131,10 @@ STDIO is the low-friction path for desktop clients. The generated entry looks li
   instead of `mcpServers` and requires an explicit `"type": "stdio"` or
   `"type": "http"`.
 
+To share one local process across clients, use `telegram-mcp daemon start` and
+`telegram-mcp daemon attach --client cursor` (or `codex`, `vscode`, `claude-code`).
+See [managed local daemon](docs/LOCAL_DAEMON.md) for status, stop and onboarding.
+
 For a managed HTTP deployment instead of STDIO:
 
 ```bash
@@ -638,7 +642,7 @@ For remote deployment, terminate TLS before the service and restrict network acc
 | `changes_since` | Persistent observed message changes, with explicit coverage gaps |
 | `export_job` | Start, resume, inspect, read, cancel and delete durable history exports |
 
-See [compact tasks and export](docs/TASKS_AND_EXPORTS.md).
+See [compact tasks and export](docs/TASKS_AND_EXPORTS.md) and [managed local daemon](docs/LOCAL_DAEMON.md).
 
 Text sends, delivery receipts, export and public search advertise
 [typed output schemas](docs/OUTPUT_SCHEMAS.md), including structured error variants.

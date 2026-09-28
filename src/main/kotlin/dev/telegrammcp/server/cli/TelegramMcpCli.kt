@@ -36,6 +36,10 @@ object TelegramMcpCli {
                     true
                 }
             }
+            "daemon" -> {
+                try { DaemonCli.run(args.drop(1)) } catch (invalid: Exception) { failUsage(invalid.message) }
+                true
+            }
             "serve" -> {
                 runServer(args.drop(1))
                 true
@@ -485,6 +489,7 @@ object TelegramMcpCli {
         println("                      [--writes] [--api-id <id>] [--docker default|<image>]")
         println("                      [--http default|<url>]")
         println("  telegram-mcp session <doctor|logout|clear> [options]")
+        println("  telegram-mcp daemon start [--port 8080] | status | stop | attach --client <client>")
         println("  telegram-mcp version")
         println()
         println("Running without a command preserves the legacy Streamable HTTP startup.")
