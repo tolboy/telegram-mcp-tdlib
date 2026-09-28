@@ -1,4 +1,4 @@
-﻿package dev.telegrammcp.server.service
+package dev.telegrammcp.server.service
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.telegrammcp.server.client.TelegramAccountContext
@@ -75,6 +75,10 @@ class AuditService(
         /** Maps tool names to audit categories. */
         private val TOOL_CATEGORIES = mapOf(
             // Read messages
+            "inbox_snapshot" to AuditCategory.READ_CHAT,
+            "conversation_bundle" to AuditCategory.READ_MESSAGE,
+            "changes_since" to AuditCategory.READ_MESSAGE,
+            "export_job" to AuditCategory.READ_MESSAGE,
             "get_history" to AuditCategory.READ_MESSAGE,
             "get_messages" to AuditCategory.READ_MESSAGE,
             "search_messages" to AuditCategory.READ_MESSAGE,

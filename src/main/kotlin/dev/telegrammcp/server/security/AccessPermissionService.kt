@@ -93,7 +93,7 @@ class AccessPermissionService(props: McpSecurityProperties, paths: PlatformPaths
 
         // These handlers validate target IDs or filter all returned chat-bearing records.
         // New tools fail closed for chat-scoped grants until explicitly reviewed here.
-        val CHAT_SCOPED_TOOLS = setOf(
+        val CHAT_SCOPED_TOOLS = setOf("inbox_snapshot", "conversation_bundle", "changes_since", "export_job",
             "archive_chat", "unarchive_chat", "mute_chat", "unmute_chat", "ban_user", "unban_user",
             "promote_admin", "demote_admin", "close_forum_topic", "reopen_forum_topic", "create_topic", "edit_forum_topic",
             "delete_chat_photo", "edit_chat_photo", "edit_chat_title", "get_admins", "get_banned_users", "get_chat",

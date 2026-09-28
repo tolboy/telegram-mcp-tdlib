@@ -32,6 +32,10 @@ object ToolContractCatalog {
                     }
                 }))
             }
+            put("inbox_snapshot", dto<dev.telegrammcp.server.tool.task.InboxSnapshot>())
+            put("conversation_bundle", dto<dev.telegrammcp.server.tool.task.ConversationBundle>())
+            put("changes_since", dto<dev.telegrammcp.server.service.ChangePage>())
+            put("export_job", dto<dev.telegrammcp.server.service.ExportJobResult>())
             method("getChats", "list_chats")
             method("getChat", "get_chat", "create_group", "create_channel", "join_chat_by_link")
             method("listChatFolders", "list_chat_folders")

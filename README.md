@@ -175,7 +175,7 @@ is in [PUBLIC_BENCHMARK_AND_ROADMAP.md](docs/PUBLIC_BENCHMARK_AND_ROADMAP.md).
 
 ## Tool profiles
 
-You don't expose 111 tools on day one. `MCP_TOOL_PROFILE` narrows the advertised surface
+You don't expose 115 tools on day one. `MCP_TOOL_PROFILE` narrows the advertised surface
 *before a client ever sees it*, without weakening account scoping, read-only mode,
 confirmation, audit, or anti-spam:
 
@@ -191,7 +191,7 @@ See [TOOL_PROFILES.md](docs/TOOL_PROFILES.md) for the exact intent of each surfa
 
 ## Features
 
-- **111 MCP tools** — messages, polls, read receipts, scheduled sends, chats, folders,
+- **115 MCP tools** — messages, polls, read receipts, scheduled sends, chats, folders,
   invite-link administration, contacts, media, drafts, privacy, bot commands, detailed group
   permissions, profile, search, and account routing.
 - **TDLib via tdlight-java** — real user accounts, not just the Bot API.
@@ -629,6 +629,17 @@ For remote deployment, terminate TLS before the service and restrict network acc
 
 ## Available MCP Tools
 
+### Compact tasks and durable export
+
+| Tool | Description |
+|---|---|
+| `inbox_snapshot` | Bounded unread inbox with a JSON character budget |
+| `conversation_bundle` | Compact conversation page with an exclusive older-than cursor |
+| `changes_since` | Persistent observed message changes, with explicit coverage gaps |
+| `export_job` | Start, resume, inspect, read, cancel and delete durable history exports |
+
+See [compact tasks and export](docs/TASKS_AND_EXPORTS.md).
+
 Text sends, delivery receipts, export and public search advertise
 [typed output schemas](docs/OUTPUT_SCHEMAS.md), including structured error variants.
 
@@ -636,7 +647,7 @@ The full inventory is grouped below. In practice you start with a
 [tool profile](#tool-profiles) rather than enabling all of it at once.
 
 <details>
-<summary><b>Show all 111 tools</b></summary>
+<summary><b>Show all 115 tools</b></summary>
 
 ### Messages (30 tools)
 

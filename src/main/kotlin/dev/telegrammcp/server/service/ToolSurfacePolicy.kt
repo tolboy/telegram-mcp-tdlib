@@ -56,7 +56,7 @@ class ToolSurfacePolicy(
         private val META_TOOLS = setOf("_manifest", "list_accounts")
 
         private val MESSAGE_TOOLS = setOf(
-            "get_send_operation",
+            "inbox_snapshot", "conversation_bundle", "changes_since", "get_send_operation",
             "get_history", "get_messages", "search_messages", "search_global",
             "send_message", "reply_to_message", "edit_message", "delete_message",
             "forward_message", "pin_message", "unpin_message", "get_pinned_messages",
@@ -99,7 +99,7 @@ class ToolSurfacePolicy(
             "get_pinned_messages", "get_message_reactions", "message_from_link", "get_message_link", "get_media_info",
             "download_media", "list_chats", "get_chat", "get_participants", "get_admins",
             "get_banned_users", "get_recent_actions", "search_public_chats", "discover_public_chats",
-            "search_public_messages", "export_chat_history",
+            "search_public_messages", "export_chat_history", "export_job", "conversation_bundle", "changes_since",
             "resolve_username", "get_user_status", "get_user_photos",
         )
     }
