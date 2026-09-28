@@ -53,6 +53,7 @@ class TelegramAuthOrchestrator(
     private val buildProperties: org.springframework.boot.info.BuildProperties? = null,
     private val authWizard: AuthWizardProperties = AuthWizardProperties(),
     private val telegramProperties: TelegramProperties = TelegramProperties(),
+    private val changeJournal: dev.telegrammcp.server.service.ChangeJournal? = null,
 ) {
 
     private val log = StructuredLogger.forClass<TelegramAuthOrchestrator>()
@@ -359,6 +360,7 @@ class TelegramAuthOrchestrator(
         val builder: SimpleTelegramClientBuilder = factory.builder(settings)
         val sendTracker = MessageSendTracker()
 
+        changeJournal?.attach(builder, authWizard.accountLabel)
         builder.addUpdateHandler(TdApi.UpdateAuthorizationState::class.java) { update ->
             handleAuthState(update, null, phoneNumber)
         }

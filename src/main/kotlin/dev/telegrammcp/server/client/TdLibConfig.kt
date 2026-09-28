@@ -53,6 +53,7 @@ class TdLibConfig(
     private val meterRegistry: MeterRegistry,
     private val environment: Environment,
     private val buildProperties: BuildProperties? = null,
+    private val changeJournal: dev.telegrammcp.server.service.ChangeJournal? = null,
 ) {
     private val log = StructuredLogger.forClass<TdLibConfig>()
     private val nativeInitialized = AtomicBoolean(false)
@@ -223,6 +224,7 @@ class TdLibConfig(
         val factory = SimpleTelegramClientFactory()
         return try {
             val builder: SimpleTelegramClientBuilder = factory.builder(buildSettings(config))
+            changeJournal?.attach(builder, config.label)
             val authGate = TelegramAuthGate(config.label, config.authReadyTimeout)
             val chatFolderState = ChatFolderState()
             val messageSendTracker = MessageSendTracker()
