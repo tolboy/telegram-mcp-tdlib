@@ -21,6 +21,9 @@ clients or **Streamable HTTP** at `/mcp` for managed deployments.
   first: through the MCP host where elicitation exists, otherwise on a single-use loopback
   page this server hosts. Either way the question leaves and the answer returns outside the
   model's turn, so an injected instruction can make the model *request* a ban, not approve one.
+- **Sends an agent can retry** — an `idempotency_key` turns a lost response into a stored
+  receipt instead of a duplicate message; an unconfirmed send is reported as `UNKNOWN`,
+  never silently resent.
 - **Real user accounts, not just bots** — built on **TDLib** (via tdlight-java), so an agent
   can read and act on your actual account, not only a Bot API subset.
 - **Isolated multi-account** — each account gets its own session, mandatory selection, and
@@ -204,8 +207,19 @@ See [TOOL_PROFILES.md](docs/TOOL_PROFILES.md) for the exact intent of each surfa
 - **Safe by default** — read-only tool surface, human approval for destructive actions
   (`MCP_DESTRUCTIVE_APPROVAL`, over the host or a loopback page), and task-focused profiles
   (`reader`/`inbox`/`community-admin`/`research`/`all`).
+- **Recoverable sends** — optional idempotency keys and durable receipts for text, replies,
+  files, voice, stickers, forwards and scheduled messages; see
+  [delivery recovery](docs/SEND_IDEMPOTENCY.md).
+- **Per-client permissions** — a reviewed JSON file grants each client `read`, `download`,
+  `mutate`, `quota` or `policy` actions on named accounts and chats; everything else is
+  denied. See [permissions](docs/PERMISSIONS.md).
+- **Answers an agent can trust** — every tool publishes a typed output schema, errors carry
+  a stable code with retry guidance, and exports and searches say when they are incomplete.
+- **Long-running work** — compact inbox and conversation tools with response budgets,
+  exports that resume after a restart, and a change journal that reports its own gaps.
 - **Two transports** — STDIO for desktop clients and Streamable HTTP `/mcp`
-  (Spring AI 2.0 / MCP SDK 2.0), with API-key auth.
+  (Spring AI 2.0 / MCP SDK 2.0), with API-key auth; `telegram-mcp daemon` shares one
+  local server between several clients.
 - **Guardrails** — audit logging, anti-spam via Resilience4j rate limiter (30 req/s) and
   circuit breaker, chat allow-list, prompt-injection patterns, and untrusted-content marking.
 - **Observability** — Micrometer metrics, Prometheus endpoint, and structured JSON logging
@@ -339,7 +353,7 @@ The comparison with the leading public Telegram MCP servers and the prioritized 
 
 CI runs on every pull request and push to `master`. A signed-off release is a Git tag in the `vX.Y.Z` form; the release workflow builds the images, runs the cross-platform tool-surface smoke and the container lifecycle contract **against the pushed digest**, attests and signs it, and only then moves the public tags (`latest`, `X.Y.Z`, `X.Y`, immutable `sha-<commit>`, and the `-stdio` variants) onto that exact digest — verifying afterwards that each tag resolves to it. Release bundles for Windows x64, Linux x64/ARM64, and macOS ARM64 ship alongside. Public releases include an SPDX SBOM for the runnable JAR, GitHub provenance attestations for release assets, and a keyless Sigstore signature plus provenance for the container digest. See [release-bundle verification](docs/RELEASE_BUNDLES.md#supply-chain-verification).
 
-Use a concrete semver tag for reproducible deployments. `v1.0.0` is the first Streamable HTTP / MCP SDK 2.0 public baseline; `v1.1.0` adds account isolation, scoped keys, and cross-platform native packaging; `v1.2.0` adds premium voice-note transcription and the neutral package namespace; `v1.3.0` adds privacy, bot-command, detailed group-permission controls, and verified release bundles; `v1.4.0` adds focused MCP tool profiles; `v1.7.x` adds the STDIO transport, CLI with an interactive auth wizard, structured tool output, optional OAuth resource-server mode, and runtime-inclusive release images; `v1.13.0` adds human approval for destructive tools over the host or a loopback page, and `telegram-mcp config` to generate client entries; `v1.14.0` ties every published image tag to the digest that passed verification and signing; `v1.15.0` makes the running build checkable from the connector's own answer; `v1.16.0` fixes interactive login: authorization requests actually reach TDLib, a second login attempt no longer aborts the process, and the auth state says where Telegram delivered the code. The complete history is in [CHANGELOG.md](CHANGELOG.md).
+Use a concrete semver tag for reproducible deployments. `v1.0.0` is the first Streamable HTTP / MCP SDK 2.0 public baseline; `v1.1.0` adds account isolation, scoped keys, and cross-platform native packaging; `v1.2.0` adds premium voice-note transcription and the neutral package namespace; `v1.3.0` adds privacy, bot-command, detailed group-permission controls, and verified release bundles; `v1.4.0` adds focused MCP tool profiles; `v1.7.x` adds the STDIO transport, CLI with an interactive auth wizard, structured tool output, optional OAuth resource-server mode, and runtime-inclusive release images; `v1.13.0` adds human approval for destructive tools over the host or a loopback page, and `telegram-mcp config` to generate client entries; `v1.14.0` ties every published image tag to the digest that passed verification and signing; `v1.15.0` makes the running build checkable from the connector's own answer; `v1.16.0` fixes interactive login: authorization requests actually reach TDLib, a second login attempt no longer aborts the process, and the auth state says where Telegram delivered the code; `v1.17.0` adds recoverable keyed sends, per-client permissions, typed output for every tool with structured errors, compact task tools, resumable exports with a change journal, and a managed local daemon. The complete history is in [CHANGELOG.md](CHANGELOG.md).
 
 To find out which release is actually answering, call the `_manifest` tool: the
 response carries `serverVersion` next to `schemaVersion`. It is read from the
@@ -644,8 +658,8 @@ For remote deployment, terminate TLS before the service and restrict network acc
 
 See [compact tasks and export](docs/TASKS_AND_EXPORTS.md) and [managed local daemon](docs/LOCAL_DAEMON.md).
 
-Text sends, delivery receipts, export and public search advertise
-[typed output schemas](docs/OUTPUT_SCHEMAS.md), including structured error variants.
+Every tool advertises a [typed output schema](docs/OUTPUT_SCHEMAS.md), including the
+shared [structured error](docs/TOOL_ERRORS.md) variant.
 
 The full inventory is grouped below. In practice you start with a
 [tool profile](#tool-profiles) rather than enabling all of it at once.
