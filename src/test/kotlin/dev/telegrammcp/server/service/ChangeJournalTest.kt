@@ -2,6 +2,7 @@ package dev.telegrammcp.server.service
 
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import io.mockk.*
+import it.tdlight.jni.TdApi
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
@@ -14,6 +15,19 @@ class ChangeJournalTest {
         val paths = mockk<PlatformPaths>()
         every { paths.applicationDataDirectory } answers { root }
         return ChangeJournal(paths, jacksonObjectMapper())
+    }
+
+    @Test fun `outgoing changes contain only the final hydratable message ID`() {
+        val journal = journal()
+        val initial = journal.page("default", null, 10) { true }
+        journal.recordNewMessage("default", TdApi.Message().apply {
+            chatId = 42; id = 10; sendingState = TdApi.MessageSendingStatePending()
+        })
+        assertTrue(journal.page("default", initial.nextCursor, 10) { true }.entries.isEmpty())
+        journal.recordNewMessage("default", TdApi.Message().apply { chatId = 42; id = 20 })
+        val entry = journal.page("default", initial.nextCursor, 10) { true }.entries.single()
+        assertEquals(20L, entry.messageId)
+        assertEquals("new", entry.kind)
     }
 
     @Test fun `restart preserves cursor and revoked chats are filtered without stalling`() {

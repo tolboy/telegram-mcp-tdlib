@@ -67,7 +67,8 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
 
     fun attach(builder: SimpleTelegramClientBuilder, account: String) {
         append(account, "coverage_gap")
-        builder.addUpdateHandler(TdApi.UpdateNewMessage::class.java) { append(account, "new", it.message.chatId, it.message.id) }
+        builder.addUpdateHandler(TdApi.UpdateNewMessage::class.java) { recordNewMessage(account, it.message) }
+        builder.addUpdateHandler(TdApi.UpdateMessageSendSucceeded::class.java) { recordNewMessage(account, it.message) }
         builder.addUpdateHandler(TdApi.UpdateMessageContent::class.java) { append(account, "content_changed", it.chatId, it.messageId) }
         builder.addUpdateHandler(TdApi.UpdateMessageEdited::class.java) { append(account, "edited", it.chatId, it.messageId) }
         builder.addUpdateHandler(TdApi.UpdateDeleteMessages::class.java) { update ->
@@ -76,5 +77,11 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
         builder.addUpdateHandler(TdApi.UpdateConnectionState::class.java) {
             if (it.state !is TdApi.ConnectionStateReady) append(account, "coverage_gap")
         }
+    }
+
+    internal fun recordNewMessage(account: String, message: TdApi.Message) {
+        // Outgoing UpdateNewMessage uses a provisional ID that disappears when
+        // sending completes. Publish the final ID from UpdateMessageSendSucceeded.
+        if (message.sendingState == null) append(account, "new", message.chatId, message.id)
     }
 }
