@@ -3,7 +3,7 @@
 Notable changes to Telegram MCP Server are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 1.17.0 - 2026-09-29
 
 This release makes the server safer to leave running for an agent: sends can be
 recovered without duplicates, results say when they are incomplete, errors are
