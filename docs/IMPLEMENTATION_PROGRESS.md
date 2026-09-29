@@ -1,6 +1,6 @@
 # Competitive improvement plan: implementation status
 
-Snapshot: 2026-09-28. This tracks the original eight improvement stages, not
+Snapshot: 2026-09-29. This tracks the original eight improvement stages, not
 the number of commits. A partial stage still counts as unfinished.
 
 **7 complete within documented guarantees, 0 partial, 1 not started: stage 8 remains.**
@@ -22,13 +22,15 @@ request and remains not started; the daemon smoke is not a competitive benchmark
 
 Stages 5–7 are recorded in separate local commits for durable storage, MCP task
 tools, and managed daemon lifecycle.
-Validation: 798 tests discovered, 796 passed, 2 skipped, zero failures. Boot JAR assembly, native-runtime
+Validation: 799 tests discovered, 797 passed, 2 skipped, zero failures. Boot JAR assembly, native-runtime
 coverage and release metadata checks passed, as did `scripts/Test-ManagedDaemon.ps1`.
 Tests cover restart/resume, checkpoint-write failure, terminal cancellation,
 account/client isolation, permission revocation, normalized budgets, actual output
 schemas, journal gaps/retention, PID reuse rejection and control endpoint binding.
 
-Telegram operations use mocks. The live smoke checks the real local JVM/HTTP/MCP
-lifecycle with no Telegram credentials or Telegram calls. Live Telegram history,
-update delivery, media downloads and integration inside named client applications
-have not been verified. This snapshot is not a release readiness claim.
+Unit tests use mocks. Live Telegram validation through Berloga's Tauri bridge
+also passed: compact reads, keyed send/replay, final-ID new/edit/delete events,
+export resume across container replacement, saved pages and cancel/delete.
+The isolated daemon smoke checks the real local JVM/HTTP/MCP lifecycle without
+Telegram credentials. See LIVE_VALIDATION_2026-09-29.md for evidence and limits.
+Media downloads, other named clients and non-Windows daemon runs remain unverified.

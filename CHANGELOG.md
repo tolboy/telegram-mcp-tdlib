@@ -5,6 +5,9 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- Record delivered outgoing message IDs in the change journal instead of
+  publishing temporary TDLib send IDs. Verified through live Berloga testing.
+
 - Add compact inbox, conversation and changes-since tools with explicit normalized
   JSON budgets, scope metadata and existing account/chat access controls.
 - Add pull-driven persistent history exports with resume/status/page/cancel/delete,
