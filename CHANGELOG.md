@@ -5,17 +5,81 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
-- Record delivered outgoing message IDs in the change journal instead of
-  publishing temporary TDLib send IDs. Verified through live Berloga testing.
+This release makes the server safer to leave running for an agent: sends can be
+recovered without duplicates, results say when they are incomplete, errors are
+machine-readable, and access can be granted per client, account, action and
+chat. The tool surface grows from 110 to 115 tools.
 
-- Add compact inbox, conversation and changes-since tools with explicit normalized
-  JSON budgets, scope metadata and existing account/chat access controls.
-- Add pull-driven persistent history exports with resume/status/page/cancel/delete,
-  atomic checkpoints and account/client ownership. Add a bounded local TDLib
-  change journal with explicit coverage gaps.
-- Add managed local daemon start/status/stop and client attachment, with private
-  credentials, loopback HTTP, process identity checks and a repeatable two-session
-  lifecycle smoke script. See `docs/LOCAL_DAEMON.md` and `docs/TASKS_AND_EXPORTS.md`.
+### Added
+
+- Recoverable sends. `send_message`, `reply_to_message`, `send_file`,
+  `send_voice`, `send_sticker`, `forward_message` and `schedule_message` accept
+  an optional `idempotency_key`. The key is reserved on disk before Telegram is
+  called and the final receipt is stored after it; repeating the key with the
+  same parameters returns the stored receipt instead of sending again, and
+  reusing it with different parameters is rejected. The new `get_send_operation`
+  reads a receipt. A send whose outcome was never observed stays `UNKNOWN` and is
+  never resent automatically; a delivery confirmation that arrives after the
+  call timed out is reconciled into the receipt. Receipts hold IDs, not message
+  text. Calls without a key keep their previous response. See
+  `docs/SEND_IDEMPOTENCY.md`.
+- Per-client permissions. `MCP_PERMISSIONS_FILE` points to a reviewed JSON file
+  that grants each client identity `read`, `download`, `mutate`, `quota` or
+  `policy` actions on named accounts and explicit chat IDs. When configured,
+  everything not granted is denied; existing account restrictions and the chat
+  allow-list still apply on top. An invalid file stops startup.
+  `docs/permission-editor.html` is an offline editor for these files. See
+  `docs/PERMISSIONS.md`.
+- `MCP_READ_ONLY_ALLOW_DOWNLOADS=true` keeps a read-only server read-only for
+  Telegram while allowing `download_media` into the local TDLib cache. Off by
+  default.
+- Compact task tools. `inbox_snapshot` lists unread chats, `conversation_bundle`
+  returns a page of short message snippets with a cursor for older messages, and
+  `changes_since` pages through observed new, edited and deleted messages. Each
+  response fits a `max_chars` budget and says when it was cut.
+- `export_job` exports long chat history one page per call, saving each page
+  and its cursor so the export can resume after a restart. Jobs belong to the
+  account and client that started them, and every call re-checks chat access.
+  See `docs/TASKS_AND_EXPORTS.md`.
+- A local change journal records the IDs of new, edited and deleted messages for
+  `changes_since`, marking restarts, reconnects and any other loss as a coverage
+  gap instead of implying a complete history. Recording never delays Telegram:
+  updates are queued and written by a background thread.
+- `telegram-mcp daemon start|status|stop` manages one shared local HTTP server
+  on loopback with a private API key, and `daemon attach --client <name>`
+  prints a ready-to-paste client configuration for it. Several MCP clients can
+  then share one TDLib session instead of competing for it. See
+  `docs/LOCAL_DAEMON.md`.
+
+### Changed
+
+- Every tool publishes an explicit JSON Schema for its `structuredContent`
+  instead of an unconstrained `data` object; tests validate each handler's real
+  output against it. See `docs/OUTPUT_SCHEMAS.md`.
+- Tool errors keep `isError=true` and their text, and add a structured `error`
+  object with a stable `code` (for example `CHAT_FORBIDDEN`, `AUTH_REQUIRED`,
+  `RATE_LIMITED`, `SEND_OUTCOME_UNKNOWN`), `retryable`, `retry_after_seconds`
+  and `next_action`. Account-selection and approval failures now use the same
+  envelope. See `docs/TOOL_ERRORS.md`.
+- `export_chat_history` and `search_public_messages` report whether a result is
+  complete (`complete`, `partial_reasons`, `completion_scope`, `scanned_count`);
+  search also lists queries that failed. List-reading tools add common page
+  metadata. See `docs/RESULT_COMPLETENESS.md`.
+
+### Fixed
+
+- `export_chat_history` reported `truncated=false` when it stopped exactly at
+  the result limit or ran out of pages before the requested date range, and a
+  short page ended pagination early. It now continues through short pages and
+  reports every stop that does not prove the history was exhausted.
+- `search_public_messages` turned a failed query into an empty hit list, which
+  read as "no matches"; on timeout it now also names the chats it did not finish.
+- A send that timed out waiting for Telegram was reported as failed although
+  Telegram could still deliver it, inviting a duplicate retry. It now returns
+  `SEND_OUTCOME_UNKNOWN` with an instruction to check the chat before sending again.
+- With several accounts configured, the parallel workers of
+  `search_public_messages` now run under the caller's selected account and
+  permissions.
 
 ## 1.16.2 - 2026-09-23
 

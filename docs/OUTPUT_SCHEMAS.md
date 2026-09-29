@@ -1,6 +1,6 @@
 # Typed MCP output contracts
 
-All 111 tools advertise explicit JSON Schemas for `structuredContent`. The
+All 115 tools advertise explicit JSON Schemas for `structuredContent`. The
 catalog in `ToolContractCatalog.kt` binds each tool to its wire DTO or named
 response shape. DTO fields, nullability, collections and enums are expanded
 from their declared Kotlin types; map-shaped responses are registered explicitly.
