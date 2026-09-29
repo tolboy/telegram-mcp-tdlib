@@ -75,15 +75,24 @@ Telegram may replay updates, so consumers must tolerate duplicates. Message
 changes can be hydrated with `get_messages`; deleted messages may be unavailable.
 Other updates (reactions, read receipts, chat properties) are outside this journal.
 
-Restart/reconnect markers, a failed journal write and retention loss produce
-`gap=true`. Reconcile affected history when a gap appears; offline deletions or
-other missed events cannot be reconstructed reliably from this journal alone.
+Recording never delays Telegram: TDLib delivers updates on the same thread as
+every request result, so update handlers only enqueue (up to 20000 pending
+records). A single background writer appends batches and flushes them to disk;
+`changes_since` first waits briefly for records observed before the call.
+
+Restart/reconnect markers, a full queue, a failed journal write and retention
+loss produce `gap=true`. A marker is written after the loss it reports, so any
+reader that continues past the loss sees it. Reconcile affected history when a
+gap appears; offline deletions or other missed events cannot be reconstructed
+reliably from this journal alone.
 Each account retains its latest 10000 records. The cursor includes a journal
 epoch; a cursor from another account or a reset journal is rejected. A page can
 be empty after access filtering while `hasMore=true`; its cursor still advances.
 
 Local plaintext state lives under `TELEGRAM_MCP_DATA_DIR` (or the standard app
-data directory): `changes/<account>.json` and `exports/<owner-hash>/`. These
+data directory): `changes/<account>.jsonl` and `exports/<owner-hash>/`. The
+journal is append-only JSON lines, compacted to the retained records once it
+doubles; an append interrupted by a crash is discarded on the next start. These
 directories use owner-only permissions/ACLs. Locks serialize writers across
 processes, and malformed state fails closed rather than being silently reset.
 Back up or remove local data only with the server stopped. Keep the data directory

@@ -1,5 +1,6 @@
 package dev.telegrammcp.server.service
 
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.file.Files
@@ -24,8 +25,27 @@ internal object DurableFiles {
 
     fun <T> locked(directory: Path, action: () -> T): T {
         privateDirectory(directory)
-        return FileChannel.open(directory.resolve("store.lock"), CREATE, WRITE).use { channel ->
+        return lockedPrepared(directory, action)
+    }
+
+    /** Cross-process lock for a directory already secured by [privateDirectory]. */
+    fun <T> lockedPrepared(directory: Path, action: () -> T): T =
+        FileChannel.open(directory.resolve("store.lock"), CREATE, WRITE).use { channel ->
             channel.lock().use { action() }
+        }
+
+    /** Append and flush. A failed write is cut back so no torn record precedes later appends. */
+    fun append(path: Path, bytes: ByteArray) {
+        FileChannel.open(path, WRITE, APPEND).use { channel ->
+            val start = channel.size()
+            try {
+                val buffer = ByteBuffer.wrap(bytes)
+                while (buffer.hasRemaining()) channel.write(buffer)
+                channel.force(true)
+            } catch (failure: IOException) {
+                runCatching { channel.truncate(start) }.exceptionOrNull()?.let(failure::addSuppressed)
+                throw failure
+            }
         }
     }
 
