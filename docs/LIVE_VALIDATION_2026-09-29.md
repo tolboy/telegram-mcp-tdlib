@@ -43,7 +43,10 @@ Tauri startup, and the router restored both `grok` and `xai` aliases.
 
 xAI refresh/session writes are serialized; expired access tokens are no longer
 returned after a failed refresh or reported as usable. Launcher model discovery
-also accepts OAuth. All 87 Rust library tests passed. A real CLOUD `grok-4.3`
+also accepts OAuth. The watchdog compares fingerprints of successfully uploaded
+values, so rotated tokens propagate even when provider names stay unchanged.
+All 88 Rust library tests passed in the development checkout; 83 passed on the
+isolated PR branch without unrelated local work. A real CLOUD `grok-4.3`
 request returned the requested marker with zero tools; OAuth-only model discovery
 returned seven models. Grok CLI credentials were not imported. The historical
 `invalid_grant` cause cannot be established retroactively, and an already revoked
