@@ -14,6 +14,8 @@ server supplies the tools. If it is missing or unauthenticated, read
 [SETUP.md](SETUP.md); installing this skill alone does not connect an account.
 Requires server 1.17.1 or later. For a shared daemon, client setup differs by
 host; SETUP.md covers the optional Claude Desktop tools bridge and Hermes HTTP.
+If bundled references are unavailable in the host's delivery surface, use the
+[public setup guide](https://github.com/tolboy/telegram-mcp-tdlib/blob/master/skills/telegram-inbox-assistant/SETUP.md).
 
 ## Account and scope
 

@@ -1,2 +1,2 @@
 # Optional Claude Desktop tools bridge and independent protocol checks.
-mcp==1.22.0
+mcp==1.30.0

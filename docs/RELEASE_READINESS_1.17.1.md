@@ -25,6 +25,7 @@ request. No new broad marketplace compatibility claim is made.
 | Build metadata and native coverage | Pass for 1.17.1; all four supported native classifiers present |
 | Independent Python SDK, runnable JAR | Manifest success, offline account error, output schemas, annotations and matching tool catalog pass over STDIO/HTTP/bridge |
 | Bridge corpus | Four tests pass in a new Python 3.14 venv; paginated discovery, Unicode, large IDs, null/empty/partial results, text-only preservation, error preservation, fatal HTTP/no retry, key denial and URL restrictions |
+| Cross-platform skill ZIP | A fifth Python test confirms identical archive bytes for LF/CRLF checkouts and exclusion of an injected synthetic private file |
 | Windows runtime archive | Built, extracted outside the checkout, version/doctor/JSON-only STDIO and bounded EOF shutdown pass |
 | Extracted daemon lifecycle | Duplicate start, two separate sessions, auth rejection, graceful stop and restart pass |
 | Extracted runtime without developer Java/PATH | Independent SDK success/error/schema checks pass through all three routes; offline daemon restart passes with JAVA_HOME removed and PATH restricted to Windows directories |
@@ -33,6 +34,14 @@ request. No new broad marketplace compatibility claim is made.
 The failed package before the launcher fix was retained locally; it is not the
 candidate for publication. Test data and keys are temporary/offline. The live
 Telegram daemon was not used by these automated checks.
+
+Dependency review rejected the prototype's preinstalled Python SDK 1.22.0.
+The distributable requirement is pinned to **1.30.0** and all five Python tests
+were repeated with that version. Relevant upstream advisories include
+[principal isolation](https://github.com/advisories/GHSA-jpw9-pfvf-9f58) and
+[HTTP defaults](https://github.com/advisories/GHSA-9h52-p55h-vw2f); the pin is
+updated rather than suppressing the dependency-review gate. Native historical
+reports retain the actual version they used.
 
 Native model evidence remains the earlier [Codex skill walkthrough](../skills/VALIDATION.md)
 and [Hermes/Claude Desktop runs](harness-tests/RESULTS_2026-10-15.md), performed

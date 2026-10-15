@@ -16,7 +16,7 @@ same files under `scripts/`.
 ## Install the optional bridge
 
 The Java server runtime is bundled; the optional bridge additionally needs
-Python 3.11+ and Python MCP SDK 1.22.0. From an extracted runtime bundle:
+Python 3.11+ and Python MCP SDK 1.30.0. From an extracted runtime bundle:
 
 ```powershell
 python -m venv C:/tools/telegram-mcp-bridge

@@ -62,14 +62,16 @@ def package(output):
     source = SKILL / "SKILL.md"
     if not source.read_text(encoding="utf-8").startswith("---\nname: telegram-inbox-assistant\n"):
         raise ValueError("SKILL.md must contain the expected root frontmatter")
-    if (SKILL / "LICENSE").read_bytes() != (REPO / "LICENSE").read_bytes():
+    if (SKILL / "LICENSE").read_bytes().replace(b"\r\n", b"\n") != (REPO / "LICENSE").read_bytes().replace(b"\r\n", b"\n"):
         raise ValueError("Skill license differs from the repository license")
     payloads = {}
     for name in FILES:
         path = SKILL / name
         if path.is_symlink() or not path.resolve().is_relative_to(SKILL.resolve()):
             raise ValueError(f"Package source escapes the skill folder: {name}")
-        payloads[name] = path.read_bytes()
+        # All included resources are UTF-8 text. Git may check them out as
+        # CRLF on Windows; normalize the ZIP to make its digest platform-stable.
+        payloads[name] = path.read_bytes().replace(b"\r\n", b"\n")
     output = output.resolve()
     if output.is_relative_to(SKILL.resolve()):
         raise ValueError("Write the ZIP outside the installable skill directory")
