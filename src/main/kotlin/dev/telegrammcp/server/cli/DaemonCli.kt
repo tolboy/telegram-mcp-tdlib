@@ -19,7 +19,7 @@ import java.util.Base64
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
-internal data class DaemonRecord(val pid: Long, val started: String, val port: Int, val instance: String)
+internal data class DaemonRecord(val pid: Long, val started: String, val port: Int, val instance: String, val taskName: String? = null)
 
 /** One managed JVM per data directory. No shell, system service installation, or session copying. */
 internal object DaemonCli {
@@ -76,7 +76,7 @@ internal object DaemonCli {
             command += "org.springframework.boot.loader.launch.JarLauncher"
         } else command += "dev.telegrammcp.server.TelegramMcpApplicationKt"
         command += listOf("daemon", "run", port.toString())
-        val process = if (isWindows()) WindowsDaemonProcess.start(command) else {
+        val process = if (isWindows()) { WindowsDaemonTask.start(command, root); null } else {
             val child = ProcessBuilder(command).redirectInput(ProcessBuilder.Redirect.PIPE)
                 .redirectOutput(ProcessBuilder.Redirect.appendTo(root.resolve("daemon.log").toFile()))
                 .redirectErrorStream(true).start()
@@ -84,13 +84,13 @@ internal object DaemonCli {
             child.toHandle()
         }
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(45)
-        while (System.nanoTime() < deadline && process.isAlive) {
+        while (System.nanoTime() < deadline && (process == null || process.isAlive)) {
             val record = record()
-            if (record != null && record.pid == process.pid() && ready(record)) { println(status()); return }
+            if (record != null && alive(record) && (process == null || record.pid == process.pid()) && ready(record)) { println(status()); return }
             Thread.sleep(250)
         }
-        check(process.isAlive) { "Daemon startup failed; see ${root.resolve("daemon.log")}" }
-        println("STARTING pid=${process.pid()}; use daemon status. Log: ${root.resolve("daemon.log")}")
+        if (process != null) check(process.isAlive) { "Daemon startup failed; see ${root.resolve("daemon.log")}" }
+        println("STARTING${process?.let { " pid=${it.pid()}" } ?: " via Windows user task"}; use daemon status. Log: ${root.resolve("daemon.log")}")
     }
 
     private fun child(args: List<String>) {
@@ -110,7 +110,8 @@ internal object DaemonCli {
         check(channel.tryLock() != null) { "Another managed daemon owns this data directory" }
         lease = channel
         val process = ProcessHandle.current()
-        val record = DaemonRecord(process.pid(), process.info().startInstant().orElseThrow().toString(), port, UUID.randomUUID().toString())
+        val record = DaemonRecord(process.pid(), process.info().startInstant().orElseThrow().toString(), port, UUID.randomUUID().toString(),
+            System.getenv("TELEGRAM_MCP_DAEMON_TASK"))
         DurableFiles.write(root.resolve("state.json"), mapper.writeValueAsBytes(record))
         TelegramMcpCli.run(arrayOf("serve", "--transport", "streamable-http",
             "--server.address=127.0.0.1", "--server.port=$port", "--spring.ai.mcp.server.stdio=false",

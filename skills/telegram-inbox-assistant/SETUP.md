@@ -16,8 +16,8 @@ The packaged server needs no separately installed JDK. Check the installed
 version with `telegram-mcp version`.
 
 Use **telegram-mcp-tdlib 1.17.2 or later** for this skill. This includes the
-Codex result-annotation compatibility fix and Windows daemon Job Object
-breakaway, so closing the launching app does not terminate a shared daemon.
+Codex result-annotation compatibility fix and independent Windows daemon task
+ownership, so closing the launching app does not terminate a shared daemon.
 Installing the skill does not update an older server.
 
 With other processes using the same TDLib session stopped, run:

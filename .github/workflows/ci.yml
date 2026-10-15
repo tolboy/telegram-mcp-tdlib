@@ -73,5 +73,5 @@ jobs:
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
       - name: Build runnable JAR
         run: ./gradlew.bat bootJar --no-daemon
-      - name: Verify host Job Object shutdown and restricted launch
+      - name: Verify ordinary and restrictive host Job Object shutdown
         run: python scripts/test-windows-daemon-job.py --jar build/libs/telegram-mcp-server.jar

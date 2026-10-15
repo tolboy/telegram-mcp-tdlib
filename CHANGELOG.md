@@ -5,11 +5,12 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## 1.17.2 - 2026-10-15
 
-- Start the Windows shared daemon with explicit Job Object breakaway so closing
-  the invoking agent app does not terminate it. Retain the same user identity
-  and environment, inherit no stdio handles, and open the private log in the
-  child. If the host forbids breakaway, fail without an attached fallback.
-- Test launcher Job Object closure and forbidden breakaway with isolated offline
+- Run the Windows shared daemon through an on-demand Task Scheduler task owned
+  by the current interactive user, independently of the invoking agent's Job
+  Objects. Use Limited run level, no password/elevation/startup trigger, consume
+  an owner-only environment bootstrap and unregister after daemon exit. Fail
+  clearly if task registration is unavailable, with no attached fallback.
+- Test ordinary and restrictive launcher Job Object closure with isolated offline
   data in Windows CI and against the extracted Windows runtime package.
 - Synchronize ChangeJournal tests with their background writers, control queue
   overflow deterministically, and close writer threads after each test. Retain

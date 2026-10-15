@@ -12,26 +12,29 @@ of the Windows Job Object owned by its launching host.
 
 The new offline regression starts a daemon under an isolated kill-on-close Job
 Object, then closes that object. The installed 1.17.1 Windows package fails:
-the daemon dies. The fixed runnable JAR passes both cases:
+the daemon dies. The replacement launcher uses Task Scheduler as the independent
+owner of the foreground JVM. Its worker remains active while the daemon runs,
+so closing the invoking host's job cannot stop it.
 
-- With breakaway permitted, the daemon remains ready after the host job closes.
-- With breakaway forbidden, startup fails with an actionable message and starts
-  no attached fallback daemon.
+A simple CREATE_BREAKAWAY_FROM_JOB prototype was rejected during testing:
+Windows can leave an inner job while retaining a restrictive outer one, and
+both the local agent and CI impose outer jobs. See the
+[Windows nested-job contract](https://learn.microsoft.com/en-us/windows/win32/procthread/nested-jobs).
+The final implementation does not depend on breakaway and adds no JNA dependency.
 
-Windows startup now calls CreateProcess through JNA 5.18.1 with
-CREATE_BREAKAWAY_FROM_JOB, CREATE_NO_WINDOW and CREATE_SUSPENDED. Before resuming
-the child, it verifies that no ancestor Job Object was retained: Windows can
-successfully leave an inner job while retaining a restrictive outer one. The
-packaged-runtime regression caught this case during implementation. A child
-that fails verification is terminated before it can open Telegram state.
-The launcher keeps the same user identity,
-environment and working directory, inherits no handles, and opens its own private
-log in the child before Spring startup. No service, elevation, new Telegram login
-or session copying is involved. Host policy can still forbid breakaway; an
-independent terminal is then required. See the
-[Windows flag contract](https://learn.microsoft.com/en-us/windows/win32/procthread/process-creation-flags).
+The task uses the current interactive user's token at Limited run level. It has
+no trigger, no password, no elevation and no login/startup automation. It removes
+its own registration after the daemon exits. The environment is handed off in
+an owner-only bootstrap file under the private daemon directory, consumed and
+deleted before JVM startup. Environment values never enter the task definition,
+argv or logs. The child inherits no app stdio and opens its private log before
+Spring startup. Task registration failure reports an error rather than starting
+an attached fallback. Task Scheduler and an interactive user session are required
+on Windows; no Windows service is installed.
 
-The regression runs in Windows PR/master CI and against the extracted Windows
+The regression checks closure of both breakaway-permitted and restrictive host
+jobs, authenticated readiness after closure and consumption of the environment
+bootstrap. It runs in Windows PR/master CI and against the extracted Windows
 release archive. Bridge errors now distinguish a failed connection from a safe
 HTTP status code and direct the user to daemon status without exposing keys.
 

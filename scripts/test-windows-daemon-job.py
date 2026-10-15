@@ -2,13 +2,16 @@
 """Offline regression: a Windows daemon survives its launcher's Job Object.
 
 Uses only the standard library and temporary application data, never Telegram.
-Checks both an ordinary host job that allows breakaway and one that forbids it.
+Checks both ordinary and restrictive host jobs. Task Scheduler owns the daemon
+independently; neither host's closure may terminate it.
 """
 import argparse
+import base64
 import ctypes
 from ctypes import wintypes
 import json
 import os
+import re
 from pathlib import Path
 import socket
 import subprocess
@@ -67,11 +70,20 @@ def worker(args):
     print(json.dumps({"returncode": result.returncode, "stdout": result.stdout, "stderr": result.stderr}))
 
 
+def powershell(code):
+    exe = Path(os.environ["SystemRoot"]) / "System32/WindowsPowerShell/v1.0/powershell.exe"
+    encoded = base64.b64encode(code.encode("utf-16-le")).decode("ascii")
+    return subprocess.run([str(exe), "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", encoded],
+                          capture_output=True, text=True, timeout=20)
+
+
 def scenario(args, allow_breakaway):
-    root = Path(tempfile.mkdtemp(prefix="telegram-mcp-job-smoke-"))
+    root = Path(tempfile.mkdtemp(prefix="telegram-mcp-job-smoke-Юникод ' -"))
     env = {k: v for k, v in os.environ.items() if not k.upper().startswith(
         ("TDLIB_", "TELEGRAM_", "MCP_", "SPRING_", "SERVER_", "AUTH_"))}
     env.update(TELEGRAM_MCP_DATA_DIR=str(root), TDLIB_API_ID="0")
+    sentinel = "synthetic-private-environment-marker"
+    env["MCP_JOB_TEST_SECRET"] = sentinel
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))
         port = reservation.getsockname()[1]
@@ -80,6 +92,7 @@ def scenario(args, allow_breakaway):
     limits = ExtendedLimits()
     limits.basic.flags = 0x2000 | (0x800 if allow_breakaway else 0)  # KILL_ON_JOB_CLOSE, BREAKAWAY_OK
     process = None
+    task_name = None
     base = command(args)
     try:
         checked(kernel.SetInformationJobObject(job, 9, ctypes.byref(limits), ctypes.sizeof(limits)))
@@ -100,17 +113,23 @@ def scenario(args, allow_breakaway):
         (root / "worker-stderr.log").write_text(errors, encoding="utf-8")
         checked(kernel.CloseHandle(job))
         job = None
-        if allow_breakaway:
-            assert result["returncode"] == 0 and result["stdout"].startswith("READY"), result
-            status = subprocess.run(base + ["daemon", "status"], env=env, capture_output=True,
-                                    text=True, timeout=15)
-            assert status.returncode == 0 and status.stdout.startswith("READY"), "Daemon died when host Job Object closed"
-        else:
-            assert result["returncode"] != 0, "Restricted job unexpectedly launched a daemon"
-            assert "breakaway" in (result["stdout"] + result["stderr"]).lower(), "Missing actionable breakaway error"
-            assert not (root / "daemon/state.json").exists(), "An attached fallback daemon was started"
+        assert result["returncode"] == 0 and result["stdout"].startswith("READY"), result
+        status = subprocess.run(base + ["daemon", "status"], env=env, capture_output=True,
+                                text=True, timeout=15)
+        assert status.returncode == 0 and status.stdout.startswith("READY"), "Daemon died when host Job Object closed"
+        assert not list((root / "daemon").glob("bootstrap-*.json")), "Private environment bootstrap was not consumed"
+        task_name = json.loads((root / "daemon/state.json").read_text())["taskName"]
+        assert re.fullmatch(r"TelegramMcpDaemon-[0-9a-f-]{36}", task_name)
+        inspected = powershell(f"$t = Get-ScheduledTask -TaskName '{task_name}'; @{{runLevel=[string]$t.Principal.RunLevel; logon=[string]$t.Principal.LogonType; triggers=@($t.Triggers | Where-Object {{ $null -ne $_ }}).Count; action=$t.Actions.Arguments; limit=$t.Settings.ExecutionTimeLimit}} | ConvertTo-Json -Compress")
+        assert inspected.returncode == 0, "Cannot inspect isolated daemon task"
+        details = json.loads(inspected.stdout)
+        assert details["runLevel"] == "Limited" and details["logon"] == "Interactive", details
+        assert details["triggers"] == 0, "Daemon task has an automatic trigger"
+        assert details["limit"] == "PT0S", "Daemon task has a runtime expiry"
+        payload = details["action"].split("-EncodedCommand ", 1)[1]
+        assert sentinel not in base64.b64decode(payload).decode("utf-16-le"), "Private environment leaked into task definition"
         print(json.dumps({"breakaway_allowed": allow_breakaway, "result": "PASS",
-                          "launch_outcome": "survived_host_close" if result["returncode"] == 0 else "rejected_breakaway",
+                          "launch_outcome": "survived_host_close",
                           "evidence": str(root)}))
     finally:
         if job:
@@ -121,6 +140,9 @@ def scenario(args, allow_breakaway):
         stopped = subprocess.run(base + ["daemon", "stop"], env=env, capture_output=True, text=True, timeout=25)
         if stopped.returncode:
             raise RuntimeError(f"Isolated daemon cleanup failed; inspect {root}")
+        if task_name:
+            removed = powershell(f"$deadline=(Get-Date).AddSeconds(10); while ((Get-ScheduledTask -TaskName '{task_name}' -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) {{ Start-Sleep -Milliseconds 200 }}; if (Get-ScheduledTask -TaskName '{task_name}' -ErrorAction SilentlyContinue) {{ exit 1 }}")
+            assert removed.returncode == 0, "Daemon task registration was not removed after graceful stop"
 
 
 if __name__ == "__main__":

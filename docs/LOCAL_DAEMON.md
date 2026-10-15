@@ -26,12 +26,21 @@ Repeated start attaches to the already managed process and reports its actual
 endpoint. The process binds only to `127.0.0.1`, forces HTTP/API-key mode and the
 `daemon` Spring profile, and holds an OS lock for its entire lifetime. On Windows
 it uses the bundled/runtime Java's `javaw.exe`, without a visible console window.
-From version 1.17.2 it explicitly requests Windows Job Object breakaway so closing
-the app that launched it does not kill the shared daemon. This preserves the same
-user identity and environment; it does not elevate privileges. If the host's job
-forbids breakaway, startup fails with an actionable error rather than reporting
-a short-lived attached process as ready. Start from an independent terminal in
-that case. No service or automatic startup is installed.
+From version 1.17.2 Windows uses an on-demand Task Scheduler task as the JVM's
+owner, so closing the agent app that invoked start cannot terminate the daemon
+through its Job Object. The task uses the current interactive user's token at
+Limited run level, with no password, elevation or startup/logon trigger. The
+worker waits for the JVM and unregisters its task when the daemon exits. This
+requires Task Scheduler access and an interactive user session; registration
+failure reports an error and never falls back to an app-owned JVM. No Windows
+service is installed.
+
+The private environment bootstrap is owner-only and is deleted after the task
+loads it. Values are not placed in the task definition or process arguments.
+The task remains registered while the daemon runs. Its generated name starts
+with `TelegramMcpDaemon-`; use the CLI's graceful stop, since ending the task in
+Task Scheduler can force termination. A machine crash can leave an inactive
+registration; it has no trigger and will not start automatically.
 
 `READY` verifies an authenticated HTTP control endpoint bound to that particular
 instance. It means the MCP server is ready, not that Telegram login is complete.
