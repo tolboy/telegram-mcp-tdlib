@@ -79,6 +79,7 @@ def package(output):
     with ZipFile(output, "w", compression=ZIP_DEFLATED) as archive:
         for name, data in payloads.items():
             info = ZipInfo(name, date_time=(2026, 10, 15, 0, 0, 0))
+            info.create_system = 3  # Stable Unix metadata on Windows and CI alike.
             info.compress_type = ZIP_DEFLATED
             info.external_attr = 0o100644 << 16
             archive.writestr(info, data)
