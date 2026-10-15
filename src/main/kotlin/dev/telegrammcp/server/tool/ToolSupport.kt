@@ -40,7 +40,9 @@ object ToolSupport {
 
     private val userContentAnnotations = McpSchema.Annotations.builder()
         .audience(listOf(McpSchema.Role.USER))
-        .priority(0.8)
+        // Fractional priorities are valid MCP, but affected Codex builds reject
+        // the entire result as an unexpected response type. This advisory hint
+        // is unnecessary; retain the audience and untrusted-content metadata.
         .build()
 
     @Suppress("UNCHECKED_CAST")

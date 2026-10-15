@@ -13,8 +13,10 @@ after `initialize`. API-key deployments accept `Authorization: Bearer <key>`;
 | STDIO | Command `telegram-mcp serve --transport stdio`; secrets supplied through the client's secret/env mechanism | `scripts/mcp-stdio-smoke.ps1` and `.sh` verify JSON-only stdout, lifecycle and `tools/list` | Automated in CI/release images |
 | Streamable HTTP | URL `http(s)://host/mcp`, optional API-key header | `scripts/mcp-streamable-http-smoke.ps1` and `.sh` send `initialize`, `notifications/initialized`, and `tools/list` | Automated in CI/local checks |
 | MCP Inspector | Select **Streamable HTTP**, enter the endpoint and API-key header | Run the smoke script first, then use Inspector's Tools pane to list the same surface | Reproducible manual check |
-| Claude Desktop | Local servers use STDIO in `claude_desktop_config.json`; remote servers are added under Settings → Connectors and need network-reachable HTTPS plus this server's OAuth mode, not a custom API-key header | Smoke the endpoint before adding a remote connector; restart Desktop after changing local config | Reproducible manual check |
-| Cursor | Add a remote Streamable HTTP MCP server with the endpoint and header | Run the smoke script, then refresh the MCP server and inspect its tool list | Reproducible manual check |
+| Codex desktop | Local STDIO server, existing named-account session | Native get_me, inbox_snapshot, paged conversation_bundle, get_history and invalid-input handling; [skill validation](../skills/VALIDATION.md) | Live read-only check on 2026-10-15 with the priority-annotation fix; local Java/Python launcher |
+| Hermes Agent desktop | 0.21.6+309.ge0550c9, direct Streamable HTTP to a shared local daemon | Native identity, complete read-only manifest, bounded inbox/history pages and application error; [desktop results](harness-tests/RESULTS_2026-10-15.md) | PASS_NATIVE on 2026-10-15, dirty local candidate |
+| Claude Desktop | 2.19675.0.0 Chat tested with a local STDIO-to-HTTP tools bridge; ordinary local server config is STDIO, remote Connectors use a separate deployment path | Native read-only workflow and application error pass; raw structuredContent/isError hidden from model; [desktop results](harness-tests/RESULTS_2026-10-15.md) | PASS_NATIVE on 2026-10-15; the subsequent distributable bridge has independent SDK/corpus tests; direct remote OAuth/Agensi install unverified |
+| Cursor | Add a remote Streamable HTTP MCP server with the endpoint and header | Running editor 3.24.18 connected at transport level; native Agent run hit the account usage limit; [desktop results](harness-tests/RESULTS_2026-10-15.md) | BLOCKED_MODEL_ACCESS on 2026-10-15; native compatibility remains unverified |
 | VS Code | Add a remote HTTP MCP server with the endpoint and header in the version's MCP configuration UI/file | Run the smoke script, then use the MCP server view to list tools | Reproducible manual check |
 
 Client configuration file formats and UI labels evolve independently. The stable
@@ -126,6 +128,13 @@ characters are represented as visible `\uXXXX` text; instruction-like words
 are not filtered or interpreted.
 
 ## JSON-Schema Profile
+
+Content annotations intentionally omit optional `priority`. Affected Codex
+builds reject otherwise valid tool results when this field contains a fractional
+number, reporting `Unexpected response type`; see
+[openai/codex#38979](https://github.com/openai/codex/issues/38979).
+User-audience annotations and untrusted-content metadata remain present on
+successes and errors. Regression coverage checks the serialized wire shape.
 
 All tools use a JSON object as `inputSchema`, named properties, primitive
 types (or a JSON-Schema `type` array for a string-or-number identifier),

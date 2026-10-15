@@ -115,6 +115,10 @@ class ConnectorManifestToolTest {
         val payload = objectMapper.readTree((result.content.first() as McpSchema.TextContent).text())
 
         assertEquals(listOf("_manifest", "get_history"), payload["tools"].map { it["name"].asText() })
+        val hints = payload["routingHints"].joinToString(" ") { it.asText() }
+        assertFalse(hints.contains("send_message"))
+        assertFalse(hints.contains("get_send_operation"))
+        assertFalse(hints.contains("download_media"))
     }
 
     @Test

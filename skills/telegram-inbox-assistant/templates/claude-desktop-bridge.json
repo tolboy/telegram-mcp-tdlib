@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "telegram": {
+      "command": "/absolute/path/to/bridge-venv/bin/python",
+      "args": [
+        "/absolute/path/to/telegram-mcp/support/mcp-http-stdio-bridge.py",
+        "--url", "http://127.0.0.1:18080/mcp",
+        "--api-key-file", "/absolute/path/to/private/claude-mcp-key.txt"
+      ]
+    }
+  }
+}

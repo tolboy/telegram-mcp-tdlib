@@ -1,9 +1,14 @@
 param(
-    [Parameter(Mandatory = $true)][string]$Jar,
+    [Parameter(Mandatory = $true, ParameterSetName = 'Jar')][string]$Jar,
+    [Parameter(Mandatory = $true, ParameterSetName = 'Executable')][string]$Executable,
     [int]$Port = 18089
 )
 $ErrorActionPreference = 'Stop'
-$Jar = (Resolve-Path -LiteralPath $Jar).Path
+if ($PSCmdlet.ParameterSetName -eq 'Executable') {
+    $Executable = (Resolve-Path -LiteralPath $Executable).Path
+} else {
+    $Jar = (Resolve-Path -LiteralPath $Jar).Path
+}
 $smokeRoot = Join-Path ([IO.Path]::GetTempPath()) ('telegram-mcp-daemon-smoke-' + [guid]::NewGuid())
 $null = New-Item -ItemType Directory -Path $smokeRoot
 $savedEnvironment = @{}
@@ -15,7 +20,7 @@ $env:TELEGRAM_MCP_DATA_DIR = $smokeRoot
 Push-Location $smokeRoot
 
 function Invoke-Daemon([string[]]$CliArgs) {
-    $result = & java -jar $Jar daemon @CliArgs
+    $result = if ($Executable) { & $Executable daemon @CliArgs } else { & java -jar $Jar daemon @CliArgs }
     if ($LASTEXITCODE -ne 0) { throw "Daemon command failed: $($CliArgs -join ' ')" }
     return ($result -join "`n")
 }

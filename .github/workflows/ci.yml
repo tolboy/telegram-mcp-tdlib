@@ -33,5 +33,15 @@ jobs:
       - name: Build and test
         run: ./gradlew clean test bootJar verifyNativeRuntimeCoverage verifyReleaseMetadata --no-daemon
 
+      - name: Validate and package companion skill
+        run: python3 scripts/package-telegram-skill.py
+
+      - name: Verify independent MCP results and tools bridge
+        run: |
+          python3 -m venv build/mcp-client-venv
+          build/mcp-client-venv/bin/python -m pip install -r scripts/requirements-mcp-client.txt
+          build/mcp-client-venv/bin/python -m unittest discover -s scripts/tests -v
+          build/mcp-client-venv/bin/python scripts/mcp-result-smoke.py --jar build/libs/telegram-mcp-server.jar
+
       - name: Verify production image build
         run: docker build --build-arg APP_VERSION=ci -t telegram-mcp-server:ci .

@@ -150,6 +150,15 @@ See [CLI and STDIO](docs/CLI_AND_STDIO.md), [interactive authentication](docs/IN
 
 ## Recipes
 
+For reusable agent instructions, install the free
+[Telegram Inbox Assistant skill](skills/telegram-inbox-assistant/SKILL.md).
+Requires server 1.17.1 or later. Shared-daemon users of Claude Desktop can use
+the optional [tools bridge](docs/CLAUDE_DESKTOP_BRIDGE.md), included in runtime
+packages with its Python dependency instructions.
+Its [setup guide](skills/telegram-inbox-assistant/SETUP.md) includes client
+configuration templates and explains the separately required local server
+and Telegram authorization. The skill summarizes and searches in read-only mode.
+
 Copy-paste configurations and prompts for real tasks, each with the smallest
 tool surface that can do the job:
 [summarize your inbox](docs/recipes/summarize-inbox.md),

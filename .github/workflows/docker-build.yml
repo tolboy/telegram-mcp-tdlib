@@ -58,6 +58,15 @@ jobs:
           $version = '${{ github.ref_name }}'.Substring(1)
           ./gradlew test bootJar verifyNativeRuntimeCoverage verifyReleaseMetadata "-PreleaseVersion=$version" --no-daemon --no-build-cache
 
+      - name: Verify independent result parsing and shared-daemon bridge
+        shell: bash
+        run: |
+          python3 -m venv build/mcp-client-venv
+          build/mcp-client-venv/bin/python -m pip install -r scripts/requirements-mcp-client.txt
+          build/mcp-client-venv/bin/python -m unittest discover -s scripts/tests -v
+          build/mcp-client-venv/bin/python scripts/mcp-result-smoke.py --jar build/libs/telegram-mcp-server.jar --expect-version "${GITHUB_REF_NAME#v}"
+          python3 scripts/package-telegram-skill.py
+
   build-app-images:
     name: Runtime app image — ${{ matrix.target }}
     needs:
@@ -188,6 +197,13 @@ jobs:
           Copy-Item -LiteralPath build/libs/telegram-mcp-server.jar -Destination 'release-assets/telegram-mcp-server-${{ steps.version.outputs.version }}.jar'
           ./scripts/merge-release-manifest.ps1 -Version '${{ steps.version.outputs.version }}' -OutputDirectory release-assets
           ./scripts/generate-package-manifests.ps1 -Version '${{ steps.version.outputs.version }}' -OutputDirectory release-assets
+
+      - name: Package companion skill and optional bridge
+        shell: pwsh
+        run: |
+          python scripts/package-telegram-skill.py --output release-assets/telegram-inbox-assistant.zip
+          if ($LASTEXITCODE -ne 0) { throw 'Companion skill packaging failed' }
+          Compress-Archive -Path scripts/mcp-http-stdio-bridge.py,scripts/requirements-mcp-client.txt,docs/CLAUDE_DESKTOP_BRIDGE.md,LICENSE -DestinationPath release-assets/telegram-mcp-tools-bridge.zip
 
       - name: Generate SBOM for runnable JAR
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
@@ -473,11 +489,11 @@ jobs:
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
             gh release upload "${GITHUB_REF_NAME}" --clobber \
               release-assets/*.zip release-assets/*.tar.gz release-assets/*.jar release-assets/*.spdx.json release-assets/release-manifest.json \
-              release-assets/telegram-mcp.rb release-assets/telegram-mcp.json
+              release-assets/telegram-mcp.rb release-assets/telegram-mcp.json release-assets/*.sha256
           else
             gh release create "${GITHUB_REF_NAME}" \
               --title "Telegram MCP Server ${GITHUB_REF_NAME}" \
               --generate-notes \
               release-assets/*.zip release-assets/*.tar.gz release-assets/*.jar release-assets/*.spdx.json release-assets/release-manifest.json \
-              release-assets/telegram-mcp.rb release-assets/telegram-mcp.json
+              release-assets/telegram-mcp.rb release-assets/telegram-mcp.json release-assets/*.sha256
           fi
