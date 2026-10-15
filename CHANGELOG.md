@@ -3,6 +3,21 @@
 Notable changes to Telegram MCP Server are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.17.2 - 2026-10-15
+
+- Run the Windows shared daemon through an on-demand Task Scheduler task owned
+  by the current interactive user, independently of the invoking agent's Job
+  Objects. Use Limited run level, no password/elevation/startup trigger, consume
+  an owner-only environment bootstrap and unregister after daemon exit. Fail
+  clearly if task registration is unavailable, with no attached fallback.
+- Test ordinary and restrictive launcher Job Object closure with isolated offline
+  data in Windows CI and against the extracted Windows runtime package.
+- Synchronize ChangeJournal tests with their background writers, control queue
+  overflow deterministically, and close writer threads after each test. Retain
+  JVM failure reports in CI for future diagnosis.
+- Clarify bridge connection failures with daemon-status guidance and safe HTTP
+  status diagnostics. Update the companion skill to 0.1.1, requiring server 1.17.2.
+
 ## 1.17.1 - 2026-10-15
 
 - Retain the bundled Java child-process launchers in runtime images so

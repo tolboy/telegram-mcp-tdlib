@@ -163,6 +163,8 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual("", result.stdout)
         self.assertNotIn("synthetic-wrong-secret", result.stderr)
         self.assertIn("MCP bridge", result.stderr)
+        self.assertIn("status 401", result.stderr)
+        self.assertIn("daemon status", result.stderr)
 
     def test_rejects_remote_cleartext_and_embedded_credentials(self):
         for url in ["http://example.com/mcp", "https://secret@example.com/mcp", "https://example.com/mcp?token=secret"]:

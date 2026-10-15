@@ -152,7 +152,7 @@ See [CLI and STDIO](docs/CLI_AND_STDIO.md), [interactive authentication](docs/IN
 
 For reusable agent instructions, install the free
 [Telegram Inbox Assistant skill](skills/telegram-inbox-assistant/SKILL.md).
-Requires server 1.17.1 or later. Shared-daemon users of Claude Desktop can use
+Requires server 1.17.2 or later. Shared-daemon users of Claude Desktop can use
 the optional [tools bridge](docs/CLAUDE_DESKTOP_BRIDGE.md), included in runtime
 packages with its Python dependency instructions.
 Its [setup guide](skills/telegram-inbox-assistant/SETUP.md) includes client

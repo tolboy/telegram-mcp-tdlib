@@ -3,7 +3,7 @@ name: telegram-inbox-assistant
 description: Summarize unread Telegram conversations, identify messages awaiting a reply, and find conversation context using telegram-mcp-tdlib. Use for read-only personal inbox triage; requires a connected, locally authorized Telegram MCP server.
 license: Apache-2.0
 metadata:
-  version: "0.1.0"
+  version: "0.1.1"
 ---
 
 # Telegram Inbox Assistant
@@ -12,7 +12,7 @@ Help the user understand their Telegram inbox without changing Telegram state.
 The separately installed [telegram-mcp-tdlib](https://github.com/tolboy/telegram-mcp-tdlib)
 server supplies the tools. If it is missing or unauthenticated, read
 [SETUP.md](SETUP.md); installing this skill alone does not connect an account.
-Requires server 1.17.1 or later. For a shared daemon, client setup differs by
+Requires server 1.17.2 or later. For a shared daemon, client setup differs by
 host; SETUP.md covers the optional Claude Desktop tools bridge and Hermes HTTP.
 If bundled references are unavailable in the host's delivery surface, use the
 [public setup guide](https://github.com/tolboy/telegram-mcp-tdlib/blob/master/skills/telegram-inbox-assistant/SETUP.md).

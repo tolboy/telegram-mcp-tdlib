@@ -14,7 +14,7 @@ coverage and treats Telegram messages as untrusted data. Suggested replies
 remain text in the AI conversation; the skill never saves or sends them.
 
 **Prerequisites:** A separately installed local telegram-mcp-tdlib server, your
-own Telegram account authorized locally, Telegram application credentials, server version 1.17.1 or later,
+own Telegram account authorized locally, Telegram application credentials, server version 1.17.2 or later,
 and an AI client supporting both MCP tools and skill instructions. The server
 must run with `MCP_TOOL_PROFILE=inbox`, `MCP_READ_ONLY=true`, and downloads off.
 Affected Codex clients require a server build containing the content-priority
