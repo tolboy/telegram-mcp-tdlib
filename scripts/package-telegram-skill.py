@@ -70,7 +70,9 @@ def package(output):
         if path.is_symlink() or not path.resolve().is_relative_to(SKILL.resolve()):
             raise ValueError(f"Package source escapes the skill folder: {name}")
         # All included resources are UTF-8 text. Git may check them out as
-        # CRLF on Windows; normalize the ZIP to make its digest platform-stable.
+        # CRLF on Windows; normalize text for identical extracted contents.
+        # DEFLATE bytes can still vary between zlib implementations; the release
+        # archive and its sidecar define the canonical downloadable artifact.
         payloads[name] = path.read_bytes().replace(b"\r\n", b"\n")
     output = output.resolve()
     if output.is_relative_to(SKILL.resolve()):

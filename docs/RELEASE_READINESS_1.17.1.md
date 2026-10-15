@@ -51,11 +51,31 @@ silently relabel those earlier host runs as a fresh native 1.17.1 installation.
 
 ## Publication boundaries
 
-The GitHub release workflow still requires its cross-platform and image gates
-before publishing final assets. A local Windows pass does not mean those remote
-jobs ran. Fresh Telegram authorization, malicious-message host fixtures,
+The [1.17.1 release workflow](https://github.com/tolboy/telegram-mcp-tdlib/actions/runs/38764754993)
+completed successfully. All five surface checks and all four runtime package
+jobs passed, followed by container health/lifecycle checks, attestations,
+signatures, MCP Registry publication and the
+[GitHub release](https://github.com/tolboy/telegram-mcp-tdlib/releases/tag/v1.17.1).
+The release contains the runnable JAR, four runtime packages, bridge ZIP and
+skill ZIP with its SHA-256 sidecar.
+
+The downloaded skill archive passed CRC and sidecar verification. Its eight
+extracted files match the locally validated package byte for byte. DEFLATE
+output differs between the local and CI compression libraries, so archive
+digests are not guaranteed across different zlib implementations. The canonical
+published skill ZIP SHA-256 is
+`eb486c9654f08f971807b4bca14f24e54ca25fea2348f6b93cded08b5ef0d9e8`.
+The marketplace submission must use this downloaded release archive.
+
+The installed Windows runtime also reused the existing authorized account
+before and after a graceful restart, verified through the independent SDK.
+This does not replace a fresh native-host installation test of the final build.
+Fresh Telegram authorization, malicious-message host fixtures,
 Agensi delivery and marketplace skill discovery are not verified by these
 offline checks. Public support language keeps these limits explicit.
+
+The Agensi submission page timed out in the available browser. No marketplace
+upload or submission was completed; the archive and listing are prepared.
 
 The ready-to-submit listing text is [skills/AGENSI_LISTING.md](../skills/AGENSI_LISTING.md).
 The skill archive is generated with `python scripts/package-telegram-skill.py`;
