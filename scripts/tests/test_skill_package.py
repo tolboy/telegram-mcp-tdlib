@@ -32,3 +32,4 @@ class SkillPackageTests(unittest.TestCase):
             with ZipFile(second) as archive:
                 self.assertNotIn("credentials.json", archive.namelist())
                 self.assertEqual(list(module.FILES), archive.namelist())
+                self.assertTrue(all(entry.create_system == 3 for entry in archive.infolist()))
