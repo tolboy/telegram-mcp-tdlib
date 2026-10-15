@@ -3,6 +3,24 @@
 Notable changes to Telegram MCP Server are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.17.1 - 2026-10-15
+
+- Retain the bundled Java child-process launchers in runtime images so
+  `daemon start` works without a system JDK. Verify managed daemon start,
+  concurrent connections, stop and restart from the extracted release archive.
+- Add the free Telegram Inbox Assistant companion skill, read-only client
+  templates, local setup guide and reproducible Agensi ZIP packaging.
+- Omit optional content annotation priority to avoid `Unexpected response type`
+  in affected Codex MCP clients; preserve audience and untrusted-content metadata.
+- Generate connector routing hints from the available tool surface, avoiding
+  recommendations to use hidden write/download tools in read-only profiles.
+- Ship an optional Claude Desktop STDIO-to-HTTP tools bridge with key-file
+  authentication, bounded requests and no automatic replay after transport loss.
+  Python and its pinned MCP SDK are optional dependencies of the bridge only.
+- Gate CI and releases on independent Python SDK success/error/schema checks
+  over STDIO, HTTP and the bridge, plus a deterministic Unicode/large-ID/partial
+  response corpus and fatal-transport/no-retry checks without Telegram credentials.
+
 ## 1.17.0 - 2026-09-29
 
 This release makes the server safer to leave running for an agent: sends can be

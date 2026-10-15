@@ -45,6 +45,9 @@ try {
         '--dest', $imageOutput,
         '--app-version', $Version.Split('-')[0],
         '--description', 'Production-minded TDLib Telegram MCP server',
+        # jpackage otherwise strips native commands, including java/javaw.
+        # The managed daemon launches a child JVM from this bundled runtime.
+        '--jlink-options', '--strip-debug --no-man-pages --no-header-files',
         '--java-options', '--enable-preview'
     )
     if ($Target -eq 'windows-x64') {
@@ -71,6 +74,13 @@ try {
     }
 
     Copy-Item -LiteralPath $image.FullName -Destination $bundleRoot -Recurse
+    $supportDirectory = Join-Path $bundleRoot 'support'
+    New-Item -ItemType Directory -Path $supportDirectory | Out-Null
+    foreach ($supportFile in @('mcp-http-stdio-bridge.py', 'requirements-mcp-client.txt')) {
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot $supportFile) -Destination $supportDirectory
+    }
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'docs/CLAUDE_DESKTOP_BRIDGE.md') -Destination $supportDirectory
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE') -Destination $supportDirectory
     @"
 Telegram MCP Server $Version
 Target: $Target
@@ -84,6 +94,8 @@ Commands:
   telegram-mcp serve --transport streamable-http
 
 On macOS the executable is telegram-mcp.app/Contents/MacOS/telegram-mcp.
+Optional Claude Desktop shared-daemon tools bridge: see support/CLAUDE_DESKTOP_BRIDGE.md.
+The bridge additionally requires Python 3.11+ and its pinned SDK dependency.
 "@ | Set-Content -LiteralPath (Join-Path $bundleRoot 'README.txt')
 
     if ($Target -eq 'windows-x64') {
@@ -132,6 +144,11 @@ On macOS the executable is telegram-mcp.app/Contents/MacOS/telegram-mcp.
             -RequiredTool get_history `
             -ForbiddenTool send_message
         if ($LASTEXITCODE -ne 0) { throw "Archived app-image stdio smoke failed with exit code $LASTEXITCODE" }
+        $portProbe = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+        $portProbe.Start()
+        $daemonSmokePort = $portProbe.LocalEndpoint.Port
+        $portProbe.Stop()
+        & (Join-Path $repositoryRoot 'scripts/Test-ManagedDaemon.ps1') -Executable $archivedExecutable -Port $daemonSmokePort
     } finally {
         if ($null -eq $previousTdlibDataDir) {
             Remove-Item Env:TDLIB_DATA_DIR -ErrorAction SilentlyContinue
@@ -151,6 +168,12 @@ On macOS the executable is telegram-mcp.app/Contents/MacOS/telegram-mcp.
     Write-Output "Created runtime-inclusive $Target app image: $archive"
 } finally {
     if (Test-Path -LiteralPath $temporaryRoot) {
+        $checkedTemporaryRoot = [IO.Path]::GetFullPath($temporaryRoot)
+        $checkedTempParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+        if (-not $checkedTemporaryRoot.StartsWith($checkedTempParent, [StringComparison]::OrdinalIgnoreCase) -or
+            [IO.Path]::GetFileName($checkedTemporaryRoot) -notlike 'telegram-mcp-app-image-*') {
+            throw 'Refusing to clean an unexpected app-image temporary directory'
+        }
         Remove-Item -LiteralPath $temporaryRoot -Recurse -Force
     }
 }

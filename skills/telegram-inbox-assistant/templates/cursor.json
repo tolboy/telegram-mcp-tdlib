@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "telegram": {
+      "command": "telegram-mcp",
+      "args": ["serve", "--transport", "stdio"],
+      "env": {
+        "TDLIB_API_ID": "123456",
+        "TDLIB_API_HASH_FILE": "/absolute/path/to/telegram-api-hash.txt",
+        "MCP_TOOL_PROFILE": "inbox",
+        "MCP_READ_ONLY": "true",
+        "MCP_READ_ONLY_ALLOW_DOWNLOADS": "false"
+      }
+    }
+  }
+}

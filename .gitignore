@@ -38,3 +38,7 @@ docker-data/
 
 ### TDLib session data ###
 tdlib-data/
+
+### Python verification tools ###
+__pycache__/
+*.py[cod]

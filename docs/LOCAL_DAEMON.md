@@ -2,6 +2,8 @@
 
 One daemon owns the TDLib sessions and serves multiple independent MCP HTTP
 connections. Clients can disconnect without terminating that process.
+Claude Desktop Chat can use the optional [tools bridge](CLAUDE_DESKTOP_BRIDGE.md)
+when sharing this local daemon with HTTP-capable hosts.
 
 ```sh
 telegram-mcp auth --method qr
@@ -49,6 +51,35 @@ directory (`TELEGRAM_MCP_DATA_DIR` overrides it), containing `api-key`,
 The server is a child JVM of the same installation: keep that runtime/JAR in place
 while it runs. Stop before upgrading, rotating the key, moving data or doing
 session maintenance. Logs append across starts; rotate them with the daemon stopped.
+
+## Telegram authorization and MCP sessions
+
+A shared daemon has one listener and many independent MCP connections. These
+connections do not share or transfer Telegram login material:
+
+- TDLib owns the persisted Telegram authorization inside the daemon. It opens
+  one isolated database/client per configured Telegram account, regardless of
+  the number of MCP clients.
+- Each HTTP request authenticates with its API key (or configured OAuth mode).
+  Named keys may have different identities and allowed accounts. Per-client
+  permissions are checked for the current request; a session ID is not a key.
+- Each MCP initialization establishes a connection session and returns its own
+  `Mcp-Session-Id`. The client sends that header on subsequent requests together
+  with authentication, and includes the chosen `account` tool argument.
+
+Thus several harnesses can read the same Telegram account through one port;
+they observe the same Telegram state and share its account-level limits. Their
+MCP session IDs are distinct. A daemon restart requires clients to initialize
+again, while TDLib reuses its persisted authorization unless Telegram has
+revoked it. Login codes, API hashes and the session database are not passed to
+the harnesses.
+
+The standard `daemon attach` command uses the default shared `mcp-client` key.
+To distinguish harnesses, configure `mcp.security.clients` with a separate key
+file, identity and allowed account list for each, and use
+`MCP_PERMISSIONS_FILE` for read-only grants. Generate client configuration with
+the corresponding named key, not the default attachment key. Credentials belong
+in private local configuration, not distributable skill templates.
 
 ## Reproducible transport check
 
