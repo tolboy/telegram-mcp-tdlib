@@ -54,6 +54,13 @@ to the installed Claude application. Preserve unrelated server entries.
 Use File -> Exit and relaunch after changes; closing the window can leave the
 old process and tool catalog running.
 
+If initialization fails, check `telegram-mcp daemon status` first. The bridge
+connects to an already running daemon and never starts one itself. Use server
+1.17.2 or later on Windows when launching the daemon from an agent application:
+earlier versions can inherit that application's kill-on-close Job Object and
+stop when the application exits. A stopped daemon needs `daemon start`, followed
+by reconnecting the bridge in Claude; Telegram authorization remains on disk.
+
 ## Behavior and limits
 
 - The bridge advertises only tools, preserving their schemas and annotations.

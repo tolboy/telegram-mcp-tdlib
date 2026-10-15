@@ -3,6 +3,20 @@
 Notable changes to Telegram MCP Server are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.17.2 - 2026-10-15
+
+- Start the Windows shared daemon with explicit Job Object breakaway so closing
+  the invoking agent app does not terminate it. Retain the same user identity
+  and environment, inherit no stdio handles, and open the private log in the
+  child. If the host forbids breakaway, fail without an attached fallback.
+- Test launcher Job Object closure and forbidden breakaway with isolated offline
+  data in Windows CI and against the extracted Windows runtime package.
+- Synchronize ChangeJournal tests with their background writers, control queue
+  overflow deterministically, and close writer threads after each test. Retain
+  JVM failure reports in CI for future diagnosis.
+- Clarify bridge connection failures with daemon-status guidance and safe HTTP
+  status diagnostics. Update the companion skill to 0.1.1, requiring server 1.17.2.
+
 ## 1.17.1 - 2026-10-15
 
 - Retain the bundled Java child-process launchers in runtime images so

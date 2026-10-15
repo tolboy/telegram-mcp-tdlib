@@ -3,6 +3,11 @@
 Date: 2026-10-15. Cursor is excluded from the required native gate at the user's
 request. No new broad marketplace compatibility claim is made.
 
+**Superseded for marketplace use by 1.17.2.** A subsequent real host restart
+revealed that the Windows daemon inherited its launcher's kill-on-close Job
+Object. The lifecycle checks below restarted the daemon, but did not close the
+host Job Object. See [the regression and fix](RELEASE_READINESS_1.17.2.md).
+
 ## Implemented
 
 - Remove optional content priority while preserving user audience and untrusted
@@ -65,7 +70,8 @@ output differs between the local and CI compression libraries, so archive
 digests are not guaranteed across different zlib implementations. The canonical
 published skill ZIP SHA-256 is
 `eb486c9654f08f971807b4bca14f24e54ca25fea2348f6b93cded08b5ef0d9e8`.
-The marketplace submission must use this downloaded release archive.
+This was the canonical 1.17.1 archive; the marketplace submission now requires
+the updated skill and server described in the 1.17.2 report.
 
 The installed Windows runtime also reused the existing authorized account
 before and after a graceful restart, verified through the independent SDK.

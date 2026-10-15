@@ -30,8 +30,9 @@ def endpoint(value):
     return value
 
 
-def abort_transport():
-    print("MCP bridge lost its HTTP connection. Delivery may be unknown; no automatic retry was made. Reconnect the bridge.", file=sys.stderr, flush=True)
+def abort_transport(reason):
+    print(f"MCP bridge: {reason}. Check daemon status and start it before reconnecting. "
+          "Interrupted tool delivery may be unknown; no automatic retry was made.", file=sys.stderr, flush=True)
     # A failed SDK transport can leave its stdin worker blocked. This process
     # is disposable and owns no Telegram session; notify the host through EOF.
     os._exit(1)
@@ -43,10 +44,10 @@ class BridgeHttpClient(httpx.AsyncClient):
             response = await super().send(request, *args, **kwargs)
         except httpx.HTTPError:
             if request.method == "POST":
-                abort_transport()
+                abort_transport("HTTP daemon connection failed")
             raise
         if request.method == "POST" and response.status_code >= 400:
-            abort_transport()
+            abort_transport(f"HTTP daemon returned status {response.status_code}")
         return response
 
 

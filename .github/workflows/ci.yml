@@ -33,6 +33,17 @@ jobs:
       - name: Build and test
         run: ./gradlew clean test bootJar verifyNativeRuntimeCoverage verifyReleaseMetadata --no-daemon
 
+      - name: Retain JVM failure reports
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: jvm-test-failure-reports
+          path: |
+            build/test-results/test/**
+            build/reports/tests/test/**
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Validate and package companion skill
         run: python3 scripts/package-telegram-skill.py
 
@@ -45,3 +56,22 @@ jobs:
 
       - name: Verify production image build
         run: docker build --build-arg APP_VERSION=ci -t telegram-mcp-server:ci .
+
+  windows-daemon-lifetime:
+    runs-on: windows-latest
+    env:
+      KTM_BUILD_DIR: build
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Java 25
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+      - name: Build runnable JAR
+        run: ./gradlew.bat bootJar --no-daemon
+      - name: Verify host Job Object shutdown and restricted launch
+        run: python scripts/test-windows-daemon-job.py --jar build/libs/telegram-mcp-server.jar

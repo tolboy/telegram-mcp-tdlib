@@ -149,6 +149,10 @@ The bridge additionally requires Python 3.11+ and its pinned SDK dependency.
         $daemonSmokePort = $portProbe.LocalEndpoint.Port
         $portProbe.Stop()
         & (Join-Path $repositoryRoot 'scripts/Test-ManagedDaemon.ps1') -Executable $archivedExecutable -Port $daemonSmokePort
+        if ($Target -eq 'windows-x64') {
+            & python (Join-Path $repositoryRoot 'scripts/test-windows-daemon-job.py') --executable $archivedExecutable
+            if ($LASTEXITCODE -ne 0) { throw 'Extracted Windows daemon did not pass the host Job Object lifecycle check' }
+        }
     } finally {
         if ($null -eq $previousTdlibDataDir) {
             Remove-Item Env:TDLIB_DATA_DIR -ErrorAction SilentlyContinue

@@ -4,6 +4,8 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.service.DurableFiles
 import dev.telegrammcp.server.service.PlatformPaths
 import java.net.URI
+import java.io.PrintStream
+import java.io.InputStream
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
@@ -68,16 +70,19 @@ internal object DaemonCli {
         val javaExecutable = Path.of(System.getProperty("java.home"), "bin", if (isWindows()) "javaw.exe" else "java").toString()
         val classpath = System.getProperty("java.class.path")
         require(classpath.isNotBlank()) { "Cannot determine runtime classpath" }
-        val command = mutableListOf(javaExecutable, "-cp", classpath)
+        val command = mutableListOf(javaExecutable, "--enable-native-access=ALL-UNNAMED", "-cp", classpath)
         // The runtime bundle and java -jar both expose the executable Boot JAR as classpath.
         if (classpath.endsWith(".jar") && !classpath.contains(java.io.File.pathSeparator)) {
             command += "org.springframework.boot.loader.launch.JarLauncher"
         } else command += "dev.telegrammcp.server.TelegramMcpApplicationKt"
         command += listOf("daemon", "run", port.toString())
-        val process = ProcessBuilder(command).redirectInput(ProcessBuilder.Redirect.PIPE)
-            .redirectOutput(ProcessBuilder.Redirect.appendTo(root.resolve("daemon.log").toFile()))
-            .redirectErrorStream(true).start()
-        process.outputStream.close()
+        val process = if (isWindows()) WindowsDaemonProcess.start(command) else {
+            val child = ProcessBuilder(command).redirectInput(ProcessBuilder.Redirect.PIPE)
+                .redirectOutput(ProcessBuilder.Redirect.appendTo(root.resolve("daemon.log").toFile()))
+                .redirectErrorStream(true).start()
+            child.outputStream.close()
+            child.toHandle()
+        }
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(45)
         while (System.nanoTime() < deadline && process.isAlive) {
             val record = record()
@@ -93,6 +98,14 @@ internal object DaemonCli {
         val port = args.single().toInt()
         require(port in 1024..65535)
         DurableFiles.privateDirectory(root)
+        // Windows detached launch deliberately inherits no stdio handles.
+        // Open the private log here, before Spring or TDLib can emit output.
+        if (isWindows()) {
+            val output = PrintStream(Files.newOutputStream(root.resolve("daemon.log"), CREATE, APPEND), true, Charsets.UTF_8)
+            System.setOut(output)
+            System.setErr(output)
+            System.setIn(InputStream.nullInputStream())
+        }
         val channel = FileChannel.open(root.resolve("instance.lock"), CREATE, WRITE)
         check(channel.tryLock() != null) { "Another managed daemon owns this data directory" }
         lease = channel

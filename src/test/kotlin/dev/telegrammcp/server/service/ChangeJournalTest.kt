@@ -5,21 +5,25 @@ import io.mockk.*
 import it.tdlight.jni.TdApi
 import org.junit.jupiter.api.Assertions.assertTimeoutPreemptively
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import java.nio.file.Files
 import java.nio.file.StandardOpenOption.APPEND
 import java.time.Duration
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.test.*
 
 class ChangeJournalTest {
     @TempDir lateinit var root: Path
     private val mapper = jacksonObjectMapper()
+    private val journals = mutableListOf<ChangeJournal>()
+    @AfterEach fun closeJournals() { journals.forEach { it.close() } }
     private fun journal(queueCapacity: Int = ChangeJournal.QUEUE_CAPACITY): ChangeJournal {
         val paths = mockk<PlatformPaths>()
         every { paths.applicationDataDirectory } answers { root }
-        return ChangeJournal(paths, mapper, queueCapacity)
+        return ChangeJournal(paths, mapper, queueCapacity).also { journals += it }
     }
     private fun ChangeJournal.readAll(cursor: String): Pair<List<ChangePage>, String> {
         val pages = mutableListOf<ChangePage>()
@@ -93,6 +97,8 @@ class ChangeJournalTest {
             assertTrue(journal.page("default", initial.nextCursor, 10) { true }.gap)
         } finally { unmockkObject(DurableFiles) }
         journal.append("default", "new", 42, 2)
+        // A different instance cannot await this instance's background writer.
+        journal.page("default", initial.nextCursor, 10) { true }
         val page = journal().page("default", initial.nextCursor, 10) { true }
         assertTrue(page.gap)
         assertEquals(listOf("coverage_gap", "new"), page.entries.map { it.kind })
@@ -102,40 +108,48 @@ class ChangeJournalTest {
         val journal = journal()
         val initial = journal.page("default", null, 10) { true }
         val release = CountDownLatch(1)
+        val writing = CountDownLatch(1)
         mockkObject(DurableFiles)
         try {
-            every { DurableFiles.append(any(), any()) } answers { release.await(); callOriginal() }
+            every { DurableFiles.append(any(), any()) } answers { writing.countDown(); release.await(); callOriginal() }
+            journal.append("default", "new", 42, 1)
+            assertTrue(writing.await(10, TimeUnit.SECONDS), "Writer did not reach the controlled disk barrier")
             // Synchronous persistence would hang here: the first write waits for the latch.
             assertTimeoutPreemptively(Duration.ofSeconds(10)) {
-                repeat(1_000) { journal.append("default", "new", 42, it + 1L) }
+                repeat(999) { journal.append("default", "new", 42, it + 2L) }
             }
             release.countDown()
             val (pages, _) = journal.readAll(initial.nextCursor)
             assertTrue(pages.none { it.gap })
             assertEquals((1L..1_000L).toList(), pages.flatMap { it.entries }.map { it.messageId })
             verify(atMost = 3) { DurableFiles.append(any(), any()) }
-        } finally { unmockkObject(DurableFiles) }
+        } finally { release.countDown(); journal.close(); unmockkObject(DurableFiles) }
     }
 
     @Test fun `queue overflow is reported after the retained updates`() {
         val journal = journal(queueCapacity = 100)
         val initial = journal.page("default", null, 10) { true }
         val release = CountDownLatch(1)
+        val writing = CountDownLatch(1)
         mockkObject(DurableFiles)
         try {
-            every { DurableFiles.append(any(), any()) } answers { release.await(); callOriginal() }
-            repeat(1_000) { journal.append("default", "new", 42, it + 1L) }
+            every { DurableFiles.append(any(), any()) } answers { writing.countDown(); release.await(); callOriginal() }
+            journal.append("default", "new", 42, 1)
+            assertTrue(writing.await(10, TimeUnit.SECONDS), "Writer did not reach the controlled disk barrier")
+            // The writer has drained its first item and is blocked on disk:
+            // exactly 100 queued updates fit, then the rest overflow.
+            repeat(999) { journal.append("default", "new", 42, it + 2L) }
             release.countDown()
             val (pages, cursor) = journal.readAll(initial.nextCursor)
             val entries = pages.flatMap { it.entries }
             assertTrue(pages.any { it.gap })
             assertEquals(1, entries.count { it.kind == "coverage_gap" })
             val kept = entries.filter { it.kind == "new" }.map { it.messageId!! }
-            assertTrue(kept.size in 1..<1_000)
+            assertEquals((1L..101L).toList(), kept)
             assertEquals(kept.sorted(), kept)
             journal.append("default", "new", 42, 5_000)
             assertFalse(journal.page("default", cursor, 10) { true }.gap)
-        } finally { unmockkObject(DurableFiles) }
+        } finally { release.countDown(); journal.close(); unmockkObject(DurableFiles) }
     }
 
     @Test fun `interrupted final append is dropped while malformed history fails closed`() {

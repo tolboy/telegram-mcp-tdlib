@@ -82,6 +82,9 @@ val logstashVersion = "9.0"
 val mockkVersion = "1.14.11"
 
 dependencies {
+    // Windows daemon startup needs explicit Job Object breakaway; ProcessBuilder
+    // cannot express that creation flag. Loaded only on the Windows start path.
+    implementation("net.java.dev.jna:jna-platform:5.18.1")
     constraints {
         implementation("io.modelcontextprotocol.sdk:mcp:$mcpSdkVersion") {
             because("Keep MCP SDK modules aligned with Spring AI 2.0.0")
