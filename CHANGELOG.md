@@ -3,7 +3,7 @@
 Notable changes to Telegram MCP Server are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 1.17.3 - 2026-10-17
 
 - Make `session clear` refuse a live TDLib session: probe every existing lock
   candidate (`td.binlog` first, then `td.sqlite`) instead of only the first, and
@@ -13,6 +13,11 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   held; delete nothing if the move fails. Failed restores preserve any new
   canonical path and report the staged data location. Doctor lists leftover
   staging paths, and clear refuses retries until manual recovery (#27).
+- Update Kotlin (JVM and Spring plugins) from 2.4.0 to 2.4.21, Caffeine from
+  3.2.4 to 3.3.1 and the Gradle wrapper from 9.7.1 to 9.8.1.
+- Update pinned GitHub Actions used by CI, Security and release workflows,
+  including setup-java 6.0.1, setup-gradle 6.4.0, docker/build-push-action 7.4.0
+  and CodeQL 4.38.3.
 
 ## 1.17.2 - 2026-10-15
 
