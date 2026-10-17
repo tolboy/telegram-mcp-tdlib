@@ -29,6 +29,9 @@ object SessionMaintenanceCli {
             println("  exists=${account.exists}")
             println("  tdlib_lock=${account.lock}")
             println("  lock_owner=${account.lockOwner}")
+            account.stagedDirectories.forEach { staged ->
+                println("  staged_directory=$staged (requires manual recovery; stop the owner first)")
+            }
         }
         println("logout=${report.logoutInstruction}")
         println("clear=${report.clearInstruction}")

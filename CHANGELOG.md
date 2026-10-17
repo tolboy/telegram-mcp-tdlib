@@ -3,6 +3,17 @@
 Notable changes to Telegram MCP Server are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- Make `session clear` refuse a live TDLib session: probe every existing lock
+  candidate (`td.binlog` first, then `td.sqlite`) instead of only the first, and
+  report the session as unavailable when a probe fails (including Windows
+  exclusive-sharing handles). Stage the clear behind an atomic move
+  to a sibling directory, re-check the lock there and move it back if it became
+  held; delete nothing if the move fails. Failed restores preserve any new
+  canonical path and report the staged data location. Doctor lists leftover
+  staging paths, and clear refuses retries until manual recovery (#27).
+
 ## 1.17.2 - 2026-10-15
 
 - Run the Windows shared daemon through an on-demand Task Scheduler task owned
