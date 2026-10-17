@@ -9,6 +9,7 @@ import java.nio.file.FileVisitResult
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.SimpleFileVisitor
+import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.nio.file.attribute.BasicFileAttributes
 
@@ -53,7 +54,24 @@ class SessionMaintenance(
             SessionLock.UNLOCKED, SessionLock.LOCK_FILE_MISSING -> Unit
             else -> throw IllegalStateException("Refusing to clear '$label': TDLib lock is not safely available")
         }
-        deleteTree(directory, standardDirectory)
+        // Stage the delete: move the whole directory aside atomically first, so a
+        // live owner (or an OS that refuses to rename open files) leaves the
+        // session untouched instead of partially erased.
+        val staged = standardDirectory.resolveSibling(".$label.clearing-${System.nanoTime()}")
+        try {
+            Files.move(directory, staged, StandardCopyOption.ATOMIC_MOVE)
+        } catch (e: IOException) {
+            throw IllegalStateException("Refusing to clear '$label': TDLib session directory is in use (${e.javaClass.simpleName}); nothing was deleted", e)
+        }
+        if (inspectLock(staged) !in setOf(SessionLock.UNLOCKED, SessionLock.LOCK_FILE_MISSING)) {
+            Files.move(staged, directory, StandardCopyOption.ATOMIC_MOVE)
+            throw IllegalStateException("Refusing to clear '$label': TDLib lock was acquired concurrently; nothing was deleted")
+        }
+        try {
+            deleteTree(staged, standardDirectory)
+        } catch (e: IOException) {
+            throw IllegalStateException("TDLib session for '$label' was detached to '$staged' but could not be fully removed; delete it manually", e)
+        }
         return SessionClearReport(label, directory, deleted = true, message = "TDLib local session data cleared")
     }
 
@@ -88,25 +106,43 @@ class SessionMaintenance(
         }
     }
 
+    /**
+     * TDLib may hold its lock on any of the candidate files (it locks td.binlog;
+     * td.sqlite exists alongside it), so every existing candidate is probed and
+     * the session is LOCKED if any one of them is held. A zero-length file is
+     * still probed: the probe covers the whole range, not just existing bytes.
+     */
     private fun inspectLock(directory: Path): SessionLock {
         if (!Files.isDirectory(directory)) return SessionLock.NOT_INITIALIZED
-        val lockFile = LOCK_FILE_NAMES.asSequence().map(directory::resolve)
-            .firstOrNull { Files.isRegularFile(it) } ?: return SessionLock.LOCK_FILE_MISSING
-        return try {
-            FileChannel.open(lockFile, StandardOpenOption.WRITE).use { channel ->
-                try {
-                    channel.tryLock()?.use { SessionLock.UNLOCKED } ?: SessionLock.LOCKED
-                } catch (_: OverlappingFileLockException) {
-                    SessionLock.LOCKED
-                }
+        val lockFiles = LOCK_FILE_NAMES.map(directory::resolve).filter { Files.isRegularFile(it) }
+        if (lockFiles.isEmpty()) return SessionLock.LOCK_FILE_MISSING
+        var result = SessionLock.UNLOCKED
+        for (lockFile in lockFiles) {
+            when (probeLock(lockFile)) {
+                SessionLock.LOCKED -> return SessionLock.LOCKED
+                SessionLock.UNAVAILABLE -> result = SessionLock.UNAVAILABLE
+                else -> Unit
             }
-        } catch (_: IOException) {
-            SessionLock.UNAVAILABLE
         }
+        return result
+    }
+
+    private fun probeLock(lockFile: Path): SessionLock = try {
+        FileChannel.open(lockFile, StandardOpenOption.WRITE).use { channel ->
+            try {
+                channel.tryLock(0L, Long.MAX_VALUE, false)?.use { SessionLock.UNLOCKED } ?: SessionLock.LOCKED
+            } catch (_: OverlappingFileLockException) {
+                SessionLock.LOCKED
+            }
+        }
+    } catch (_: IOException) {
+        SessionLock.UNAVAILABLE
     }
 
     private fun deleteTree(directory: Path, expectedRoot: Path) {
-        require(directory == expectedRoot && directory.startsWith(applicationDataDirectory.resolve("tdlib").normalize())) {
+        val tdlibRoot = applicationDataDirectory.resolve("tdlib").normalize()
+        require(directory.normalize().parent == tdlibRoot && expectedRoot.parent == tdlibRoot &&
+            directory.fileName.toString().startsWith(".${expectedRoot.fileName}.clearing-")) {
             "Refusing to delete a path outside the account TDLib storage"
         }
         Files.walkFileTree(directory, object : SimpleFileVisitor<Path>() {

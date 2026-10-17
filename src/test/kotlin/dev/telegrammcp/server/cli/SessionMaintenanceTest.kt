@@ -67,4 +67,52 @@ class SessionMaintenanceTest {
             SessionMaintenance(tempDir, mapOf("TDLIB_DATA_DIR" to custom.toString())).clear("default", confirmed = true)
         }
     }
+
+    private fun session(vararg files: Pair<String, Int>): Path {
+        val directory = tempDir.resolve("tdlib").resolve("default")
+        Files.createDirectories(directory.resolve("db_files"))
+        files.forEach { (name, size) -> Files.write(directory.resolve(name), ByteArray(size)) }
+        Files.writeString(directory.resolve("db_files").resolve("photo.jpg"), "x")
+        return directory
+    }
+
+    private fun <T> holding(file: Path, action: () -> T): T =
+        FileChannel.open(file, StandardOpenOption.WRITE).use { channel -> channel.lock().use { action() } }
+
+    private fun doctorLock() = SessionMaintenance(tempDir, emptyMap()).doctor().accounts.single().lock
+
+    @Test
+    fun `issue 27 - doctor reports LOCKED when any candidate lock file is held`() {
+        // A: both files, td.binlog held (the live-TDLib case)
+        var dir = session("td.binlog" to 4096, "td.sqlite" to 4096)
+        assertEquals(SessionLock.LOCKED, holding(dir.resolve("td.binlog")) { doctorLock() })
+        // B: both files, td.sqlite held
+        assertEquals(SessionLock.LOCKED, holding(dir.resolve("td.sqlite")) { doctorLock() })
+        // D: both files, none held
+        assertEquals(SessionLock.UNLOCKED, doctorLock())
+        // zero-length td.sqlite next to a held td.binlog
+        dir.toFile().deleteRecursively()
+        dir = session("td.binlog" to 4096, "td.sqlite" to 0)
+        assertEquals(SessionLock.LOCKED, holding(dir.resolve("td.binlog")) { doctorLock() })
+        assertEquals(SessionLock.LOCKED, holding(dir.resolve("td.sqlite")) { doctorLock() })
+        // C: td.binlog only, held
+        dir.toFile().deleteRecursively()
+        dir = session("td.binlog" to 4096)
+        assertEquals(SessionLock.LOCKED, holding(dir.resolve("td.binlog")) { doctorLock() })
+    }
+
+    @Test
+    fun `issue 27 - clear fails closed and deletes nothing while td binlog is held`() {
+        val dir = session("td.binlog" to 4096, "td.sqlite" to 4096)
+        val before = Files.walk(dir).use { it.map { p -> dir.relativize(p).toString() }.sorted().toList() }
+        holding(dir.resolve("td.binlog")) {
+            assertThrows<IllegalStateException> { SessionMaintenance(tempDir, emptyMap()).clear("default", confirmed = true) }
+        }
+        val after = Files.walk(dir).use { it.map { p -> dir.relativize(p).toString() }.sorted().toList() }
+        assertEquals(before, after)
+        val cleared = SessionMaintenance(tempDir, emptyMap()).clear("default", confirmed = true)
+        assertTrue(cleared.deleted)
+        assertFalse(Files.exists(dir))
+        assertEquals(emptyList(), Files.list(tempDir.resolve("tdlib")).use { it.toList() })
+    }
 }
