@@ -72,7 +72,7 @@ repositories {
 }
 
 // ─── Dependency versions not managed by Spring Boot BOM ─────────────────────
-val mcpSdkVersion = "2.0.1"
+val mcpSdkVersion = "2.1.0"
 val springAiMcpVersion = "2.0.1"
 val tdlightVersion = "3.5.3+td.1.8.65"
 val tdlightNativesVersion = "4.0.589"
