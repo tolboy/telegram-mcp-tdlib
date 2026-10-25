@@ -1,6 +1,8 @@
 package dev.telegrammcp.server.client
 
 import dev.telegrammcp.server.exception.SendOutcomeUnknownException
+import dev.telegrammcp.server.exception.TelegramApiException
+import it.tdlight.client.TelegramError
 import it.tdlight.jni.TdApi
 import org.junit.jupiter.api.Test
 import java.util.concurrent.CompletableFuture
@@ -57,5 +59,18 @@ class TdLibRequestAwaiterTest {
         } finally {
             Thread.interrupted()
         }
+    }
+
+    @Test
+    fun `telegram rejection becomes a classifiable TelegramApiException keeping the cause`() {
+        val rejected = TelegramError(TdApi.Error(420, "FLOOD_WAIT_33"))
+        val pending = CompletableFuture<TdApi.Object>().apply { completeExceptionally(rejected) }
+        val error = assertFailsWith<TelegramApiException> {
+            TdLibRequestAwaiter.await(pending, TdApi.SendMessage(), 0)
+        }
+        assertEquals(420, error.errorCode)
+        assertEquals("FLOOD_WAIT_33", error.errorMessage)
+        assertEquals(33L, error.retryAfterSeconds)
+        assertSame(rejected, error.cause)
     }
 }

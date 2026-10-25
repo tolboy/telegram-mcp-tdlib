@@ -2,6 +2,7 @@ package dev.telegrammcp.server.client
 
 import it.tdlight.jni.TdApi
 import dev.telegrammcp.server.exception.SendOutcomeUnknownException
+import dev.telegrammcp.server.exception.TelegramApiException
 import org.junit.jupiter.api.Test
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
@@ -68,9 +69,23 @@ class MessageSendTrackerTest {
         val failed = message(id = 10, sending = false)
         tracker.onFailed(TdApi.UpdateMessageSendFailed(failed, provisional.id, TdApi.Error(400, "rejected")))
 
-        val error = assertFailsWith<IllegalStateException> { tracker.awaitFinal(provisional, 1) }
-        assertTrue(error.message.orEmpty().contains("400"))
-        assertTrue(error.message.orEmpty().contains("rejected"))
+        val error = assertFailsWith<TelegramApiException> { tracker.awaitFinal(provisional, 1) }
+        assertTrue(error.message.contains("400"))
+        assertTrue(error.message.contains("rejected"))
+        assertEquals(400, error.errorCode)
+        assertTrue(error.cause?.message.orEmpty().contains("chat"))
+    }
+
+    @Test
+    fun `asynchronous flood failure keeps its retry delay`() {
+        val tracker = MessageSendTracker()
+        val provisional = message(id = 11, sending = true)
+        val failed = message(id = 11, sending = false)
+        tracker.onFailed(TdApi.UpdateMessageSendFailed(failed, provisional.id, TdApi.Error(429, "Too Many Requests: retry after 17")))
+
+        val error = assertFailsWith<TelegramApiException> { tracker.awaitFinal(provisional, 1) }
+        assertTrue(error.isRateLimit)
+        assertEquals(17L, error.retryAfterSeconds)
     }
 
     @Test

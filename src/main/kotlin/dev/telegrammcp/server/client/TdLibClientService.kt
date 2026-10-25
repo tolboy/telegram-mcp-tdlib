@@ -10,7 +10,7 @@ import io.github.resilience4j.ratelimiter.RateLimiter
 import io.github.resilience4j.ratelimiter.RequestNotPermitted
 import io.micrometer.core.instrument.MeterRegistry
 import it.tdlight.client.SimpleTelegramClient
-import it.tdlight.client.TelegramError
+import dev.telegrammcp.server.exception.TelegramApiException
 import it.tdlight.jni.TdApi
 import java.time.Instant
 import java.util.concurrent.CompletableFuture
@@ -1023,7 +1023,7 @@ class TdLibClientService(
             withResilience("getMessageAddedReactions") {
                 send<TdApi.AddedReactions>(request)
             }
-        } catch (error: TelegramError) {
+        } catch (error: TelegramApiException) {
             // Protect against stale/missing canGetAddedReactions metadata. The
             // aggregate counters above are still valid for broadcast posts.
             if (error.errorCode == 403 && error.errorMessage == "BROADCAST_FORBIDDEN") {

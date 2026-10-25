@@ -2,6 +2,7 @@ package dev.telegrammcp.server.client
 
 import it.tdlight.jni.TdApi
 import dev.telegrammcp.server.exception.SendOutcomeUnknownException
+import dev.telegrammcp.server.exception.TelegramApiException
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutionException
@@ -105,9 +106,13 @@ class MessageSendTracker {
 
     private fun Outcome.unwrap(key: Key): TdApi.Message = when (this) {
         is Outcome.Success -> message
-        is Outcome.Failure -> throw IllegalStateException(
-            "Telegram failed to send message ${key.oldMessageId} in chat ${key.chatId} " +
-            "(${error.code}): ${error.message}",
+        // updateMessageSendFailed is a definite rejection (e.g. a flood wait
+        // that hit after the provisional message was created); keep its code
+        // so tool errors classify it like a direct request error.
+        is Outcome.Failure -> throw TelegramApiException(
+            error.code,
+            error.message.orEmpty(),
+            IllegalStateException("Telegram failed to send message ${key.oldMessageId} in chat ${key.chatId}"),
         )
     }
 
