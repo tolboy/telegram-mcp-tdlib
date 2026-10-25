@@ -30,6 +30,7 @@ class TdLibClientService(
     private val meterRegistry: MeterRegistry,
     private val chatFolderState: ChatFolderState = ChatFolderState(),
     private val messageSendTracker: MessageSendTracker? = null,
+    private val floodGate: TelegramFloodGate = TelegramFloodGate(),
 ) : TelegramClientService {
 
     private val log = StructuredLogger.forClass<TdLibClientService>()
@@ -2031,6 +2032,18 @@ class TdLibClientService(
      */
     @Suppress("UNCHECKED_CAST")
     private fun <T : TdApi.Object> send(function: TdApi.Function<*>): T {
+        val scope = TelegramFloodGate.scopeOf(function)
+        floodGate.check(scope)
+        return try {
+            sendUngated(function)
+        } catch (error: TelegramApiException) {
+            floodGate.record(scope, error)
+            throw error
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <T : TdApi.Object> sendUngated(function: TdApi.Function<*>): T {
         val future = CompletableFuture<TdApi.Object>()
         val observer = if (function is TdApi.SendMessage || function is TdApi.ForwardMessages)
             SendObservationContext.capture() else null
@@ -2046,8 +2059,13 @@ class TdLibClientService(
         return TdLibRequestAwaiter.await(future, function, TIMEOUT_SECONDS) as T
     }
 
-    private fun awaitFinalMessage(message: TdApi.Message): TdApi.Message =
+    private fun awaitFinalMessage(message: TdApi.Message): TdApi.Message = try {
         messageSendTracker?.awaitFinal(message, MESSAGE_SEND_TIMEOUT_SECONDS) ?: message
+    } catch (error: TelegramApiException) {
+        // updateMessageSendFailed with a flood wait gates the chat like a direct 429.
+        floodGate.record(TelegramFloodGate.chatScope(message.chatId), error)
+        throw error
+    }
 
     /**
      * Wraps a block with Resilience4j rate limiter + circuit breaker.

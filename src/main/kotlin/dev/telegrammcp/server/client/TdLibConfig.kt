@@ -8,6 +8,7 @@ import dev.telegrammcp.server.security.SecretResolver
 import dev.telegrammcp.server.service.PlatformPaths
 import dev.telegrammcp.server.util.StructuredLogger
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry
 import io.github.resilience4j.ratelimiter.RateLimiter
 import io.micrometer.core.instrument.MeterRegistry
 import it.tdlight.Init
@@ -50,6 +51,7 @@ class TdLibConfig(
     private val platformPaths: PlatformPaths,
     private val rateLimiter: RateLimiter,
     private val circuitBreaker: CircuitBreaker,
+    private val circuitBreakerRegistry: CircuitBreakerRegistry,
     private val meterRegistry: MeterRegistry,
     private val environment: Environment,
     private val buildProperties: BuildProperties? = null,
@@ -268,7 +270,8 @@ class TdLibConfig(
                 "telegram-${config.label}",
                 rateLimiter.rateLimiterConfig,
             )
-            val accountCircuitBreaker = CircuitBreaker.of(
+            // Created through the registry so actuator metrics and health see it.
+            val accountCircuitBreaker = circuitBreakerRegistry.circuitBreaker(
                 "telegram-${config.label}",
                 circuitBreaker.circuitBreakerConfig,
             )
