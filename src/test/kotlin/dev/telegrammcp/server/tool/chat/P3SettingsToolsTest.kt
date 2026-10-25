@@ -161,4 +161,38 @@ class P3SettingsToolsTest {
         val rightsSchema = mapper.writeValueAsString(tool.definition().inputSchema())
         assertTrue(rightsSchema.contains("can_send_welcome_messages"), rightsSchema)
     }
+
+    @Test
+    fun `administrator right write rejects unknown keys instead of revoking everything`() {
+        val tool = SetAdminRightsTool(telegramClient, entityResolver, guardrails, operationGuard, audit, mapper, SimpleMeterRegistry())
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.setChatMemberAdministratorRights(42L, 55L, any()) } returns true
+
+        val result = tool.executeChecked(
+            exchange,
+            mapOf(
+                "chat_id" to 42,
+                "user_id" to 55,
+                // Typo of can_delete_messages.
+                "rights" to mapOf("can_delete_message" to true, "can_pin_messages" to true),
+                "confirmed" to true,
+            ),
+        )
+
+        assertTrue(result.isError)
+        val error = ((result.structuredContent() as Map<*, *>)["data"] as Map<*, *>)["error"] as Map<*, *>
+        assertEquals("INVALID_INPUT", error["code"])
+        assertTrue(error["message"].toString().contains("can_delete_message"), error.toString())
+        verify(exactly = 0) { telegramClient.setChatMemberAdministratorRights(any(), any(), any()) }
+
+        val schema = mapper.readTree(mapper.writeValueAsString(tool.definition().inputSchema()))
+        val rights = schema.path("properties").path("rights")
+        assertEquals(false, rights.path("additionalProperties").asBoolean(true))
+        val advertised = rights.path("properties").fieldNames().asSequence().toSet()
+        val tdlibRights = it.tdlight.jni.TdApi.ChatAdministratorRights::class.java.fields
+            .filter { it.type == Boolean::class.javaPrimitiveType && !java.lang.reflect.Modifier.isStatic(it.modifiers) }
+            .map { field -> field.name.replace(Regex("([A-Z])")) { "_" + it.value.lowercase() }.let { n -> if (n.startsWith("is_")) n else "can_" + n.removePrefix("can_") } }
+            .toSet()
+        assertEquals(tdlibRights, advertised, "schema must advertise exactly TDLib's administrator rights")
+    }
 }

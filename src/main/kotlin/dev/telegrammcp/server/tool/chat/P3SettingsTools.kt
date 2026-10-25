@@ -253,7 +253,7 @@ private object P3ToolInputs {
     const val BOT_COMMANDS_SCHEMA = """{"type":"object","properties":{"scope":{"type":"string","enum":["default","all_private_chats","all_group_chats","all_chat_administrators","chat","chat_administrators","chat_member"]},"language_code":{"type":"string","maxLength":35},"chat_id":{"type":["string","number"]},"user_id":{"type":"number"},"commands":{"type":"array","maxItems":100,"items":{"type":"object","properties":{"command":{"type":"string"},"description":{"type":"string"}},"required":["command","description"]}}},"required":["scope","commands"]}"""
     const val PERMISSIONS_SCHEMA = """{"type":"object","properties":{"chat_id":{"type":["string","number"]},"permissions":{"type":"object","description":"One or more permission flags; omitted flags keep their current value","properties":{"can_send_basic_messages":{"type":"boolean"},"can_send_audios":{"type":"boolean"},"can_send_documents":{"type":"boolean"},"can_send_photos":{"type":"boolean"},"can_send_videos":{"type":"boolean"},"can_send_video_notes":{"type":"boolean"},"can_send_voice_notes":{"type":"boolean"},"can_send_polls":{"type":"boolean"},"can_send_other_messages":{"type":"boolean"},"can_add_link_previews":{"type":"boolean"},"can_react_to_messages":{"type":"boolean"},"can_edit_tag":{"type":"boolean"},"can_change_info":{"type":"boolean"},"can_invite_users":{"type":"boolean"},"can_pin_messages":{"type":"boolean"},"can_create_topics":{"type":"boolean"}}},"confirmed":{"type":"boolean","description":"Required when confirmation mode is enabled"}},"required":["chat_id","permissions"]}"""
     const val MEMBER_PERMISSIONS_SCHEMA = """{"type":"object","properties":{"chat_id":{"type":["string","number"]},"user_id":{"type":"number"},"permissions":{"type":"object"},"until_date":{"type":"number","description":"Unix timestamp; 0 means no expiry"},"is_member":{"type":"boolean","default":true},"confirmed":{"type":"boolean","description":"Required when confirmation mode is enabled"}},"required":["chat_id","user_id","permissions"]}"""
-    const val ADMIN_RIGHTS_SCHEMA = """{"type":"object","properties":{"chat_id":{"type":["string","number"]},"user_id":{"type":"number"},"rights":{"type":"object","description":"Complete replacement; omitted rights are false","properties":{"can_manage_chat":{"type":"boolean"},"can_change_info":{"type":"boolean"},"can_post_messages":{"type":"boolean"},"can_edit_messages":{"type":"boolean"},"can_delete_messages":{"type":"boolean"},"can_invite_users":{"type":"boolean"},"can_restrict_members":{"type":"boolean"},"can_pin_messages":{"type":"boolean"},"can_manage_topics":{"type":"boolean"},"can_promote_members":{"type":"boolean"},"can_manage_video_chats":{"type":"boolean"},"can_post_stories":{"type":"boolean"},"can_edit_stories":{"type":"boolean"},"can_delete_stories":{"type":"boolean"},"can_manage_direct_messages":{"type":"boolean"},"can_manage_tags":{"type":"boolean"},"can_send_welcome_messages":{"type":"boolean","description":"Manage the chat's welcome messages (TDLib 1.8.68+)"},"is_anonymous":{"type":"boolean"}}},"confirmed":{"type":"boolean","description":"Required when confirmation mode is enabled"}},"required":["chat_id","user_id","rights"]}"""
+    const val ADMIN_RIGHTS_SCHEMA = """{"type":"object","properties":{"chat_id":{"type":["string","number"]},"user_id":{"type":"number"},"rights":{"type":"object","description":"Complete replacement; omitted rights are false","properties":{"can_manage_chat":{"type":"boolean"},"can_change_info":{"type":"boolean"},"can_post_messages":{"type":"boolean"},"can_edit_messages":{"type":"boolean"},"can_delete_messages":{"type":"boolean"},"can_invite_users":{"type":"boolean"},"can_restrict_members":{"type":"boolean"},"can_pin_messages":{"type":"boolean"},"can_manage_topics":{"type":"boolean"},"can_promote_members":{"type":"boolean"},"can_manage_video_chats":{"type":"boolean"},"can_post_stories":{"type":"boolean"},"can_edit_stories":{"type":"boolean"},"can_delete_stories":{"type":"boolean"},"can_manage_direct_messages":{"type":"boolean"},"can_manage_tags":{"type":"boolean"},"can_send_welcome_messages":{"type":"boolean","description":"Manage the chat's welcome messages (TDLib 1.8.68+)"},"is_anonymous":{"type":"boolean"}},"additionalProperties":false},"confirmed":{"type":"boolean","description":"Required when confirmation mode is enabled"}},"required":["chat_id","user_id","rights"]}"""
 
     fun privacySetting(arguments: Map<String, Any>): PrivacySetting = enumValue(arguments, "setting")
 
@@ -349,9 +349,21 @@ private object P3ToolInputs {
         )
     }
 
+    val ADMIN_RIGHT_KEYS: List<String> = listOf(
+        "can_manage_chat", "can_change_info", "can_post_messages", "can_edit_messages", "can_delete_messages",
+        "can_invite_users", "can_restrict_members", "can_pin_messages", "can_manage_topics", "can_promote_members",
+        "can_manage_video_chats", "can_post_stories", "can_edit_stories", "can_delete_stories",
+        "can_manage_direct_messages", "can_manage_tags", "can_send_welcome_messages", "is_anonymous",
+    )
+
     fun administratorRights(arguments: Map<String, Any>): ChatAdministratorRights {
         val raw = objectArgument(arguments, "rights")
         if (raw.isEmpty()) throw InvalidToolInputException("rights must contain at least one flag")
+        // rights is a complete replacement, so a misspelled key would silently revoke a right.
+        val unknown = raw.keys.map { it.toString() }.filter { it !in ADMIN_RIGHT_KEYS }.sorted()
+        if (unknown.isNotEmpty()) {
+            throw InvalidToolInputException("rights contains unknown keys: ${unknown.joinToString()}; allowed keys: ${ADMIN_RIGHT_KEYS.joinToString()}")
+        }
         return ChatAdministratorRights(
             canManageChat = flag(raw, "can_manage_chat", false),
             canChangeInfo = flag(raw, "can_change_info", false),

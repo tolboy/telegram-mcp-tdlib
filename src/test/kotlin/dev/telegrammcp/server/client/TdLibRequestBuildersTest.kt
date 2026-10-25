@@ -73,15 +73,23 @@ class TdLibRequestBuildersTest {
         assertTrue(td.isAnonymous)
         assertEquals(all, TdLibRequestBuilders.administratorRights(td))
 
-        // Each flag maps independently (catches swapped positional arguments).
-        val fields = ChatAdministratorRights::class.java.declaredFields.filter { it.type == Boolean::class.javaPrimitiveType }
-        assertEquals(18, fields.size)
-        val constructor = ChatAdministratorRights::class.java.getConstructor(*Array(fields.size) { Boolean::class.javaPrimitiveType })
-        fields.forEach { field ->
-            val flags = fields.map { it == field }.toTypedArray<Any>()
-            val rights = constructor.newInstance(*flags)
-            val roundTrip = TdLibRequestBuilders.administratorRights(TdLibRequestBuilders.administratorRights(rights))
-            assertEquals(rights, roundTrip, "flag ${field.name} must survive the TDLib round-trip")
+        // Reflect over TDLib's own class so a right added by a future TDLib
+        // version fails here until it is mapped; each flag must map
+        // independently (catches swapped arguments).
+        val tdFields = TdApi.ChatAdministratorRights::class.java.fields
+            .filter { it.type == Boolean::class.javaPrimitiveType && !java.lang.reflect.Modifier.isStatic(it.modifiers) }
+        assertEquals(18, tdFields.size, "TDLib 1.8.68 has 18 administrator rights")
+        val modelFlags = ChatAdministratorRights::class.java.declaredFields.filter { it.type == Boolean::class.javaPrimitiveType }
+        assertEquals(tdFields.size, modelFlags.size)
+        tdFields.forEach { field ->
+            val source = TdApi.ChatAdministratorRights().also { field.setBoolean(it, true) }
+            val model = TdLibRequestBuilders.administratorRights(source)
+            val trueModelFlags = modelFlags.filter { it.isAccessible = true; it.getBoolean(model) }
+            assertEquals(1, trueModelFlags.size, "TDLib ${field.name} must map to exactly one model flag")
+            val back = TdLibRequestBuilders.administratorRights(model)
+            tdFields.forEach { other ->
+                assertEquals(other == field, other.getBoolean(back), "${field.name} round-trip changed ${other.name}")
+            }
         }
     }
 
