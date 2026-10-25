@@ -101,6 +101,21 @@ class TdLibRequestBuildersTest {
             val response: TdApi.Object = when (request) {
                 is TdApi.SendMessage -> TdApi.Message().apply { id = 1; chatId = request.chatId }
                 is TdApi.GetChat -> TdApi.Chat().apply { id = request.chatId; title = "Chat" }
+                is TdApi.SearchChatMembers -> TdApi.ChatMembers(2, arrayOf(
+                    TdApi.ChatMember().apply {
+                        memberId = TdApi.MessageSenderUser(7)
+                        status = TdApi.ChatMemberStatusAdministrator().apply {
+                            rights = TdApi.ChatAdministratorRights().apply {
+                                canPinMessages = true
+                                canSendWelcomeMessages = true
+                            }
+                        }
+                    },
+                    TdApi.ChatMember().apply {
+                        memberId = TdApi.MessageSenderUser(8)
+                        status = TdApi.ChatMemberStatusCreator()
+                    },
+                ))
                 else -> TdApi.Ok()
             }
             secondArg<GenericResultHandler<TdApi.Object>>().onResult(Result.of(response))
@@ -136,5 +151,18 @@ class TdLibRequestBuildersTest {
         val commands = requests.filterIsInstance<TdApi.SetCommands>().single().commands
         assertEquals(listOf("help"), commands.map { it.command })
         assertFalse(commands.single().isEphemeral)
+    }
+
+    @Test
+    fun `admin listing reads back current rights including welcome messages`() {
+        respondOk()
+
+        val admins = service.getChatAdmins(-100, 10)
+
+        assertEquals(
+            ChatAdministratorRights(canPinMessages = true, canSendWelcomeMessages = true),
+            admins.first { it.userId == 7L }.administratorRights,
+        )
+        assertNull(admins.first { it.userId == 8L }.administratorRights, "only administrator status carries rights")
     }
 }

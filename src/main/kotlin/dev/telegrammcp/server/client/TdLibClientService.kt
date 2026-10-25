@@ -2493,6 +2493,8 @@ class TdLibClientService(
             lastName = user?.lastName,
             username = user?.usernames?.activeUsernames?.firstOrNull(),
             status = status,
+            administratorRights = (this.status as? TdApi.ChatMemberStatusAdministrator)?.rights
+                ?.let(TdLibRequestBuilders::administratorRights),
         )
     }
 }

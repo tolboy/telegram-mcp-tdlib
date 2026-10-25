@@ -103,6 +103,8 @@ data class ChatMember(
     val lastName: String? = null,
     val username: String? = null,
     val status: MemberStatus,
+    /** Current administrator rights; present only for administrators. */
+    val administratorRights: ChatAdministratorRights? = null,
 )
 
 /** Membership status within a chat. */

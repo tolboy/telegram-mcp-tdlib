@@ -25,6 +25,7 @@ import io.modelcontextprotocol.server.McpSyncServerExchange
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class P3SettingsToolsTest {
 
@@ -131,5 +132,33 @@ class P3SettingsToolsTest {
         assertFalse(result.isError)
         verify { telegramClient.setChatMemberAdministratorRights(42L, 55L, ChatAdministratorRights(canDeleteMessages = true)) }
         verify { operationGuard.checkPermission("set_admin_rights", any()) }
+    }
+
+    @Test
+    fun `administrator right write forwards welcome-message right and advertises it`() {
+        val tool = SetAdminRightsTool(telegramClient, entityResolver, guardrails, operationGuard, audit, mapper, SimpleMeterRegistry())
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.setChatMemberAdministratorRights(42L, 55L, any()) } returns true
+
+        val result = tool.executeChecked(
+            exchange,
+            mapOf(
+                "chat_id" to 42,
+                "user_id" to 55,
+                "rights" to mapOf("can_send_welcome_messages" to true, "can_pin_messages" to true),
+                "confirmed" to true,
+            ),
+        )
+
+        assertFalse(result.isError)
+        verify {
+            telegramClient.setChatMemberAdministratorRights(
+                42L,
+                55L,
+                ChatAdministratorRights(canPinMessages = true, canSendWelcomeMessages = true),
+            )
+        }
+        val rightsSchema = mapper.writeValueAsString(tool.definition().inputSchema())
+        assertTrue(rightsSchema.contains("can_send_welcome_messages"), rightsSchema)
     }
 }
