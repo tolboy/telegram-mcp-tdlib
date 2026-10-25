@@ -1,8 +1,10 @@
 ﻿package dev.telegrammcp.server.exception
 
 import org.slf4j.LoggerFactory
+import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
 import org.springframework.http.ProblemDetail
+import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
 
@@ -33,10 +35,52 @@ class GlobalExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.message)
     }
 
+    /**
+     * Maps by [TelegramErrorKind] so REST clients see caller errors as 4xx
+     * (logged at warn, without a stack trace) and only Telegram-side failures
+     * as 5xx.
+     */
     @ExceptionHandler(TelegramApiException::class)
-    fun handleTelegramApi(ex: TelegramApiException): ProblemDetail {
-        log.error("Telegram API failure: {}", ex.message, ex)
-        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_GATEWAY, ex.message)
+    fun handleTelegramApi(ex: TelegramApiException): ResponseEntity<ProblemDetail> {
+        val status = statusFor(ex.kind)
+        if (status.is4xxClientError) {
+            log.warn("Telegram API rejected request ({}): {}", ex.kind, ex.message)
+        } else {
+            log.error("Telegram API failure ({}): {}", ex.kind, ex.message, ex)
+        }
+        val problem = ProblemDetail.forStatusAndDetail(status, ex.message)
+        problem.setProperty("telegram_error_code", ex.errorCode)
+        problem.setProperty("telegram_error_kind", ex.kind.name)
+        return withRetryAfter(problem, status, ex.retryAfterSeconds.takeIf { ex.isFloodWait })
+    }
+
+    @ExceptionHandler(TelegramFloodGateException::class)
+    fun handleFloodGate(ex: TelegramFloodGateException): ResponseEntity<ProblemDetail> {
+        log.warn("Telegram flood wait active: {}", ex.message)
+        val problem = ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, ex.message)
+        return withRetryAfter(problem, HttpStatus.TOO_MANY_REQUESTS, ex.retryAfterSeconds)
+    }
+
+    private fun withRetryAfter(problem: ProblemDetail, status: HttpStatus, retryAfterSeconds: Long?): ResponseEntity<ProblemDetail> {
+        val builder = ResponseEntity.status(status)
+        if (retryAfterSeconds != null) {
+            problem.setProperty("retry_after_seconds", retryAfterSeconds)
+            builder.header(HttpHeaders.RETRY_AFTER, retryAfterSeconds.toString())
+        }
+        return builder.body(problem)
+    }
+
+    internal fun statusFor(kind: TelegramErrorKind): HttpStatus = when (kind) {
+        TelegramErrorKind.FLOOD_WAIT -> HttpStatus.TOO_MANY_REQUESTS
+        TelegramErrorKind.PERMISSION_DENIED -> HttpStatus.FORBIDDEN
+        TelegramErrorKind.NOT_FOUND -> HttpStatus.NOT_FOUND
+        TelegramErrorKind.INVALID_INPUT -> HttpStatus.BAD_REQUEST
+        // Telegram 401 concerns the server's account session, not the REST caller.
+        TelegramErrorKind.AUTH_REQUIRED,
+        TelegramErrorKind.CANCELLED,
+        TelegramErrorKind.TRANSIENT_SERVER -> HttpStatus.SERVICE_UNAVAILABLE
+        TelegramErrorKind.SERVER_ERROR,
+        TelegramErrorKind.UNKNOWN -> HttpStatus.BAD_GATEWAY
     }
 
     @ExceptionHandler(TelegramUnavailableException::class)
