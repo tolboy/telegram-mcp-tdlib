@@ -759,7 +759,7 @@ class TdLibClientService(
 
     override fun setBotCommands(scope: BotCommandScope, languageCode: String, commands: List<BotCommand>): Boolean {
         log.info("Setting {} bot commands for scope {}", commands.size, scope.kind)
-        val tdCommands = commands.map { TdApi.BotCommand(it.command, it.description) }.toTypedArray()
+        val tdCommands = commands.map(TdLibRequestBuilders::botCommand).toTypedArray()
         withResilience("setCommands") {
             send<TdApi.Ok>(TdApi.SetCommands(tdBotCommandScope(scope), languageCode, tdCommands))
         }
@@ -1560,12 +1560,7 @@ class TdLibClientService(
     override fun sendVoice(chatId: Long, filePath: String, duration: Int, caption: String?): TelegramMessage {
         log.info("Sending voice '{}' to chat {} (duration={}s)", filePath, chatId, duration)
 
-        val content = TdApi.InputMessageVoiceNote().apply {
-            this.voiceNote = TdApi.InputFileLocal(filePath)
-            this.duration = duration.coerceAtLeast(0)
-            this.waveform = ByteArray(0)
-            this.caption = caption?.let { TdApi.FormattedText(it, emptyArray()) }
-        }
+        val content = TdLibRequestBuilders.voiceNoteContent(filePath, duration, caption)
         val request = TdApi.SendMessage().apply {
             this.chatId = chatId
             this.inputMessageContent = content
@@ -1577,12 +1572,7 @@ class TdLibClientService(
     override fun sendSticker(chatId: Long, filePath: String, emoji: String?): TelegramMessage {
         log.info("Sending sticker '{}' to chat {}", filePath, chatId)
 
-        val content = TdApi.InputMessageSticker().apply {
-            this.sticker = TdApi.InputFileLocal(filePath)
-            this.width = 0
-            this.height = 0
-            this.emoji = emoji ?: ""
-        }
+        val content = TdLibRequestBuilders.stickerContent(filePath, emoji)
         val request = TdApi.SendMessage().apply {
             this.chatId = chatId
             this.inputMessageContent = content
@@ -2032,13 +2022,8 @@ class TdLibClientService(
         permissions.canChangeInfo, permissions.canInviteUsers, permissions.canPinMessages, permissions.canCreateTopics,
     )
 
-    private fun chatAdministratorRightsToTd(rights: ChatAdministratorRights): TdApi.ChatAdministratorRights = TdApi.ChatAdministratorRights(
-        rights.canManageChat, rights.canChangeInfo, rights.canPostMessages, rights.canEditMessages,
-        rights.canDeleteMessages, rights.canInviteUsers, rights.canRestrictMembers, rights.canPinMessages,
-        rights.canManageTopics, rights.canPromoteMembers, rights.canManageVideoChats, rights.canPostStories,
-        rights.canEditStories, rights.canDeleteStories, rights.canManageDirectMessages, rights.canManageTags,
-        rights.isAnonymous,
-    )
+    private fun chatAdministratorRightsToTd(rights: ChatAdministratorRights): TdApi.ChatAdministratorRights =
+        TdLibRequestBuilders.administratorRights(rights)
 
     /**
      * Sends a TDLib request synchronously by bridging the async callback API

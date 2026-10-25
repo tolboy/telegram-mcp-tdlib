@@ -208,6 +208,8 @@ data class ChatAdministratorRights(
     val canDeleteStories: Boolean = false,
     val canManageDirectMessages: Boolean = false,
     val canManageTags: Boolean = false,
+    /** TDLib 1.8.68+: may manage the chat's welcome messages. */
+    val canSendWelcomeMessages: Boolean = false,
     val isAnonymous: Boolean = false,
 )
 

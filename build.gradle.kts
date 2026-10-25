@@ -74,8 +74,9 @@ repositories {
 // ─── Dependency versions not managed by Spring Boot BOM ─────────────────────
 val mcpSdkVersion = "2.1.0"
 val springAiMcpVersion = "2.0.1"
-val tdlightVersion = "3.5.3+td.1.8.65"
-val tdlightNativesVersion = "4.0.589"
+// tdlight-java BOM version: it pins tdlight-java, tdlight-api and the matching
+// tdlight-natives build, so the JNI natives never drift from the Java API.
+val tdlightVersion = "3.5.9+td.1.8.68"
 val resilience4jVersion = "2.4.0"
 val caffeineVersion = "3.3.1"
 val logstashVersion = "9.0"
@@ -109,13 +110,14 @@ dependencies {
     implementation("com.google.zxing:core:3.5.4")
 
     // ── Telegram (TDLib via tdlight-java) ─────────────────────────────────────
-    implementation("it.tdlight:tdlight-java:$tdlightVersion")
+    implementation(platform("it.tdlight:tdlight-java-bom:$tdlightVersion"))
+    implementation("it.tdlight:tdlight-java")
     // Classifier-based natives. Package every supported desktop/server target
     // in the Boot JAR; tdlight selects the matching classifier at runtime.
-    implementation("it.tdlight:tdlight-natives:$tdlightNativesVersion:linux_amd64_gnu_ssl3")
-    implementation("it.tdlight:tdlight-natives:$tdlightNativesVersion:linux_arm64_gnu_ssl3")
-    implementation("it.tdlight:tdlight-natives:$tdlightNativesVersion:windows_amd64")
-    implementation("it.tdlight:tdlight-natives:$tdlightNativesVersion:macos_arm64")
+    // The natives version comes from the tdlight BOM above.
+    listOf("linux_amd64_gnu_ssl3", "linux_arm64_gnu_ssl3", "windows_amd64", "macos_arm64").forEach { target ->
+        implementation(group = "it.tdlight", name = "tdlight-natives", classifier = target)
+    }
 
     // ── Caching (entity resolver) ──────────────────────────────────────────
     implementation("com.github.ben-manes.caffeine:caffeine:$caffeineVersion")
