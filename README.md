@@ -266,12 +266,12 @@ See [TOOL_PROFILES.md](docs/TOOL_PROFILES.md) for the exact intent of each surfa
 | Component        | Version          |
 |------------------|------------------|
 | Java             | 25               |
-| Kotlin           | 2.4.0            |
-| Spring Boot      | 4.1.0            |
-| Spring AI MCP    | 2.0.0            |
-| MCP Java SDK     | 2.0.0            |
-| TDLib (tdlight)  | 3.5.3+td.1.8.65  |
-| Gradle           | 9.6.1            |
+| Kotlin           | 2.4.21           |
+| Spring Boot      | 4.1.1            |
+| Spring AI MCP    | 2.0.1            |
+| MCP Java SDK     | 2.1.0            |
+| TDLib (tdlight)  | 3.5.9+td.1.8.68  |
+| Gradle           | 9.8.2            |
 | Resilience4j     | 2.4.0            |
 
 ## Quick Start

@@ -25,8 +25,36 @@ Codes include `INVALID_INPUT`, `CHAT_FORBIDDEN`, `ACCOUNT_FORBIDDEN`,
 `AUTH_REQUIRED`, `READ_ONLY`, `CONFIRMATION_REQUIRED`, `APPROVAL_DENIED`,
 `APPROVAL_UNAVAILABLE`, `RATE_LIMITED`, `FILE_FORBIDDEN`, `GUARDRAIL_REJECTED`,
 `ENTITY_NOT_FOUND`, `TELEGRAM_UNAVAILABLE`, `TELEGRAM_API_ERROR`, and
-`INTERNAL_ERROR`. Classification uses exception types, not error-message parsing.
-Unclassified exceptions and legacy text-only errors use `INTERNAL_ERROR`.
+`INTERNAL_ERROR`. Classification uses exception types; Telegram API errors are
+additionally classified by their TDLib error code. Unclassified exceptions and
+legacy text-only errors use `INTERNAL_ERROR`.
+
+Telegram rejections (TDLib `error` objects, including asynchronous
+`updateMessageSendFailed` results) map as follows. The message keeps the TDLib
+code and text, for example `Telegram API error (403): CHAT_WRITE_FORBIDDEN`.
+
+| TDLib error | Code | `retryable` |
+|---|---|---|
+| 420 or 429, or a `FLOOD_WAIT_N` / `FLOOD_PREMIUM_WAIT_N` message | `RATE_LIMITED` | true |
+| 400 with a not-found or invalid chat/user/peer/message ID message | `ENTITY_NOT_FOUND` | false |
+| other 400 | `INVALID_INPUT` | false |
+| 401 | `AUTH_REQUIRED` | false |
+| 403 | `PERMISSION_DENIED` | false |
+| 404 | `ENTITY_NOT_FOUND` | false |
+| 5xx | `TELEGRAM_UNAVAILABLE` | true |
+| anything else | `TELEGRAM_API_ERROR` | false |
+
+For flood control, `retry_after_seconds` is parsed from either
+`FLOOD_WAIT_N` / `FLOOD_PREMIUM_WAIT_N` or `Too Many Requests: retry after N`
+and is omitted when Telegram did not report a delay. Telegram rejected the
+request without executing it, so retrying after that delay is safe; retrying
+sooner extends the wait. A 5xx error is retryable, but check the chat for the
+result of a write before sending it again.
+
+The Telegram circuit breaker ignores caller errors (4xx other than flood
+control, and invalid tool input), so they never open it. Flood control, 5xx
+errors and timeouts count as failures; an open breaker surfaces as
+`TELEGRAM_UNAVAILABLE`.
 
 `SEND_OUTCOME_UNKNOWN` indicates that a local timeout or interruption occurred
 while waiting for an already-submitted send/forward request, or for the final
@@ -41,8 +69,9 @@ require checking the target chat. The provisional ID is not an advertised final
 message ID or a durable operation handle. Journal errors use
 `IDEMPOTENCY_CONFLICT`, `OPERATION_IN_PROGRESS`, or `SEND_JOURNAL_UNAVAILABLE`.
 
-`retryable=false` means automatic replay is not known to be safe; it does not
-mean the failure is permanent. All current mappings are conservative. Anti-spam
+`retryable=true` is used only for Telegram flood control and 5xx errors (see
+above). `retryable=false` means automatic replay is not known to be safe; it does not
+mean the failure is permanent. All other mappings are conservative. Anti-spam
 rejections include duplicate detection, so even a finite delay does not authorize
 another send. `retry_after_seconds`, when present, is rounded up from milliseconds
 and is only a minimum waiting interval.

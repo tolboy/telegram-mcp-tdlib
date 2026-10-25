@@ -3,6 +3,29 @@
 Notable changes to Telegram MCP Server are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- Update TDLib from 1.8.65 to 1.8.68 (tdlight-java 3.5.3+td.1.8.65 to
+  3.5.9+td.1.8.68). The tdlight-natives version now comes from the tdlight BOM
+  instead of a separate pin. Adapt to the 1.8.68 TL schema: `BotCommand`
+  `is_ephemeral`, `InputVoiceNote`, `InputSticker` and the new
+  `can_send_welcome_messages` administrator right.
+- **Behaviour change:** `set_admin_rights` accepts `can_send_welcome_messages`.
+  Because the tool replaces the complete rights set, omitting it revokes the
+  right, as for every other flag. `get_admins` and `get_participants` entries
+  now include `administrator_rights` for administrators so callers can read
+  and preserve current rights.
+- Classify Telegram API errors instead of reporting them as `INTERNAL_ERROR`:
+  flood control (420/429, `FLOOD_WAIT_N`, `FLOOD_PREMIUM_WAIT_N`,
+  `Too Many Requests: retry after N`) maps to retryable `RATE_LIMITED` with
+  `retry_after_seconds`; 400 maps to `INVALID_INPUT` or `ENTITY_NOT_FOUND`, 401 to
+  `AUTH_REQUIRED`, 403 to `PERMISSION_DENIED`, 404 to `ENTITY_NOT_FOUND`, and 5xx
+  to retryable `TELEGRAM_UNAVAILABLE`. Asynchronous send failures
+  (`updateMessageSendFailed`) are classified the same way.
+- The Telegram circuit breaker no longer counts caller errors (4xx other than
+  flood control, and invalid tool input) as failures, so bad requests cannot
+  block all Telegram calls. Flood control, 5xx errors and timeouts still count.
+
 ## 1.17.3 - 2026-10-17
 
 - Make `session clear` refuse a live TDLib session: probe every existing lock
