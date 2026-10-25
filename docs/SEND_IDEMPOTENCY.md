@@ -46,13 +46,17 @@ access, and a key for a different chat cannot reveal its receipt.
 | `SENT` | A final Telegram message ID was saved. This is not a read receipt. |
 | `SCHEDULED` | Telegram accepted a scheduled message; this does not confirm eventual delivery. |
 | `UNKNOWN` | A reservation exists without a saved final result. Delivery may have happened; inspect the chat. Repeating the key will not send again. |
+| `REJECTED` | A single-message send was rejected by Telegram flood control (or the local flood gate) before it was executed; nothing was sent. Retrying the same key with unchanged parameters after `retry_after_seconds` sends it. |
 | `NOT_FOUND` | No saved reservation exists in this account's current journal. This says nothing about unkeyed sends or deleted/restored journals. |
 | `OPERATION_IN_PROGRESS` error | Another caller holds the operation lock. Wait and query status. |
 | `IDEMPOTENCY_CONFLICT` error | The key is bound to different parameters or a different destination. Do not invent another key to retry an uncertain send. |
 | `SEND_JOURNAL_UNAVAILABLE` error | Storage is unavailable or damaged. Inspect storage and delivery; do not delete the record to force retry. |
 
 An error after reservation conservatively leaves `UNKNOWN`, even when it may
-have occurred before actual delivery. This favors avoiding duplicate messages.
+have occurred before actual delivery. The only exception is a flood-wait
+rejection of a single-message send, which TDLib reports only for requests it
+did not execute; it is saved as `REJECTED`. Batches (albums, multi-message
+forwards) stay `UNKNOWN` because part of them may have been delivered. This favors avoiding duplicate messages.
 Late successful Telegram responses and send updates observed by the running
 process are saved independently of the original caller's timeout. Status lookup
 and replay reconcile these saved receipts, including after a later restart.

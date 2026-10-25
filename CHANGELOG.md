@@ -15,16 +15,57 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   right, as for every other flag. `get_admins` and `get_participants` entries
   now include `administrator_rights` for administrators so callers can read
   and preserve current rights.
-- Classify Telegram API errors instead of reporting them as `INTERNAL_ERROR`:
-  flood control (420/429, `FLOOD_WAIT_N`, `FLOOD_PREMIUM_WAIT_N`,
-  `Too Many Requests: retry after N`) maps to retryable `RATE_LIMITED` with
-  `retry_after_seconds`; 400 maps to `INVALID_INPUT` or `ENTITY_NOT_FOUND`, 401 to
-  `AUTH_REQUIRED`, 403 to `PERMISSION_DENIED`, 404 to `ENTITY_NOT_FOUND`, and 5xx
-  to retryable `TELEGRAM_UNAVAILABLE`. Asynchronous send failures
-  (`updateMessageSendFailed`) are classified the same way.
-- The Telegram circuit breaker no longer counts caller errors (4xx other than
-  flood control, and invalid tool input) as failures, so bad requests cannot
-  block all Telegram calls. Flood control, 5xx errors and timeouts still count.
+- Classify Telegram API errors instead of reporting them as `INTERNAL_ERROR`,
+  using the TDLib code plus explicit tables of real TDLib and Telegram error
+  strings (see [docs/TOOL_ERRORS.md](docs/TOOL_ERRORS.md)). Asynchronous send
+  failures (`updateMessageSendFailed`) are classified the same way.
+- **Behaviour change:** Telegram flood control (420/429, `FLOOD_WAIT_N`,
+  `FLOOD_PREMIUM_WAIT_N`, `SLOWMODE_WAIT_N`, `2FA_CONFIRM_WAIT_N`,
+  `TAKEOUT_INIT_DELAY_N`, `Too Many Requests: retry after N`) uses the new
+  retryable code `TELEGRAM_FLOOD_WAIT` with `retry_after_seconds`.
+  `RATE_LIMITED` keeps its existing meaning (this server's anti-spam guard) and
+  stays `retryable=false`.
+- **Behaviour change:** after a flood wait, calls in the same scope fail fast
+  with `TELEGRAM_FLOOD_WAIT` and the remaining seconds, without reaching
+  Telegram, until the delay elapses. The scope is account + target chat, or
+  account + TDLib method for requests without a chat; other chats are not
+  blocked. The gate is in memory.
+- **Behaviour change:** 4xx permission messages (`Can't access the chat`,
+  `Not enough rights…`, `CHAT_ADMIN_REQUIRED`, `CHAT_SEND_*_FORBIDDEN`, …) map
+  to `PERMISSION_DENIED`, checked before not-found. 403 maps to
+  `PERMISSION_DENIED`, 401 to `AUTH_REQUIRED`.
+- **Behaviour change:** `ENTITY_NOT_FOUND` is used only for 404 and an explicit
+  table of not-found messages. `File not found` and `Chat list not found` are
+  `INVALID_INPUT`. Other 4xx map to `INVALID_INPUT`.
+- **Behaviour change:** 5xx errors are no longer retryable as a class. Only
+  allow-listed transient failures (502, 503, `WORKER_BUSY…`, `Timeout expired`)
+  of read-only requests are retryable `TELEGRAM_UNAVAILABLE`; the same failures
+  of writes are `TELEGRAM_UNAVAILABLE` with `retryable=false`. Fixed 500
+  outcomes (`Topic not found`, `Sticker set not found`, `Unknown parse mode`, …)
+  map to `ENTITY_NOT_FOUND` or `INVALID_INPUT`, and other 5xx (for example
+  `Receive invalid response`, which may follow a successful write) map to
+  `TELEGRAM_API_ERROR` with `retryable=false`.
+- **Behaviour change:** cancelled or aborted requests (`Canceled…`,
+  `406 Request canceled`, `500 Request aborted`) map to the new code
+  `TELEGRAM_REQUEST_CANCELLED` (`retryable=false`).
+- **Behaviour change:** a single-message keyed send rejected by flood control or
+  the flood gate is recorded as the new receipt status `REJECTED`; retrying the
+  same key with the same parameters sends it. Batches stay `UNKNOWN`.
+- **Behaviour change:** `set_admin_rights` rejects unknown keys in `rights`
+  with `INVALID_INPUT` instead of ignoring them, and its input schema declares
+  `additionalProperties: false`.
+- **Behaviour change:** REST endpoints map Telegram errors by kind: flood wait
+  429 with `Retry-After`, permission 403, not-found 404, other caller errors
+  400, auth/cancelled/transient 503, other server errors 502 (previously all
+  502). 4xx are logged at warn without a stack trace.
+- The Telegram circuit breaker counts only Telegram health failures (non-fixed
+  5xx and timeouts). Caller errors, invalid tool input, flood waits, flood-gate
+  rejections and cancellations are ignored and are not recorded as slow calls.
+  Per-account breakers are created through the circuit breaker registry.
+- Build: the TDLight Maven repository serves only `it.tdlight` (Gradle
+  `exclusiveContent`), and `it.tdlight` artifacts are checksum-pinned in
+  `gradle/verification-metadata.xml` (SHA-256). `verifyNativeRuntimeCoverage`
+  prints the resolved `tdlight-natives` version.
 
 ## 1.17.3 - 2026-10-17
 
