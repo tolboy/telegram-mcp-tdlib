@@ -84,7 +84,8 @@ class MessageSendTrackerTest {
         tracker.onFailed(TdApi.UpdateMessageSendFailed(failed, provisional.id, TdApi.Error(429, "Too Many Requests: retry after 17")))
 
         val error = assertFailsWith<TelegramApiException> { tracker.awaitFinal(provisional, 1) }
-        assertTrue(error.isRateLimit)
+        assertTrue(error.isFloodWait)
+        assertTrue(error.wasNotExecuted)
         assertEquals(17L, error.retryAfterSeconds)
     }
 

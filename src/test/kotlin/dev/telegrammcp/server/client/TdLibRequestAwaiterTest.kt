@@ -10,6 +10,7 @@ import java.util.concurrent.TimeoutException
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertSame
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class TdLibRequestAwaiterTest {
@@ -63,14 +64,28 @@ class TdLibRequestAwaiterTest {
 
     @Test
     fun `telegram rejection becomes a classifiable TelegramApiException keeping the cause`() {
-        val rejected = TelegramError(TdApi.Error(420, "FLOOD_WAIT_33"))
+        val rejected = TelegramError(TdApi.Error(429, "Too Many Requests: retry after 33"))
         val pending = CompletableFuture<TdApi.Object>().apply { completeExceptionally(rejected) }
         val error = assertFailsWith<TelegramApiException> {
             TdLibRequestAwaiter.await(pending, TdApi.SendMessage(), 0)
         }
-        assertEquals(420, error.errorCode)
-        assertEquals("FLOOD_WAIT_33", error.errorMessage)
+        assertEquals(429, error.errorCode)
+        assertEquals("Too Many Requests: retry after 33", error.errorMessage)
         assertEquals(33L, error.retryAfterSeconds)
         assertSame(rejected, error.cause)
+    }
+
+    @Test
+    fun `read-only detection drives retryability of transient failures`() {
+        fun translated(request: TdApi.Function<*>) = TdLibRequestAwaiter.translate(
+            TelegramError(TdApi.Error(500, "Timeout expired")), request,
+        ) as TelegramApiException
+
+        assertTrue(translated(TdApi.GetChatHistory()).isRetryable)
+        assertTrue(translated(TdApi.SearchChatMessages()).isRetryable)
+        assertTrue(translated(TdApi.LoadChats()).isRetryable)
+        assertFalse(translated(TdApi.SendMessage()).isRetryable)
+        assertFalse(translated(TdApi.CheckAuthenticationCode()).isRetryable, "check* functions can be mutations")
+        assertFalse(translated(TdApi.GetCallbackQueryAnswer()).isRetryable, "pressing a bot button is a write")
     }
 }

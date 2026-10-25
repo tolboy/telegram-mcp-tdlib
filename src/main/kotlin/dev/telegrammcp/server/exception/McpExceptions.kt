@@ -14,50 +14,55 @@ sealed class McpException(
 /**
  * The Telegram API (TDLib) rejected a request with a TDLib `error` object.
  *
- * TDLib follows HTTP-like codes: 400 bad request, 401 unauthorized,
- * 403 forbidden, 404 not found, 420/429 flood control and 5xx internal
- * errors. Flood waits are reported either as `FLOOD_WAIT_N` /
- * `FLOOD_PREMIUM_WAIT_N` (usually code 420) or as
- * `Too Many Requests: retry after N` (code 429).
+ * [kind] comes from [TelegramErrorClassifier], which combines the HTTP-like
+ * code with explicit tables of TDLib error strings. Flood control normally
+ * reaches us only as `429 Too Many Requests: retry after N`: TDLib itself waits
+ * out 420 `FLOOD_WAIT_N` / `SLOWMODE_WAIT_N` and gives up with 429 once its
+ * total wait limit is exceeded (td/telegram/net/NetQueryDelayer.cpp).
+ *
+ * [readOnlyRequest] is true when the failed TDLib function has no side
+ * effects, so an unchanged retry after a transient failure is safe.
  */
 class TelegramApiException(
     val errorCode: Int,
     val errorMessage: String,
     cause: Throwable? = null,
+    val readOnlyRequest: Boolean = false,
 ) : McpException("Telegram API error ($errorCode): $errorMessage", cause) {
 
+    val kind: TelegramErrorKind = TelegramErrorClassifier.classify(errorCode, errorMessage)
+
     /** Minimum delay Telegram asked for, parsed from the error message. */
-    val retryAfterSeconds: Long? = parseRetryAfterSeconds(errorMessage)
+    val retryAfterSeconds: Long? = TelegramErrorClassifier.parseRetryAfterSeconds(errorMessage)
 
     /** Flood control: the request was not executed; retry after [retryAfterSeconds]. */
-    val isRateLimit: Boolean
-        get() = errorCode == FLOOD_CODE || errorCode == TOO_MANY_REQUESTS_CODE ||
-            FLOOD_WAIT.containsMatchIn(errorMessage)
+    val isFloodWait: Boolean get() = kind == TelegramErrorKind.FLOOD_WAIT
 
-    /**
-     * A 4xx rejection caused by the request itself (bad arguments, missing
-     * rights, unknown chat). It says nothing about Telegram's health. Rate
-     * limits are 4xx too but are excluded: they signal real back-pressure.
-     */
-    val isCallerError: Boolean
-        get() = errorCode in 400..499 && !isRateLimit
+    /** True when Telegram definitely did not execute the request (safe to record as rejected). */
+    val wasNotExecuted: Boolean get() = isFloodWait
 
-    /** TDLib or Telegram server-side failure (5xx). */
-    val isServerError: Boolean
-        get() = errorCode in 500..599
+    /** True when the failure says something about Telegram's health and should count toward the breaker. */
+    val countsTowardBreaker: Boolean get() = kind.countsTowardBreaker
+
+    /** Retrying the unchanged call may succeed and cannot duplicate a side effect. */
+    val isRetryable: Boolean
+        get() = isFloodWait || (kind == TelegramErrorKind.TRANSIENT_SERVER && readOnlyRequest)
 
     companion object {
-        const val FLOOD_CODE = 420
-        const val TOO_MANY_REQUESTS_CODE = 429
-
-        private val FLOOD_WAIT = Regex("""\bFLOOD_(?:PREMIUM_)?WAIT_(\d+)\b""")
-        private val RETRY_AFTER = Regex("""\bretry after (\d+)\b""", RegexOption.IGNORE_CASE)
-
-        fun parseRetryAfterSeconds(message: String): Long? =
-            (FLOOD_WAIT.find(message) ?: RETRY_AFTER.find(message))
-                ?.groupValues?.get(1)?.toLongOrNull()
+        fun parseRetryAfterSeconds(message: String): Long? = TelegramErrorClassifier.parseRetryAfterSeconds(message)
     }
 }
+
+/**
+ * A local per-chat (or per-method) flood gate rejected the call without sending
+ * it, because Telegram recently returned a flood wait for the same scope.
+ */
+class TelegramFloodGateException(
+    val scope: String,
+    val retryAfterSeconds: Long,
+) : McpException(
+    "Telegram flood wait still active for $scope; retry after ${retryAfterSeconds}s (request not sent)",
+)
 
 /** The caller supplied invalid or missing tool arguments. */
 class InvalidToolInputException(

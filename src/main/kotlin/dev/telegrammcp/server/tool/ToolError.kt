@@ -13,6 +13,10 @@ data class ToolError(
     companion object {
         fun from(error: Exception): ToolError {
             if (error is TelegramApiException) return fromTelegram(error)
+            if (error is TelegramFloodGateException) return ToolError(
+                FLOOD_WAIT, error.message, retryable = true, retry_after_seconds = error.retryAfterSeconds,
+                next_action = FLOOD_WAIT_ACTION,
+            )
             val code = when (error) {
                 is dev.telegrammcp.server.security.PermissionDeniedException -> "PERMISSION_DENIED"
                 is SendOperationConflictException -> "IDEMPOTENCY_CONFLICT"
@@ -58,50 +62,59 @@ data class ToolError(
             return ToolError(code, error.message ?: "Unknown error", false, delaySeconds, action)
         }
 
+        const val FLOOD_WAIT = "TELEGRAM_FLOOD_WAIT"
+        private const val FLOOD_WAIT_ACTION = "Telegram flood control rejected the request without executing it. " +
+            "Wait at least retry_after_seconds, then retry the unchanged call (for keyed sends, reuse the same " +
+            "idempotency_key). Retrying sooner is rejected locally and does not reach Telegram."
+
         /**
-         * Classifies a TDLib rejection by its error code (and, for flood
-         * control, its message). Telegram rejected these requests before
-         * executing them, so only rate limits and server errors are retryable.
+         * Maps a classified TDLib rejection (see TelegramErrorClassifier). Only
+         * flood waits and allow-listed transient failures of read-only requests
+         * are retryable; a failed write may already have taken effect.
          */
         private fun fromTelegram(error: TelegramApiException): ToolError {
             val message = error.message
-            return when {
-                error.isRateLimit -> ToolError(
-                    "RATE_LIMITED", message, retryable = true, retry_after_seconds = error.retryAfterSeconds,
-                    next_action = "Telegram flood control rejected the request without executing it. Wait at least " +
-                        "retry_after_seconds before retrying; retrying sooner extends the flood wait.",
+            return when (error.kind) {
+                TelegramErrorKind.FLOOD_WAIT -> ToolError(
+                    FLOOD_WAIT, message, retryable = true, retry_after_seconds = error.retryAfterSeconds,
+                    next_action = FLOOD_WAIT_ACTION,
                 )
-                error.errorCode == 401 -> ToolError(
+                TelegramErrorKind.AUTH_REQUIRED -> ToolError(
                     "AUTH_REQUIRED", message,
                     next_action = "Ask the operator to authenticate the selected account.",
                 )
-                error.errorCode == 403 -> ToolError(
+                TelegramErrorKind.PERMISSION_DENIED -> ToolError(
                     "PERMISSION_DENIED", message,
-                    next_action = "The Telegram account lacks the rights for this action in this chat; " +
+                    next_action = "The Telegram account cannot access this chat or lacks the rights for this action; " +
                         "do not retry unchanged.",
                 )
-                error.errorCode == 404 || (error.errorCode == 400 && isNotFound(error.errorMessage)) -> ToolError(
+                TelegramErrorKind.NOT_FOUND -> ToolError(
                     "ENTITY_NOT_FOUND", message,
-                    next_action = "Check the chat, user or message identifier.",
+                    next_action = "Check the chat, user, message or topic identifier.",
                 )
-                error.errorCode == 400 -> ToolError(
+                TelegramErrorKind.INVALID_INPUT -> ToolError(
                     "INVALID_INPUT", message,
                     next_action = "Telegram rejected the arguments; correct them before retrying.",
                 )
-                error.isServerError -> ToolError(
-                    "TELEGRAM_UNAVAILABLE", message, retryable = true,
-                    next_action = "Transient Telegram server error; retry after a short delay. " +
-                        "For writes, check the chat for the result before sending again.",
+                TelegramErrorKind.CANCELLED -> ToolError(
+                    "TELEGRAM_REQUEST_CANCELLED", message,
+                    next_action = "The request was cancelled before completion (for example during shutdown). " +
+                        "Verify any side effects before retrying a write.",
                 )
-                else -> ToolError(
+                TelegramErrorKind.TRANSIENT_SERVER -> ToolError(
+                    "TELEGRAM_UNAVAILABLE", message, retryable = error.readOnlyRequest,
+                    next_action = if (error.readOnlyRequest) {
+                        "Transient Telegram server error; retry the read after a short delay."
+                    } else {
+                        "Transient Telegram server error. The write may have taken effect; check the chat " +
+                            "before sending again."
+                    },
+                )
+                TelegramErrorKind.SERVER_ERROR, TelegramErrorKind.UNKNOWN -> ToolError(
                     "TELEGRAM_API_ERROR", message,
                     next_action = "Inspect the error and verify any side effects before retrying.",
                 )
             }
         }
-
-        private val NOT_FOUND = Regex("""not found|_NOT_FOUND\b|\b(?:CHAT|USER|PEER|MESSAGE|CHANNEL)_ID_INVALID\b""", RegexOption.IGNORE_CASE)
-
-        private fun isNotFound(message: String): Boolean = NOT_FOUND.containsMatchIn(message)
     }
 }

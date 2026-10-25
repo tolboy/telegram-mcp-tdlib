@@ -4,6 +4,7 @@ import dev.telegrammcp.server.exception.AntiSpamException
 import dev.telegrammcp.server.exception.ChatNotAllowedException
 import dev.telegrammcp.server.exception.ApprovalDeniedException
 import dev.telegrammcp.server.exception.TelegramApiException
+import dev.telegrammcp.server.exception.TelegramFloodGateException
 import io.modelcontextprotocol.spec.McpSchema
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
@@ -45,51 +46,70 @@ class ToolErrorTest {
     }
 
     @Test
-    fun `telegram flood waits map to RATE_LIMITED with Telegram's delay for 420 and 429 in both message forms`() {
+    fun `telegram flood waits map to TELEGRAM_FLOOD_WAIT with Telegram's delay`() {
         listOf(
+            TelegramApiException(429, "Too Many Requests: retry after 42") to 42L,
             TelegramApiException(420, "FLOOD_WAIT_17") to 17L,
             TelegramApiException(420, "FLOOD_PREMIUM_WAIT_4") to 4L,
-            TelegramApiException(420, "Too Many Requests: retry after 9") to 9L,
-            TelegramApiException(429, "Too Many Requests: retry after 42") to 42L,
-            TelegramApiException(429, "FLOOD_WAIT_5") to 5L,
+            TelegramApiException(420, "SLOWMODE_WAIT_9") to 9L,
         ).forEach { (exception, seconds) ->
             val error = ToolError.from(exception)
-            assertEquals("RATE_LIMITED", error.code, exception.message)
+            assertEquals("TELEGRAM_FLOOD_WAIT", error.code, exception.message)
             assertEquals(seconds, error.retry_after_seconds, exception.message)
             assertTrue(error.retryable, "Telegram did not execute a flood-limited request")
             assertTrue(error.next_action.contains("retry_after_seconds"))
         }
+        val gated = ToolError.from(TelegramFloodGateException("chat 5", 12))
+        assertEquals("TELEGRAM_FLOOD_WAIT", gated.code)
+        assertEquals(12L, gated.retry_after_seconds)
+        assertTrue(gated.retryable)
     }
 
     @Test
-    fun `telegram errors map to stable codes by error code`() {
-        fun code(errorCode: Int, message: String) = ToolError.from(TelegramApiException(errorCode, message))
+    fun `local anti-spam limits keep RATE_LIMITED and stay non-retryable`() {
+        val limited = ToolError.from(AntiSpamException("send_message", "window", 5000))
+        assertEquals("RATE_LIMITED", limited.code)
+        assertFalse(limited.retryable)
+    }
+
+    @Test
+    fun `telegram errors map to stable codes by classified kind`() {
+        fun code(errorCode: Int, message: String, read: Boolean = false) =
+            ToolError.from(TelegramApiException(errorCode, message, readOnlyRequest = read))
 
         assertEquals("INVALID_INPUT", code(400, "MESSAGE_TOO_LONG").code)
+        assertEquals("INVALID_INPUT", code(400, "File not found").code)
         assertEquals("ENTITY_NOT_FOUND", code(400, "Chat not found").code)
         assertEquals("ENTITY_NOT_FOUND", code(400, "USER_ID_INVALID").code)
-        assertEquals("ENTITY_NOT_FOUND", code(400, "MESSAGE_NOT_FOUND").code)
+        assertEquals("ENTITY_NOT_FOUND", code(400, "Wrong message identifier").code)
+        assertEquals("ENTITY_NOT_FOUND", code(500, "Topic not found").code)
         assertEquals("ENTITY_NOT_FOUND", code(404, "Not Found").code)
-        assertEquals("AUTH_REQUIRED", code(401, "Unauthorized").code)
+        assertEquals("PERMISSION_DENIED", code(400, "Can't access the chat").code)
+        assertEquals("PERMISSION_DENIED", code(400, "CHAT_ADMIN_REQUIRED").code)
         assertEquals("PERMISSION_DENIED", code(403, "CHAT_WRITE_FORBIDDEN").code)
-        assertEquals("TELEGRAM_UNAVAILABLE", code(500, "Request aborted").code)
-        assertEquals("TELEGRAM_API_ERROR", code(406, "hidden").code)
+        assertEquals("AUTH_REQUIRED", code(401, "Unauthorized").code)
+        assertEquals("TELEGRAM_REQUEST_CANCELLED", code(500, "Request aborted").code)
+        assertEquals("TELEGRAM_REQUEST_CANCELLED", code(406, "Request canceled").code)
+        assertEquals("TELEGRAM_UNAVAILABLE", code(500, "WORKER_BUSY_TOO_LONG_RETRY").code)
+        assertEquals("TELEGRAM_API_ERROR", code(500, "Receive invalid response").code)
 
-        listOf(400 to "MESSAGE_TOO_LONG", 401 to "Unauthorized", 403 to "CHAT_WRITE_FORBIDDEN", 404 to "Not Found").forEach { (c, m) ->
-            val error = code(c, m)
-            assertFalse(error.retryable, "$c must not invite an unchanged retry")
+        listOf(400 to "MESSAGE_TOO_LONG", 401 to "Unauthorized", 403 to "CHAT_WRITE_FORBIDDEN", 404 to "Not Found",
+            500 to "Request aborted", 500 to "Receive invalid response").forEach { (c, m) ->
+            val error = code(c, m, read = true)
+            assertFalse(error.retryable, "$c $m must not invite an unchanged retry")
             assertEquals(null, error.retry_after_seconds)
         }
-        assertTrue(code(500, "Request aborted").retryable)
+        assertTrue(code(500, "Timeout expired", read = true).retryable)
+        assertFalse(code(500, "Timeout expired", read = false).retryable, "a failed write may have taken effect")
         assertTrue(code(403, "CHAT_WRITE_FORBIDDEN").message.contains("CHAT_WRITE_FORBIDDEN"))
     }
 
     @Test
-    fun `telegram rate limit is rendered in the structured error envelope`() {
-        val result = ToolSupport.errorResult(TelegramApiException(420, "FLOOD_WAIT_30"))
+    fun `telegram flood wait is rendered in the structured error envelope`() {
+        val result = ToolSupport.errorResult(TelegramApiException(429, "Too Many Requests: retry after 30"))
         val envelope = result.structuredContent() as Map<*, *>
         val error = (envelope["data"] as Map<*, *>)["error"] as Map<*, *>
-        assertEquals("RATE_LIMITED", error["code"])
+        assertEquals("TELEGRAM_FLOOD_WAIT", error["code"])
         assertEquals(30L, (error["retry_after_seconds"] as Number).toLong())
         assertEquals(true, error["retryable"])
     }

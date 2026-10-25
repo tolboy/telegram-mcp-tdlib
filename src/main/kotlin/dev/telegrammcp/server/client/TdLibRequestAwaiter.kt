@@ -18,7 +18,7 @@ internal object TdLibRequestAwaiter {
     ): TdApi.Object = try {
         future.get(timeoutSeconds, TimeUnit.SECONDS)
     } catch (error: ExecutionException) {
-        throw translate(error.cause ?: error)
+        throw translate(error.cause ?: error, request)
     } catch (error: TimeoutException) {
         throw waitFailure(request, error)
     } catch (error: InterruptedException) {
@@ -27,10 +27,30 @@ internal object TdLibRequestAwaiter {
     }
 
     /** Maps tdlight's TelegramError to the server's typed, classifiable exception. */
-    fun translate(error: Throwable): Throwable = when (error) {
-        is TelegramError -> TelegramApiException(error.errorCode, error.errorMessage.orEmpty(), error)
+    fun translate(error: Throwable, request: TdApi.Function<*>? = null): Throwable = when (error) {
+        is TelegramError -> TelegramApiException(
+            error.errorCode, error.errorMessage.orEmpty(), error,
+            readOnlyRequest = request != null && isReadOnly(request),
+        )
         else -> error
     }
+
+    /**
+     * TDLib functions without server-side effects. Unknown functions are
+     * treated as writes, so a transient failure is never advertised as safe to
+     * retry for them.
+     */
+    fun isReadOnly(request: TdApi.Function<*>): Boolean {
+        val name = request.javaClass.simpleName
+        if (name in NOT_READ_ONLY) return false
+        return READ_ONLY_PREFIXES.any { name.startsWith(it) } || name in READ_ONLY_NAMES
+    }
+
+    private val READ_ONLY_PREFIXES = listOf("Get", "Search", "Load")
+    private val READ_ONLY_NAMES = setOf("ParseTextEntities", "DownloadFile", "RecognizeSpeech")
+
+    /** Get* functions that act on behalf of the user (press a bot button, authorize a login, query a bot). */
+    private val NOT_READ_ONLY = setOf("GetCallbackQueryAnswer", "GetLoginUrl", "GetExternalLink", "GetInlineQueryResults")
 
     private fun waitFailure(request: TdApi.Function<*>, error: Exception): Exception = when (request) {
         is TdApi.SendMessage -> SendOutcomeUnknownException(request.chatId, cause = error)
