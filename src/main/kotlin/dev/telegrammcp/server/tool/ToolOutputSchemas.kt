@@ -44,7 +44,7 @@ object ToolOutputSchemas {
 
     val receipt = mapOf<String, Any>("anyOf" to listOf(
         receiptVariant(values("SENT", "SCHEDULED"), integer + ("minimum" to 1)),
-        receiptVariant(values("UNKNOWN", "NOT_FOUND"), mapOf("type" to "null")),
+        receiptVariant(values("UNKNOWN", "NOT_FOUND", "REJECTED"), mapOf("type" to "null")),
     ))
 
     val sendResult = mapOf<String, Any>("anyOf" to listOf(message, receipt))

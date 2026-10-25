@@ -4,6 +4,8 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.exception.SendJournalException
 import dev.telegrammcp.server.exception.SendOperationBusyException
 import dev.telegrammcp.server.exception.SendOperationConflictException
+import dev.telegrammcp.server.exception.TelegramApiException
+import dev.telegrammcp.server.exception.TelegramFloodGateException
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
@@ -120,5 +122,46 @@ class SendOperationJournalTest {
         assertFailsWith<SendJournalException> {
             store.send("work", "key", 42, "fingerprint", {}) { fail("must not resend") }
         }
+    }
+
+    @Test
+    fun `keyed send hitting a flood wait is REJECTED and the same key sends on retry`() {
+        val store = journal()
+        var charges = 0
+        val flood = TelegramApiException(429, "Too Many Requests: retry after 7")
+        assertSame(flood, assertFailsWith<TelegramApiException> {
+            store.send("work", "key", 42, "fingerprint", { charges++ }) { throw flood }
+        })
+        assertEquals("REJECTED", journal().status("work", "key", 42)["status"])
+
+        // Local flood-gate rejection is recorded the same way.
+        assertFailsWith<TelegramFloodGateException> {
+            journal().send("work", "key", 42, "fingerprint", { charges++ }) { throw TelegramFloodGateException("chat 42", 3) }
+        }
+        assertEquals("REJECTED", journal().status("work", "key", 42)["status"])
+
+        // A changed request under the same key is still a conflict.
+        assertFailsWith<SendOperationConflictException> {
+            journal().send("work", "key", 42, "other", {}) { fail("must not send") }
+        }
+        val sent = journal().send("work", "key", 42, "fingerprint", { charges++ }) { 77 }
+        assertEquals("SENT", sent["status"])
+        assertEquals(77L, sent["message_id"])
+        assertEquals(false, sent["replayed"])
+        assertEquals(3, charges, "beforeSend runs once per fresh attempt")
+        assertEquals("SENT", journal().send("work", "key", 42, "fingerprint", { fail("quota") }) { fail("duplicate") }["status"])
+    }
+
+    @Test
+    fun `non-flood failures and multi-message sends stay UNKNOWN`() {
+        assertFailsWith<TelegramApiException> {
+            journal().send("work", "a", 42, "fp", {}) { throw TelegramApiException(500, "Receive invalid response") }
+        }
+        assertEquals("UNKNOWN", journal().status("work", "a", 42)["status"])
+
+        assertFailsWith<TelegramApiException> {
+            journal().sendCompletion("work", "b", 42, "fp", {}) { throw TelegramApiException(429, "Too Many Requests: retry after 1") }
+        }
+        assertEquals("UNKNOWN", journal().status("work", "b", 42)["status"], "an album may be partially delivered")
     }
 }

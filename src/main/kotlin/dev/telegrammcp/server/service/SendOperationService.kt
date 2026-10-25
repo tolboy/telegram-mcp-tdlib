@@ -21,7 +21,8 @@ class SendOperationService(
         val key = key(arguments) ?: return send()
         val account = accountContext.currentAccount()
         val result = journal.sendCompletion(account, key, chatId,
-            SendOperationJournal.digest(mapper.writeValueAsBytes(canonicalRequest)), beforeSend) {
+            SendOperationJournal.digest(mapper.writeValueAsBytes(canonicalRequest)), beforeSend,
+            rejectable = expectedCount == 1) {
             val payload = SendObservationContext.observe({ messages ->
                 if (messages.size == expectedCount && messages.all { it.chatId == chatId && it.id > 0 }) {
                     val ids = messages.map { it.id }

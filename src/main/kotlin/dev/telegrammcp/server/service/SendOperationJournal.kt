@@ -5,6 +5,8 @@ import dev.telegrammcp.server.exception.InvalidToolInputException
 import dev.telegrammcp.server.exception.SendJournalException
 import dev.telegrammcp.server.exception.SendOperationBusyException
 import dev.telegrammcp.server.exception.SendOperationConflictException
+import dev.telegrammcp.server.exception.TelegramApiException
+import dev.telegrammcp.server.exception.TelegramFloodGateException
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.channels.OverlappingFileLockException
@@ -24,6 +26,9 @@ class SendOperationJournal(private val root: Path, private val mapper: ObjectMap
         val fingerprint: String,
     )
 
+    /** Second journal line for a send Telegram definitely did not execute. */
+    data class Rejection(val rejected: Boolean = true)
+
     data class Completion(val messageId: Long, val messageIds: List<Long>? = null, val scheduled: Boolean = false)
 
     data class Receipt(val operationId: String, val chatId: Long, val status: String, val messageId: Long? = null,
@@ -37,7 +42,10 @@ class SendOperationJournal(private val root: Path, private val mapper: ObjectMap
         }
     }
 
-    /** beforeSend runs only for a new operation, before the durable reservation. */
+    /**
+     * Single-message send. beforeSend runs only for a new operation, before
+     * the durable reservation. A flood-wait rejection is recorded as REJECTED.
+     */
     fun send(
         account: String,
         key: String,
@@ -45,23 +53,38 @@ class SendOperationJournal(private val root: Path, private val mapper: ObjectMap
         fingerprint: String,
         beforeSend: () -> Unit,
         send: () -> Long,
-    ): Map<String, Any?> = sendCompletion(account, key, chatId, fingerprint, beforeSend) { Completion(send()) }
+    ): Map<String, Any?> = sendCompletion(account, key, chatId, fingerprint, beforeSend, rejectable = true) { Completion(send()) }
 
+    /**
+     * [rejectable] allows recording REJECTED when Telegram definitely did not
+     * execute the send (a flood wait). Only single-message sends qualify: a
+     * multi-message send may fail after earlier messages were delivered.
+     */
     fun sendCompletion(account: String, key: String, chatId: Long, fingerprint: String,
-        beforeSend: () -> Unit, send: () -> Completion): Map<String, Any?> = locked(account, key) { path, operationId ->
+        beforeSend: () -> Unit, rejectable: Boolean = false, send: () -> Completion): Map<String, Any?> = locked(account, key) { path, operationId ->
         if (Files.exists(path, NOFOLLOW_LINKS)) {
             val (reservation, receipt) = read(path)
             if (reservation.chatId != chatId || reservation.fingerprint != fingerprint) {
                 throw SendOperationConflictException()
             }
-            return@locked receipt.payload(replayed = true)
+            if (receipt.status != REJECTED) return@locked receipt.payload(replayed = true)
+            // Nothing was sent last time: an unchanged retry starts a fresh attempt.
+            io { Files.delete(path) }
         }
         beforeSend()
         val reservation = Reservation(operationId = operationId, chatId = chatId, fingerprint = fingerprint)
         persist(path, mapper.writeValueAsBytes(reservation), create = true)
-        // Any exception after reservation leaves UNKNOWN. Even a seemingly
+        // Any other exception after reservation leaves UNKNOWN. Even a seemingly
         // definitive local failure can follow a successful Telegram send.
-        val completion = send()
+        val completion = try {
+            send()
+        } catch (error: Exception) {
+            if (rejectable && wasNotExecuted(error)) {
+                // If this write fails the record stays UNKNOWN, which is still safe.
+                runCatching { persist(path, mapper.writeValueAsBytes(Rejection()), create = false) }
+            }
+            throw error
+        }
         validateCompletion(completion)
         persist(path, mapper.writeValueAsBytes(completion), create = false)
         receipt(reservation, completion).payload(replayed = false)
@@ -99,7 +122,11 @@ class SendOperationJournal(private val root: Path, private val mapper: ObjectMap
         require(lines.size in 1..2)
         val reservation = mapper.readValue(lines[0], Reservation::class.java)
         require(reservation.version == 1)
-        val completion = lines.getOrNull(1)?.let { mapper.readValue(it, Completion::class.java) }
+        val second = lines.getOrNull(1)?.let { mapper.readTree(it) }
+        if (second != null && second.path("rejected").asBoolean(false)) {
+            return@io reservation to Receipt(reservation.operationId, reservation.chatId, REJECTED)
+        }
+        val completion = second?.let { mapper.treeToValue(it, Completion::class.java) }
         if (completion != null) validateCompletion(completion)
         reservation to receipt(reservation, completion)
     }
@@ -157,6 +184,12 @@ class SendOperationJournal(private val root: Path, private val mapper: ObjectMap
     private fun <T> io(action: () -> T): T = try { action() } catch (error: Exception) { throw SendJournalException(error) }
 
     companion object {
+        const val REJECTED = "REJECTED"
+
+        /** Telegram (or the local flood gate) rejected the send before executing it. */
+        fun wasNotExecuted(error: Throwable): Boolean =
+            error is TelegramFloodGateException || (error is TelegramApiException && error.wasNotExecuted)
+
         fun validateKey(key: String) {
             if (!Regex("[A-Za-z0-9._:-]{1,128}").matches(key)) {
                 throw InvalidToolInputException("idempotency_key must be 1-128 ASCII letters, digits, '.', '_', ':', or '-'")

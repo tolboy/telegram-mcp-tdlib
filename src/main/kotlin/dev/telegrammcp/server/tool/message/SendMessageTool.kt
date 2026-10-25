@@ -65,7 +65,7 @@ class SendMessageTool(
           "properties": {
             "idempotency_key": {
               "type": "string",
-              "description": "Optional unique send key (1-128 ASCII letters, digits, '.', '_', ':', '-'). Reuse with identical parameters to retrieve the stored receipt without sending again. Keyed calls return a delivery receipt; UNKNOWN requires checking the chat."
+              "description": "Optional unique send key (1-128 ASCII letters, digits, '.', '_', ':', '-'). Reuse with identical parameters to retrieve the stored receipt without sending again. Keyed calls return a delivery receipt; UNKNOWN requires checking the chat; after a TELEGRAM_FLOOD_WAIT the receipt is REJECTED and the same key may be retried."
             },
             "chat_id": {
               "type": ["string", "number"],
