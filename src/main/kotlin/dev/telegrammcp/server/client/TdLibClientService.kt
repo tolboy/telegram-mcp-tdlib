@@ -555,10 +555,12 @@ class TdLibClientService(
                 throw partial(error, error.retryAfterSeconds)
             } catch (error: SendOutcomeUnknownException) {
                 if (delivered.isEmpty()) throw error
-                throw partial(error, null)
+                // awaitFinalMessage gated the chat's send scope: a forward of
+                // the unconfirmed IDs before the gate ends is rejected locally.
+                throw partial(error, floodGate.remainingSeconds(TelegramFloodGate.scopeOf(request)))
             } catch (error: TelegramTimeoutException) {
                 if (delivered.isEmpty()) throw error
-                throw partial(error, null)
+                throw partial(error, floodGate.remainingSeconds(TelegramFloodGate.scopeOf(request)))
             }
             delivered += final
             messageIds.getOrNull(index)?.let(deliveredSourceIds::add)

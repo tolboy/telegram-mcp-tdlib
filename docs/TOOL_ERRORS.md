@@ -259,8 +259,11 @@ delivered, the tool returns `TELEGRAM_FLOOD_WAIT_PARTIAL_DELIVERY` with
 `retryable=false`. This happens on flood control (`retry_after_seconds` is
 the flood wait) and also when the final state of the next message did not
 arrive in time: a local timeout, an unknown send outcome, or the tool
-deadline (`retry_after_seconds` is null; the code keeps its name for
-compatibility, and `next_action` says which case it is). When nothing was
+deadline. In that case the destination chat's send scope is gated for
+`local-timeout-gate` (10 s by default) and `retry_after_seconds` is the
+gate's remaining time (null only when the gate is disabled); a forward of
+the unconfirmed IDs before then is rejected locally. The code keeps its name
+for compatibility, and `next_action` says which case it is. When nothing was
 delivered yet, the forward returns the plain error (`TELEGRAM_FLOOD_WAIT`,
 `SEND_OUTCOME_UNKNOWN` or `TELEGRAM_TIMEOUT`). The error carries the source
 message IDs as structured fields (also listed in the message):

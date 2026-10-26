@@ -28,6 +28,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /** N1/N2: every wait of a tool call fits inside its deadline; the account bulkhead fails fast. */
@@ -282,11 +283,17 @@ class TdLibDeadlineTest {
         val error = ToolError.from(partial)
         assertEquals(ToolError.PARTIAL_DELIVERY, error.code)
         assertFalse(error.retryable)
-        assertEquals(null, error.retry_after_seconds)
+        // The chat's send scope is gated for local-timeout-gate (10 s): advertise
+        // the gate's remaining time, since a forward before it ends is rejected.
+        val retryAfter = assertNotNull(error.retry_after_seconds)
+        assertTrue(retryAfter in 9L..10L, "retry_after_seconds=$retryAfter")
+        assertEquals(gate.remainingSeconds(TelegramFloodGate.sendScope(9)), partial.retryAfterSeconds)
         assertEquals(listOf(11L), error.delivered_message_ids)
         assertEquals(listOf(12L, 13L), error.unconfirmed_message_ids)
         assertTrue("Do not repeat the same call" in error.next_action)
         assertTrue("did not arrive in time" in error.next_action)
+        assertTrue("wait at least that long" in error.next_action)
+        assertFailsWith<TelegramFloodGateException> { service.forwardMessages(5, 9, listOf(12, 13)) }
     }
 
     @Test

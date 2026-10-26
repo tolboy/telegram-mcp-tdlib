@@ -113,7 +113,8 @@ data class ToolError(
             "already delivered: the final state of the next message did not arrive in time. Do not repeat the " +
             "same call: it would forward the delivered messages again. Check the destination chat, then forward " +
             "only the IDs in unconfirmed_message_ids that are not there yet (as a new call with a new " +
-            "idempotency_key, if you use one); they may still arrive. Do not retry not_forwardable_message_ids."
+            "idempotency_key, if you use one); they may still arrive. When retry_after_seconds is set, the chat is " +
+            "briefly gated: wait at least that long before the new call. Do not retry not_forwardable_message_ids."
 
         const val TELEGRAM_TIMEOUT = "TELEGRAM_TIMEOUT"
         private const val TIMEOUT_NOT_SENT_ACTION = "The request was not sent: the tool call ran out of time " +

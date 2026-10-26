@@ -75,7 +75,8 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   `TELEGRAM_FLOOD_WAIT_PARTIAL_DELIVERY` (`retryable=false`) with structured
   `delivered_message_ids`, `unconfirmed_message_ids` and
   `not_forwardable_message_ids` (messages TDLib could not forward at all,
-  which must not be retried).
+  which must not be retried). `retry_after_seconds` is the flood wait, or
+  the remaining local send gate of the chat when no final state arrived.
 - Read-only (retryable) requests are an explicit allowlist of TDLib functions;
   `recognizeSpeech` and `getCallbackQueryAnswer` are treated as writes.
 - **Behaviour change:** 4xx permission messages (`Can't access the chat`,
