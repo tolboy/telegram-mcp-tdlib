@@ -114,6 +114,12 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   5xx and timeouts). Caller errors, invalid tool input, flood waits, flood-gate
   rejections and cancellations are ignored and are not recorded as slow calls.
   Per-account breakers are created through the circuit breaker registry.
+  While TDLib reports the account connected, a full request timeout counts
+  only when timeouts come from several flood-gate scopes
+  (`TDLIB_BREAKER_TIMEOUT_SCOPES`, 3) or TDLib answered nothing for
+  `TDLIB_BREAKER_NO_ANSWER_WINDOW` (180 s), so one flood-waited chat cannot
+  open it. Every live client service, including the one the auth wizard
+  hot-swaps in after login, is built by one shared factory and gets this rule.
 - Build: the TDLight Maven repository serves only `it.tdlight` (Gradle
   `exclusiveContent`), and `it.tdlight` artifacts are checksum-pinned in
   `gradle/verification-metadata.xml` (SHA-256). `verifyNativeRuntimeCoverage`

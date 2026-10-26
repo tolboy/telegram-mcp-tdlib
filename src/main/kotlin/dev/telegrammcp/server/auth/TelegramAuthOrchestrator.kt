@@ -3,6 +3,8 @@
 import dev.telegrammcp.server.client.DelegatingTelegramClientService
 import dev.telegrammcp.server.client.MessageSendTracker
 import dev.telegrammcp.server.client.TdLibClientService
+import dev.telegrammcp.server.client.TdLibClientServiceFactory
+import dev.telegrammcp.server.client.TelegramConnectionStates
 import dev.telegrammcp.server.config.TdLibProperties
 import dev.telegrammcp.server.config.TelegramProperties
 import dev.telegrammcp.server.service.PlatformPaths
@@ -54,9 +56,15 @@ class TelegramAuthOrchestrator(
     private val authWizard: AuthWizardProperties = AuthWizardProperties(),
     private val telegramProperties: TelegramProperties = TelegramProperties(),
     private val changeJournal: dev.telegrammcp.server.service.ChangeJournal? = null,
+    /** Shared with the configured accounts, so the hot-swapped service gets the same breaker health. */
+    private val clientServices: TdLibClientServiceFactory =
+        TdLibClientServiceFactory(TelegramConnectionStates(), meterRegistry),
 ) {
 
     private val log = StructuredLogger.forClass<TelegramAuthOrchestrator>()
+
+    /** The account this wizard signs in (its TDLib database and breaker health are keyed by it). */
+    private val accountLabel: String get() = if (authWizard.enabled) authWizard.accountLabel else "default"
     private val lock = ReentrantLock()
 
     /** How long an auth-phase request may take before we stop waiting on it. */
@@ -360,13 +368,7 @@ class TelegramAuthOrchestrator(
         val builder: SimpleTelegramClientBuilder = factory.builder(settings)
         val sendTracker = MessageSendTracker()
 
-        changeJournal?.attach(builder, authWizard.accountLabel)
-        builder.addUpdateHandler(TdApi.UpdateAuthorizationState::class.java) { update ->
-            handleAuthState(update, null, phoneNumber)
-        }
-        builder.addUpdateHandler(TdApi.UpdateMessageSendSucceeded::class.java, sendTracker::onSucceeded)
-        builder.addUpdateHandler(TdApi.UpdateMessageSendFailed::class.java, sendTracker::onFailed)
-        builder.setClientInteraction(InteractiveClientInteraction(authStateHolder, phoneNumber))
+        configureBuilder(builder, sendTracker, phoneNumber)
 
         val authSupplier = if (phoneNumber.isNotBlank()) {
             log.info("Starting user-account auth with phone number")
@@ -380,6 +382,19 @@ class TelegramAuthOrchestrator(
         messageSendTracker = sendTracker
 
         return factory to client
+    }
+
+    /** Registers the update handlers of the wizard's client on [builder]. */
+    internal fun configureBuilder(builder: SimpleTelegramClientBuilder, sendTracker: MessageSendTracker, phoneNumber: String) {
+        changeJournal?.attach(builder, authWizard.accountLabel)
+        // The circuit breaker of the hot-swapped service reads this state.
+        clientServices.attach(builder, accountLabel)
+        builder.addUpdateHandler(TdApi.UpdateAuthorizationState::class.java) { update ->
+            handleAuthState(update, null, phoneNumber)
+        }
+        builder.addUpdateHandler(TdApi.UpdateMessageSendSucceeded::class.java, sendTracker::onSucceeded)
+        builder.addUpdateHandler(TdApi.UpdateMessageSendFailed::class.java, sendTracker::onFailed)
+        builder.setClientInteraction(InteractiveClientInteraction(authStateHolder, phoneNumber))
     }
 
     private fun handleAuthState(
@@ -459,18 +474,23 @@ class TelegramAuthOrchestrator(
      * using the live TDLib client on their next call.
      */
     private fun registerClientServiceBean() {
-        val client = currentClient ?: return
-        val service = TdLibClientService(
-            client,
-            rateLimiter,
-            circuitBreaker,
-            meterRegistry,
+        hotSwap(currentClient ?: return)
+    }
+
+    /** Swaps the proxy's delegate to a live service on [client], built by the shared factory. */
+    internal fun hotSwap(client: SimpleTelegramClient): TdLibClientService {
+        val service = clientServices.create(
+            account = accountLabel,
+            client = client,
+            rateLimiter = rateLimiter,
+            circuitBreaker = circuitBreaker,
+            requests = props.requests,
+            bulkheadName = "telegram",
             messageSendTracker = messageSendTracker,
-            requestSettings = props.requests,
-            bulkhead = TdLibClientService.accountBulkhead("telegram", props.requests),
         )
         delegatingClient.swap(service)
         log.info("Hot-swapped TelegramClientService delegate to live TDLib client")
+        return service
     }
 
     /** Must be called while holding [lock]. Detaches shared references before closing. */
@@ -511,7 +531,7 @@ class TelegramAuthOrchestrator(
 
     private fun buildSettings(apiId: Int, apiHash: String): TDLibSettings {
         val settings = TDLibSettings.create(APIToken(apiId, apiHash))
-        val label = if (authWizard.enabled) authWizard.accountLabel else "default"
+        val label = accountLabel
         val named = telegramProperties.accounts.entries
             .firstOrNull { (candidate, _) ->
                 dev.telegrammcp.server.client.TelegramAccountRegistry.normalizeLabel(candidate) == label

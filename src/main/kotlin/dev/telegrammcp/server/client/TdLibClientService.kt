@@ -42,7 +42,7 @@ class TdLibClientService(
     private val requestSettings: TdLibProperties.Requests = TdLibProperties.Requests(),
     private val bulkhead: Bulkhead = accountBulkhead("telegram", requestSettings),
     /** Decides whether a full request timeout counts toward [circuitBreaker]. */
-    private val timeoutHealth: TdLibTimeoutHealth = TdLibTimeoutHealth.alwaysCounting(),
+    internal val timeoutHealth: TdLibTimeoutHealth = TdLibTimeoutHealth.alwaysCounting(),
 ) : TelegramClientService {
 
     private val log = StructuredLogger.forClass<TdLibClientService>()
