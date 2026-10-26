@@ -45,8 +45,11 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   the time left; operator approval waits are excluded. The TDLib request
   timeout (40 s, previously 30 s), the final-message timeout (40 s) and the
   new `DownloadFile` timeout (45 s) are configurable (`TDLIB_REQUEST_TIMEOUT`,
-  `TDLIB_MESSAGE_SEND_TIMEOUT`, `TDLIB_DOWNLOAD_TIMEOUT`). The circuit
-  breaker's slow-call threshold is raised from 10 to 30 seconds.
+  `TDLIB_MESSAGE_SEND_TIMEOUT`, `TDLIB_DOWNLOAD_TIMEOUT`; in a tool call the
+  download wait is also capped by the deadline). The circuit breaker's
+  slow-call threshold is raised from 10 to 60 seconds, above every TDLib wait
+  and the tool deadline, which effectively disables slow-call detection: a
+  slow success is a TDLib-held flood wait, not a health failure.
 - **Behaviour change:** when a wait ends without an answer, a send returns
   `SEND_OUTCOME_UNKNOWN` (keyed sends: check `get_send_operation`) and any
   other request returns the new code `TELEGRAM_TIMEOUT`, retryable only when

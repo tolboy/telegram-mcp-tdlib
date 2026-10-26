@@ -67,8 +67,8 @@ class TdLibConfig(
     private var runtimeRegistry: TelegramAccountRegistry? = null
 
     init {
-        // Tool calls open their deadline in ToolSupport.execute, which has no
-        // access to the properties; the budget is process-wide.
+        // McpConfig runs every MCP tool callback inside ToolCallDeadline.run,
+        // which reads this process-wide budget.
         ToolCallDeadline.budget = defaultProperties.requests.toolDeadline
     }
 

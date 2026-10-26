@@ -141,7 +141,7 @@ it. All limits are configurable (`tdlib.requests` in `application.yml`):
 |---|---|---|---|
 | `timeout` | `TDLIB_REQUEST_TIMEOUT` | 40s | one TDLib request |
 | `message-send-timeout` | `TDLIB_MESSAGE_SEND_TIMEOUT` | 40s | final message ID after TDLib accepted a send |
-| `download-timeout` | `TDLIB_DOWNLOAD_TIMEOUT` | 45s | `DownloadFile` (synchronous downloads) |
+| `download-timeout` | `TDLIB_DOWNLOAD_TIMEOUT` | 45s | `DownloadFile` (synchronous downloads); in a tool call capped by `tool-deadline` |
 | `tool-deadline` | `TDLIB_TOOL_DEADLINE` | 50s | the whole tool call; keep it below the client's limit |
 | `local-timeout-gate` | `TDLIB_LOCAL_TIMEOUT_GATE` | 10s | gate after a request got no answer in time (see below) |
 | `max-concurrent-calls` | `TDLIB_MAX_CONCURRENT_CALLS` | 25 | per-account bulkhead (see below) |
@@ -151,8 +151,12 @@ it. All limits are configurable (`tdlib.requests` in `application.yml`):
 Startup fails if a timeout or `max-concurrent-calls` is not positive, and
 if `tool-deadline` is not longer than both `timeout` and
 `message-send-timeout` (the error names the settings and their values).
-`download-timeout` may exceed the deadline; a download wait is then cut by the
-deadline.
+`download-timeout` is not checked against the deadline, but in a tool call it
+is in practice capped by it: a download wait is min(`download-timeout`, time
+left in the deadline), and the deadline also covers the earlier steps of the
+call. With the defaults a download tool waits at most about 50 s, never the
+full 45 s plus lookups; raising `download-timeout` above `tool-deadline` has
+no effect on tool calls (only on REST calls, which have no tool deadline).
 
 When a wait ends without an answer:
 
@@ -213,17 +217,32 @@ still reporting a connected state:
   (`TDLIB_BREAKER_NO_ANSWER_WINDOW`, default 180s), measured from the first
   request sent after its last answer (an idle account is not "silent").
 
-Any TDLib answer, including an error, resets this. When the connection is
+Any TDLib answer, including an error and including a late answer to a
+request that already timed out locally, resets this. When the connection is
 `Connecting`, `ConnectingToProxy` or `WaitingForNetwork` (or no state was
 reported yet), every full timeout counts. The state belongs to the account's
 current TDLib client: it is forgotten when that client closes or is recreated
-(logout, a new auth-wizard login), so a new client starts as "no state". One flooded
-chat therefore cannot open the breaker for the whole account, but a scope
-that stays flooded with no other traffic for longer than the window can.
+(logout, a new auth-wizard login), so a new client starts as "no state".
 
-The slow-call threshold is 60 seconds, above every TDLib wait and the tool
-deadline: a call that succeeds after a long TDLib-internal flood wait is not
-counted as slow. An open breaker surfaces as `TELEGRAM_UNAVAILABLE`.
+One flooded chat therefore cannot open the breaker for the whole account.
+The 180 s window does not trip on a flooded scope either: TDLib holds a
+flood-waited request for at most about 60 s and then answers it (the result,
+or the flood-wait error), and that late answer resets the streak even though
+the tool call already returned `TELEGRAM_TIMEOUT`. A single flooded scope
+therefore reaches 180 s without any answer only when TDLib is actually stuck,
+which is exactly what the window is meant to catch.
+
+**Slow-call detection is effectively disabled.** The slow-call threshold is
+60 seconds, above the 40 s request timeout, the 45 s download timeout and the
+50 s tool deadline, so a tool call never runs long enough to be recorded as
+slow. This is deliberate: a slow success is almost always a request that
+TDLib held for a flood wait, which says nothing about TDLib's health, and
+counting it would let one flooded chat open the account's breaker. A hung or
+disconnected TDLib is caught through full timeouts and the connection state
+(above) instead. Lowering the threshold below the timeouts turns slow-call
+detection back on, with that risk.
+
+An open breaker surfaces as `TELEGRAM_UNAVAILABLE`.
 
 ### REST endpoints
 

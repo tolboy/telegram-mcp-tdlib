@@ -130,7 +130,10 @@ data class TdLibProperties(
         val timeout: Duration = Duration.ofSeconds(40),
         /** Wait for updateMessageSendSucceeded/Failed after TDLib accepted a send. */
         val messageSendTimeout: Duration = Duration.ofSeconds(40),
-        /** Wait for a synchronous DownloadFile; its timeouts never count toward the circuit breaker. */
+        /**
+         * Wait for a synchronous DownloadFile; its timeouts never count toward the circuit breaker.
+         * In a tool call the wait is also capped by the time left in [toolDeadline].
+         */
         val downloadTimeout: Duration = Duration.ofSeconds(45),
         /** Overall budget for the TDLib work of one tool call. */
         val toolDeadline: Duration = Duration.ofSeconds(50),
