@@ -28,6 +28,11 @@ class TdLibClientServiceFactory(
         connectionStates.attach(builder, account)
     }
 
+    /** Forgets [account]'s connection state; call it when the account's client closes. */
+    fun release(account: String) {
+        connectionStates.clear(account)
+    }
+
     /** Builds the live service of [account] on top of [client]. */
     fun create(
         account: String,

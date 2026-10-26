@@ -494,12 +494,14 @@ class TelegramAuthOrchestrator(
     }
 
     /** Must be called while holding [lock]. Detaches shared references before closing. */
-    private fun destroyCurrentClient() {
+    internal fun destroyCurrentClient() {
         // Detach references first to keep in-memory state consistent even if close fails.
         val oldFactory = clientFactory
         clientFactory = null
         currentClient = null
         messageSendTracker = null
+        // The next client starts with no connection state, not the old client's last Ready.
+        clientServices.release(accountLabel)
 
         if (oldFactory != null) {
             // Close asynchronously: factory.close() can block seconds, and we're

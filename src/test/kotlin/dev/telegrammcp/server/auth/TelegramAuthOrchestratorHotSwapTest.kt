@@ -64,4 +64,25 @@ class TelegramAuthOrchestratorHotSwapTest {
         // The same health follows the client's connection state.
         assertTrue(health.countsTowardBreaker("send chat 1"))
     }
+
+    @Test
+    fun `recreating the wizard client forgets the old client's connection state`() {
+        val oldConnection = connectionHandler()
+        val health = orchestrator.hotSwap(mockk(relaxed = true)).timeoutHealth
+        health.onDispatch()
+        oldConnection.onUpdate(TdApi.UpdateConnectionState(TdApi.ConnectionStateReady()))
+        assertTrue(states.isReachable("default"))
+
+        // logout / a new initAuth tears the client down.
+        orchestrator.destroyCurrentClient()
+        assertFalse(states.isReachable("default"))
+        assertTrue(health.countsTowardBreaker("send chat 1"))
+
+        // The next client starts without a state; the old client's late updates are ignored.
+        val newConnection = connectionHandler()
+        oldConnection.onUpdate(TdApi.UpdateConnectionState(TdApi.ConnectionStateReady()))
+        assertFalse(states.isReachable("default"))
+        newConnection.onUpdate(TdApi.UpdateConnectionState(TdApi.ConnectionStateReady()))
+        assertTrue(states.isReachable("default"))
+    }
 }

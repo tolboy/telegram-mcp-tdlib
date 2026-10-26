@@ -215,7 +215,9 @@ still reporting a connected state:
 
 Any TDLib answer, including an error, resets this. When the connection is
 `Connecting`, `ConnectingToProxy` or `WaitingForNetwork` (or no state was
-reported yet), every full timeout counts. One flooded
+reported yet), every full timeout counts. The state belongs to the account's
+current TDLib client: it is forgotten when that client closes or is recreated
+(logout, a new auth-wizard login), so a new client starts as "no state". One flooded
 chat therefore cannot open the breaker for the whole account, but a scope
 that stays flooded with no other traffic for longer than the window can.
 

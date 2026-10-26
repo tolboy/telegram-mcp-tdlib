@@ -298,9 +298,14 @@ class TdLibConfig(
                         messageSendTracker = messageSendTracker,
                     ),
                 ),
-                close = factory::close,
+                close = {
+                    // A closed client must not leave its last Ready behind for the breaker.
+                    clientServices.release(config.label)
+                    factory.close()
+                },
             )
         } catch (e: Exception) {
+            clientServices.release(config.label)
             runCatching { factory.close() }
             throw e
         }
