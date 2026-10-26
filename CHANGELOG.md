@@ -5,6 +5,13 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+## 1.18.0 - 2026-10-26
+
+This release adds event waiting and richer message context, updates TDLib, and
+makes Telegram errors and retry decisions explicit. The tool surface grows from
+115 to 116 tools. Callers should account for the behaviour changes below,
+especially strict formatting validation and the new Telegram error codes.
+
 - Add `wait_for_changes`: bounded long polling of the durable change journal,
   with account isolation, optional authorized chat filter, resumable cursors,
   explicit coverage gaps and normal timeout responses. Reader, inbox,
@@ -151,6 +158,9 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   `exclusiveContent`), and `it.tdlight` artifacts are checksum-pinned in
   `gradle/verification-metadata.xml` (SHA-256). `verifyNativeRuntimeCoverage`
   prints the resolved `tdlight-natives` version.
+- Update the MCP Java SDK from 2.0.1 to 2.1.0, the Gradle wrapper from 9.8.1
+  to 9.8.2, and pinned GitHub Actions, including setup-java 6.1.0 and
+  CodeQL 4.39.1 (#39, #40, #41).
 
 ## 1.17.3 - 2026-10-17
 
