@@ -135,4 +135,40 @@ class ToolErrorTest {
         assertEquals(30L, (error["retry_after_seconds"] as Number).toLong())
         assertEquals(true, error["retryable"])
     }
+
+    private fun renderedError(exception: Exception): Map<*, *> {
+        val data = (ToolSupport.errorResult(exception).structuredContent() as Map<*, *>)["data"]
+        val validation = io.modelcontextprotocol.json.schema.jackson3.DefaultJsonSchemaValidator()
+            .validate(ToolOutputSchemas.error, data)
+        assertTrue(validation.valid(), validation.errorMessage())
+        return (data as Map<*, *>)["error"] as Map<*, *>
+    }
+
+    @Test
+    fun `local timeouts say whether the request was sent and if a retry is safe`() {
+        val reason = dev.telegrammcp.server.exception.TelegramTimeoutException.Reason.TOOL_DEADLINE
+        val notSent = renderedError(dev.telegrammcp.server.exception.TelegramTimeoutException("GetChat", reason, false, true, 0))
+        assertEquals(ToolError.TELEGRAM_TIMEOUT, notSent["code"])
+        assertEquals(true, notSent["retryable"])
+        assertTrue("was not sent" in notSent["next_action"].toString())
+
+        val write = renderedError(dev.telegrammcp.server.exception.TelegramTimeoutException("PinChatMessage", reason, true, false, 0))
+        assertEquals(false, write["retryable"])
+        assertTrue("may still take effect" in write["next_action"].toString())
+    }
+
+    @Test
+    fun `busy account is retryable and keyed sends get a status lookup hint`() {
+        val busy = renderedError(dev.telegrammcp.server.exception.TelegramBusyException("telegram-work", 25, retryable = true))
+        assertEquals(ToolError.TELEGRAM_BUSY, busy["code"])
+        assertEquals(true, busy["retryable"])
+        assertEquals(1L, (busy["retry_after_seconds"] as Number).toLong())
+
+        val unknown = renderedError(
+            dev.telegrammcp.server.exception.SendOutcomeUnknownException(1, 2, java.util.concurrent.TimeoutException(), deadlineExceeded = true),
+        )
+        assertEquals("SEND_OUTCOME_UNKNOWN", unknown["code"])
+        assertTrue("get_send_operation" in unknown["next_action"].toString())
+        assertTrue("deadline" in unknown["message"].toString())
+    }
 }

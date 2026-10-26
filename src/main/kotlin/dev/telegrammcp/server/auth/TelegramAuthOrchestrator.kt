@@ -466,6 +466,8 @@ class TelegramAuthOrchestrator(
             circuitBreaker,
             meterRegistry,
             messageSendTracker = messageSendTracker,
+            requestSettings = props.requests,
+            bulkhead = TdLibClientService.accountBulkhead("telegram", props.requests),
         )
         delegatingClient.swap(service)
         log.info("Hot-swapped TelegramClientService delegate to live TDLib client")

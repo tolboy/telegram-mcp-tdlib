@@ -54,7 +54,15 @@ class MessageSendTracker {
         complete(Key(update.message.chatId, update.oldMessageId), Outcome.Failure(update.error))
     }
 
-    fun awaitFinal(message: TdApi.Message, timeoutSeconds: Long): TdApi.Message {
+    fun awaitFinal(message: TdApi.Message, timeoutSeconds: Long): TdApi.Message =
+        awaitFinal(message, TimeUnit.SECONDS.toNanos(timeoutSeconds), deadlineExceeded = false)
+
+    /**
+     * Waits up to [timeoutNanos] for the final state of [message]. [deadlineExceeded]
+     * marks the resulting [SendOutcomeUnknownException] as caused by the tool
+     * call's overall deadline rather than the full send timeout.
+     */
+    fun awaitFinal(message: TdApi.Message, timeoutNanos: Long, deadlineExceeded: Boolean): TdApi.Message {
         if (message.sendingState == null) return message
 
         val key = Key(message.chatId, message.id)
@@ -67,11 +75,11 @@ class MessageSendTracker {
         }
 
         return try {
-            active.get(timeoutSeconds, TimeUnit.SECONDS).unwrap(key)
+            active.get(timeoutNanos.coerceAtLeast(0), TimeUnit.NANOSECONDS).unwrap(key)
         } catch (error: ExecutionException) {
             throw error.cause ?: error
         } catch (error: TimeoutException) {
-            throw SendOutcomeUnknownException(key.chatId, key.oldMessageId, error)
+            throw SendOutcomeUnknownException(key.chatId, key.oldMessageId, error, deadlineExceeded)
         } catch (error: InterruptedException) {
             Thread.currentThread().interrupt()
             throw SendOutcomeUnknownException(key.chatId, key.oldMessageId, error)

@@ -82,10 +82,7 @@ class TelegramFloodGateTest {
 
     @Test
     fun `writes are scoped by method and chat, reads by method across the account`() {
-        assertEquals(
-            "method SendMessage chat -100",
-            TelegramFloodGate.scopeOf(TdApi.SendMessage().apply { chatId = -100 }),
-        )
+        assertEquals("send chat -100", TelegramFloodGate.scopeOf(TdApi.SendMessage().apply { chatId = -100 }))
         assertEquals("method PinChatMessage chat 5", TelegramFloodGate.scopeOf(TdApi.PinChatMessage(5, 1, false, false)))
         assertEquals("method GetChatHistory", TelegramFloodGate.scopeOf(TdApi.GetChatHistory().apply { chatId = 5 }))
         assertEquals("method GetMessage", TelegramFloodGate.scopeOf(TdApi.GetMessage(5, 1)))
@@ -98,6 +95,56 @@ class TelegramFloodGateTest {
             TelegramFloodGate.scopeOf(TdApi.RecognizeSpeech(5, 1)),
             "not on the read allowlist, so scoped like a write",
         )
+    }
+
+    @Test
+    fun `every kind of send to a chat shares one scope`() {
+        val sends = listOf(
+            TdApi.SendMessage().apply { chatId = 7 },
+            TdApi.SendMessageAlbum().apply { chatId = 7 },
+            TdApi.ForwardMessages().apply { chatId = 7 },
+            TdApi.ResendMessages().apply { chatId = 7 },
+            TdApi.SendInlineQueryResultMessage().apply { chatId = 7 },
+            TdApi.SendBotStartMessage().apply { chatId = 7 },
+        )
+        sends.forEach { assertEquals("send chat 7", TelegramFloodGate.scopeOf(it), it.javaClass.simpleName) }
+        assertEquals("send chat 8", TelegramFloodGate.scopeOf(TdApi.SendMessageAlbum().apply { chatId = 8 }))
+
+        // Slow mode hit by an album also blocks a single message to that chat.
+        gate.record(TelegramFloodGate.scopeOf(sends[1]), TelegramApiException(420, "SLOWMODE_WAIT_30"))
+        assertFailsWith<TelegramFloodGateException> { gate.check(TelegramFloodGate.scopeOf(sends[0])) }
+        gate.check("send chat 8")
+    }
+
+    @Test
+    fun `account-wide writes are keyed by method only and downloads by file`() {
+        assertEquals("method JoinChat", TelegramFloodGate.scopeOf(TdApi.JoinChat(5)))
+        assertEquals("method JoinChat", TelegramFloodGate.scopeOf(TdApi.JoinChat(6)))
+        assertEquals("method JoinChatByInviteLink", TelegramFloodGate.scopeOf(TdApi.JoinChatByInviteLink("https://t.me/+x")))
+        assertEquals("method AddChatMember", TelegramFloodGate.scopeOf(TdApi.AddChatMember(5, 1, 0)))
+        assertEquals("method AddChatMembers", TelegramFloodGate.scopeOf(TdApi.AddChatMembers(5, longArrayOf(1))))
+        assertEquals("method DownloadFile file 7", TelegramFloodGate.scopeOf(TdApi.DownloadFile(7, 1, 0, 0, true)))
+        assertEquals("method DownloadFile file 8", TelegramFloodGate.scopeOf(TdApi.DownloadFile(8, 1, 0, 0, true)))
+    }
+
+    @Test
+    fun `a local timeout gates briefly and never shortens a flood wait`() {
+        gate.recordLocalTimeout("method GetMe", Duration.ofSeconds(10))
+        val gated = assertFailsWith<TelegramFloodGateException> { gate.check("method GetMe") }
+        assertTrue(gated.afterLocalTimeout)
+        assertEquals(10L, gated.retryAfterSeconds)
+        assertTrue("did not complete in time" in gated.message!!, gated.message)
+
+        gate.record("chat 1", TelegramApiException(429, "Too Many Requests: retry after 30"))
+        gate.recordLocalTimeout("chat 1", Duration.ofSeconds(10))
+        val flood = assertFailsWith<TelegramFloodGateException> { gate.check("chat 1") }
+        assertEquals(30L, flood.retryAfterSeconds)
+        assertEquals(false, flood.afterLocalTimeout)
+
+        gate.recordLocalTimeout("chat 2", Duration.ZERO)
+        gate.check("chat 2")
+        advanceSeconds(10)
+        gate.check("method GetMe")
     }
 
     @Test
@@ -148,11 +195,12 @@ class TelegramFloodGateTest {
             .build(),
     )
     private val tracker = MessageSendTracker()
+    private val meters = SimpleMeterRegistry()
     private val service = TdLibClientService(
         client,
         rateLimiter,
         breaker,
-        SimpleMeterRegistry(),
+        meters,
         messageSendTracker = tracker,
         floodGate = gate,
     )
@@ -296,10 +344,45 @@ class TelegramFloodGateTest {
         assertTrue("Do not repeat the same call" in error.next_action)
         assertTrue("retry the unchanged call" !in error.next_action)
 
-        // The flood still gates further forwards to that chat.
-        assertEquals("method ForwardMessages chat 9", assertFailsWith<TelegramFloodGateException> {
+        // The flood still gates further sends of any kind to that chat.
+        assertEquals("send chat 9", assertFailsWith<TelegramFloodGateException> {
             service.forwardMessages(5, 9, listOf(12))
         }.scope)
+        assertFailsWith<TelegramFloodGateException> { service.sendMessage(9, "hi", dev.telegrammcp.server.model.ParseMode.PLAIN, null, null) }
+    }
+
+    @Test
+    fun `a gated title lookup does not blank the title of a delivered message`() {
+        answer { request ->
+            when (request) {
+                is TdApi.SendMessage -> sent(9, 301)
+                is TdApi.GetChat -> TdApi.Chat().apply { id = 9; title = "Team" }
+                else -> TdApi.Ok()
+            }
+        }
+        // get_chat hit a flood wait earlier; the gate for GetChat is active.
+        gate.record("method GetChat", TelegramApiException(429, "Too Many Requests: retry after 60"))
+        assertFailsWith<TelegramFloodGateException> { gate.check("method GetChat") }
+
+        val message = service.sendMessage(9, "hi", dev.telegrammcp.server.model.ParseMode.PLAIN, null, null)
+        assertEquals("Team", message.chatTitle)
+        assertEquals(0.0, meters.find("telegram.lookup.degraded").counter()?.count() ?: 0.0)
+    }
+
+    @Test
+    fun `a failed title lookup is counted, not hidden`() {
+        answer { request ->
+            when (request) {
+                is TdApi.SendMessage -> sent(9, 301)
+                is TdApi.GetChat -> flood(30)
+                else -> TdApi.Ok()
+            }
+        }
+        val message = service.sendMessage(9, "hi", dev.telegrammcp.server.model.ParseMode.PLAIN, null, null)
+        assertNull(message.chatTitle)
+        assertEquals(1.0, meters.get("telegram.lookup.degraded").tag("lookup", "getChat").counter().count())
+        // The flood is still recorded, so explicit get_chat calls fail fast.
+        assertFailsWith<TelegramFloodGateException> { gate.check("method GetChat") }
     }
 
     @Test

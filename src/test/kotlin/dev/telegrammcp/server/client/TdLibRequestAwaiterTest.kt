@@ -33,10 +33,13 @@ class TdLibRequestAwaiterTest {
     }
 
     @Test
-    fun `read timeout stays a read failure`() {
-        assertFailsWith<TimeoutException> {
+    fun `read timeout is a retryable sent timeout`() {
+        val error = assertFailsWith<dev.telegrammcp.server.exception.TelegramTimeoutException> {
             TdLibRequestAwaiter.await(CompletableFuture(), TdApi.GetMe(), 0)
         }
+        assertTrue(error.requestSent)
+        assertTrue(error.retryable)
+        assertTrue(error.cause is TimeoutException)
     }
 
     @Test

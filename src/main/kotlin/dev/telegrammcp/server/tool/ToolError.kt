@@ -21,6 +21,21 @@ data class ToolError(
                 PARTIAL_DELIVERY, error.message, retryable = false, retry_after_seconds = error.retryAfterSeconds,
                 next_action = PARTIAL_DELIVERY_ACTION,
             )
+            if (error is TelegramTimeoutException) return ToolError(
+                TELEGRAM_TIMEOUT, error.message ?: "Telegram request timed out", retryable = error.retryable,
+                retry_after_seconds = if (error.retryable) 1 else null,
+                next_action = when {
+                    !error.requestSent && error.retryable -> TIMEOUT_NOT_SENT_ACTION
+                    !error.requestSent -> TIMEOUT_AFTER_WRITE_ACTION
+                    error.retryable -> TIMEOUT_READ_ACTION
+                    else -> TIMEOUT_WRITE_ACTION
+                },
+            )
+            if (error is TelegramBusyException) return ToolError(
+                TELEGRAM_BUSY, error.message ?: "Telegram account busy", retryable = error.retryable,
+                retry_after_seconds = 1,
+                next_action = if (error.retryable) BUSY_ACTION else BUSY_AFTER_WRITE_ACTION,
+            )
             val code = when (error) {
                 is dev.telegrammcp.server.security.PermissionDeniedException -> "PERMISSION_DENIED"
                 is SendOperationConflictException -> "IDEMPOTENCY_CONFLICT"
@@ -49,7 +64,9 @@ data class ToolError(
                 "OPERATION_IN_PROGRESS" -> "Wait, then use get_send_operation with the same chat and key."
                 "SEND_JOURNAL_UNAVAILABLE" -> "Ask the operator to inspect the journal and delivery; do not delete records or resend automatically."
                 "SEND_OUTCOME_UNKNOWN" ->
-                    "Check the target chat for delivery before sending again; do not automatically retry."
+                    "Check the target chat for delivery before sending again; do not automatically retry. " +
+                        "If you supplied an idempotency_key, use get_send_operation with the same chat and key " +
+                        "(it may need a moment to settle) instead of sending again."
                 "INVALID_INPUT" -> "Correct the arguments before retrying."
                 "AUTH_REQUIRED" -> "Ask the operator to authenticate the selected account."
                 "PERMISSION_DENIED", "CHAT_FORBIDDEN", "ACCOUNT_FORBIDDEN", "READ_ONLY", "FILE_FORBIDDEN", "GUARDRAIL_REJECTED" ->
@@ -76,6 +93,22 @@ data class ToolError(
             "messages were already delivered. Do not repeat the same call: it would forward the delivered messages " +
             "again. Check the destination chat, wait at least retry_after_seconds, then forward only the message_ids " +
             "that are not there yet (as a new call with a new idempotency_key, if you use one)."
+
+        const val TELEGRAM_TIMEOUT = "TELEGRAM_TIMEOUT"
+        private const val TIMEOUT_NOT_SENT_ACTION = "The request was not sent: the tool call ran out of time " +
+            "before it reached Telegram. Retry the unchanged call after retry_after_seconds."
+        private const val TIMEOUT_AFTER_WRITE_ACTION = "The tool call ran out of time after an earlier write in " +
+            "the same call had already been sent. Check the result of that write before calling again."
+        private const val TIMEOUT_READ_ACTION = "Telegram did not answer this read in time (it may be waiting " +
+            "out a flood wait). Retry after retry_after_seconds; the scope is briefly gated locally."
+        private const val TIMEOUT_WRITE_ACTION = "Telegram did not answer in time; the write may still take " +
+            "effect. Check its result before calling again; do not automatically retry."
+
+        const val TELEGRAM_BUSY = "TELEGRAM_BUSY"
+        private const val BUSY_ACTION = "Too many concurrent calls for this Telegram account; this request was " +
+            "not sent. Retry the unchanged call after retry_after_seconds, or reduce parallel calls."
+        private const val BUSY_AFTER_WRITE_ACTION = "Too many concurrent calls for this Telegram account. An " +
+            "earlier write in this call was already sent; check its result before calling again."
 
         const val SPAM_RESTRICTED_ACTION = "Telegram has restricted this account for spam (PEER_FLOOD): it cannot " +
             "message users or add members who have not contacted it first. This is not a timed flood wait and " +

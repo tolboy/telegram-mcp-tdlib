@@ -104,7 +104,9 @@ object ToolSupport {
         val startNanos = System.nanoTime()
 
         return try {
-            val payload = block()
+            // Bounds every Telegram wait in the call (see ToolCallDeadline), so a
+            // stuck request answers before the MCP client gives up on the call.
+            val payload = dev.telegrammcp.server.client.ToolCallDeadline.run { block() }
             val durationMs = elapsedMillis(startNanos)
             auditService?.record(toolName, arguments, AuditOutcome.SUCCESS, durationMs = durationMs)
             toResult(payload, objectMapper)

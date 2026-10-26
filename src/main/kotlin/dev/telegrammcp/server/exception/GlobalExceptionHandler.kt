@@ -61,6 +61,24 @@ class GlobalExceptionHandler {
         return withRetryAfter(problem, HttpStatus.TOO_MANY_REQUESTS, ex.retryAfterSeconds)
     }
 
+    /** A local wait ran out; 504 because the server is a gateway to Telegram. */
+    @ExceptionHandler(TelegramTimeoutException::class)
+    fun handleTimeout(ex: TelegramTimeoutException): ResponseEntity<ProblemDetail> {
+        log.warn("Telegram request timed out ({}): {}", ex.reason, ex.message)
+        val problem = ProblemDetail.forStatusAndDetail(HttpStatus.GATEWAY_TIMEOUT, ex.message)
+        problem.setProperty("timeout_reason", ex.reason.name)
+        problem.setProperty("request_sent", ex.requestSent)
+        return withRetryAfter(problem, HttpStatus.GATEWAY_TIMEOUT, 1L.takeIf { ex.retryable })
+    }
+
+    /** The per-account bulkhead is full; nothing was sent. */
+    @ExceptionHandler(TelegramBusyException::class)
+    fun handleBusy(ex: TelegramBusyException): ResponseEntity<ProblemDetail> {
+        log.warn("Telegram account busy: {}", ex.message)
+        val problem = ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, ex.message)
+        return withRetryAfter(problem, HttpStatus.SERVICE_UNAVAILABLE, 1L.takeIf { ex.retryable })
+    }
+
     private fun withRetryAfter(problem: ProblemDetail, status: HttpStatus, retryAfterSeconds: Long?): ResponseEntity<ProblemDetail> {
         val builder = ResponseEntity.status(status)
         if (retryAfterSeconds != null) {

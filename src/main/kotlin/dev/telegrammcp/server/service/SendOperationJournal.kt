@@ -44,7 +44,8 @@ class SendOperationJournal(private val root: Path, private val mapper: ObjectMap
 
     /**
      * Single-message send. beforeSend runs only for a new operation, before
-     * the durable reservation. A flood-wait rejection is recorded as REJECTED.
+     * the durable reservation. A flood-wait rejection, or a local rejection before
+     * the request reached TDLib (bulkhead full, deadline ran out), is recorded as REJECTED.
      */
     fun send(
         account: String,
@@ -57,7 +58,7 @@ class SendOperationJournal(private val root: Path, private val mapper: ObjectMap
 
     /**
      * [rejectable] allows recording REJECTED when Telegram definitely did not
-     * execute the send (a flood wait). Only single-message sends qualify: a
+     * execute the send (a flood wait, or a local rejection before TDLib). Only single-message sends qualify: a
      * multi-message send may fail after earlier messages were delivered.
      */
     fun sendCompletion(account: String, key: String, chatId: Long, fingerprint: String,
@@ -188,7 +189,10 @@ class SendOperationJournal(private val root: Path, private val mapper: ObjectMap
 
         /** Telegram (or the local flood gate) rejected the send before executing it. */
         fun wasNotExecuted(error: Throwable): Boolean =
-            error is TelegramFloodGateException || (error is TelegramApiException && error.wasNotExecuted)
+            error is TelegramFloodGateException || (error is TelegramApiException && error.wasNotExecuted) ||
+                // Rejected locally before anything was handed to TDLib.
+                (error is dev.telegrammcp.server.exception.TelegramTimeoutException && !error.requestSent) ||
+                error is dev.telegrammcp.server.exception.TelegramBusyException
 
         fun validateKey(key: String) {
             if (!Regex("[A-Za-z0-9._:-]{1,128}").matches(key)) {

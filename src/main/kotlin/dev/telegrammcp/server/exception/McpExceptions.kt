@@ -54,14 +54,22 @@ class TelegramApiException(
 }
 
 /**
- * A local per-chat (or per-method) flood gate rejected the call without sending
- * it, because Telegram recently returned a flood wait for the same scope.
+ * A local flood gate rejected the call without sending it, because Telegram
+ * recently returned a flood wait for the same scope or, when
+ * [afterLocalTimeout] is true, because an earlier request in the scope got no
+ * answer in time (TDLib may still be waiting out flood control for it).
  */
 class TelegramFloodGateException(
     val scope: String,
     val retryAfterSeconds: Long,
+    val afterLocalTimeout: Boolean = false,
 ) : McpException(
-    "Telegram flood wait still active for $scope; retry after ${retryAfterSeconds}s (request not sent)",
+    if (afterLocalTimeout) {
+        "An earlier Telegram request for $scope did not complete in time (TDLib may still be waiting out " +
+            "flood control); retry after ${retryAfterSeconds}s (request not sent)"
+    } else {
+        "Telegram flood wait still active for $scope; retry after ${retryAfterSeconds}s (request not sent)"
+    },
 )
 
 /**
@@ -82,6 +90,54 @@ class ForwardPartiallyDeliveredException(
         "${deliveredMessageIds.size + unconfirmedMessageIds.size} messages were delivered " +
         "(delivered message_ids: $deliveredMessageIds; not confirmed: $unconfirmedMessageIds)",
     cause,
+)
+
+/**
+ * No TDLib answer arrived in time for a request other than a message send
+ * (sends report [SendOutcomeUnknownException] instead).
+ *
+ * [reason] says which limit ended the wait; only [Reason.REQUEST_TIMEOUT]
+ * says something about Telegram's health and counts toward the circuit
+ * breaker. [requestSent] is false when the deadline ran out before the request
+ * was handed to TDLib. [retryable] is true only when no write was handed to
+ * TDLib during this tool call, so an unchanged retry cannot repeat a side
+ * effect.
+ */
+class TelegramTimeoutException(
+    val request: String,
+    val reason: Reason,
+    val requestSent: Boolean,
+    val retryable: Boolean,
+    val waitedMillis: Long,
+    cause: Throwable? = null,
+) : McpException(
+    when (reason) {
+        Reason.REQUEST_TIMEOUT -> "Telegram did not answer $request within ${waitedMillis / 1000}s"
+        Reason.DOWNLOAD_TIMEOUT -> "Telegram file download ($request) did not finish within ${waitedMillis / 1000}s"
+        Reason.TOOL_DEADLINE -> if (requestSent) {
+            "The tool call's overall deadline ran out while waiting for $request"
+        } else {
+            "The tool call's overall deadline ran out before $request was sent (request not sent)"
+        }
+    },
+    cause,
+) {
+    enum class Reason { REQUEST_TIMEOUT, DOWNLOAD_TIMEOUT, TOOL_DEADLINE }
+
+    val countsTowardBreaker: Boolean get() = reason == Reason.REQUEST_TIMEOUT
+}
+
+/**
+ * The per-account bulkhead is full: too many Telegram operations of this
+ * account are already in flight. Nothing was sent for this operation.
+ */
+class TelegramBusyException(
+    val account: String,
+    val maxConcurrentCalls: Int,
+    val retryable: Boolean,
+) : McpException(
+    "Too many concurrent Telegram operations for account '$account' (limit $maxConcurrentCalls); " +
+        "request not sent",
 )
 
 /** The caller supplied invalid or missing tool arguments. */

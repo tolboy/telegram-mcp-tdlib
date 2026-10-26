@@ -1,11 +1,17 @@
 ﻿package dev.telegrammcp.server.client
 
 import dev.telegrammcp.server.exception.ChatNotAllowedException
+import dev.telegrammcp.server.config.TdLibProperties
 import dev.telegrammcp.server.exception.ForwardPartiallyDeliveredException
+import dev.telegrammcp.server.exception.SendOutcomeUnknownException
+import dev.telegrammcp.server.exception.TelegramBusyException
+import dev.telegrammcp.server.exception.TelegramTimeoutException
 import dev.telegrammcp.server.exception.TelegramUnavailableException
 import dev.telegrammcp.server.model.*
 import dev.telegrammcp.server.util.StructuredLogger
 import dev.telegrammcp.server.util.TextFormatter
+import io.github.resilience4j.bulkhead.Bulkhead
+import io.github.resilience4j.bulkhead.BulkheadConfig
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.ratelimiter.RateLimiter
 import io.github.resilience4j.ratelimiter.RequestNotPermitted
@@ -13,6 +19,7 @@ import io.micrometer.core.instrument.MeterRegistry
 import it.tdlight.client.SimpleTelegramClient
 import dev.telegrammcp.server.exception.TelegramApiException
 import it.tdlight.jni.TdApi
+import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
@@ -32,24 +39,26 @@ class TdLibClientService(
     private val chatFolderState: ChatFolderState = ChatFolderState(),
     private val messageSendTracker: MessageSendTracker? = null,
     private val floodGate: TelegramFloodGate = TelegramFloodGate(),
+    private val requestSettings: TdLibProperties.Requests = TdLibProperties.Requests(),
+    private val bulkhead: Bulkhead = accountBulkhead("telegram", requestSettings),
 ) : TelegramClientService {
 
     private val log = StructuredLogger.forClass<TdLibClientService>()
 
     companion object {
         /**
-         * Local wait for a TDLib response. TDLib waits out flood waits internally
-         * for up to 60 s in total per query (NetQuery::total_timeout_limit_ in
-         * td/telegram/net/NetQuery.h) before answering 429 "retry after N". The
-         * local timeout must outlast that window, otherwise a query parked in
-         * TDLib's flood delayer times out here: the breaker records a failure, no
-         * retry_after reaches the caller, nothing is gated, and a write is
-         * reported as SEND_OUTCOME_UNKNOWN although TDLib still sends it later.
-         * The breaker's slow-call threshold is kept above the same window
-         * (application.yml).
+         * Per-account bulkhead (see [TdLibProperties.Requests.maxConcurrentCalls]).
+         * It fails fast instead of queueing: a waiting caller would only hold a
+         * server thread longer and reach the MCP client's timeout anyway.
          */
-        internal const val TIMEOUT_SECONDS = 75L
-        internal const val MESSAGE_SEND_TIMEOUT_SECONDS = 75L
+        fun accountBulkhead(name: String, settings: TdLibProperties.Requests): Bulkhead = Bulkhead.of(
+            name,
+            BulkheadConfig.custom()
+                .maxConcurrentCalls(settings.maxConcurrentCalls)
+                .maxWaitDuration(Duration.ZERO)
+                .build(),
+        )
+
         private const val DEFAULT_FORUM_TOPIC_ICON_COLOR = 0x6FB9F0
         private val ALLOWED_FORUM_TOPIC_ICON_COLORS = setOf(
             0x6FB9F0,
@@ -68,6 +77,7 @@ class TdLibClientService(
         private const val CREATE_CHAT_REFRESH_DELAY_MS = 250L
         private const val SPEECH_RECOGNITION_TIMEOUT_MS = 30_000L
         private const val SPEECH_RECOGNITION_POLL_INTERVAL_MS = 1_000L
+        private const val SPEECH_RECOGNITION_DEADLINE_MARGIN_MS = 3_000L
     }
 
     // ── Messages ────────────────────────────────────────────────────────────
@@ -406,7 +416,13 @@ class TdLibClientService(
             send<TdApi.Ok>(TdApi.RecognizeSpeech(chatId, messageId))
         }
 
-        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(SPEECH_RECOGNITION_TIMEOUT_MS)
+        // Stop polling early enough to answer PENDING inside the tool call's deadline.
+        val pollBudget = minOf(
+            TimeUnit.MILLISECONDS.toNanos(SPEECH_RECOGNITION_TIMEOUT_MS),
+            ToolCallDeadline.remainingNanos()?.let { it - TimeUnit.MILLISECONDS.toNanos(SPEECH_RECOGNITION_DEADLINE_MARGIN_MS) }
+                ?: Long.MAX_VALUE,
+        )
+        val deadline = System.nanoTime() + pollBudget
         var partialText: String? = initial.partialTextOrNull()
         while (System.nanoTime() < deadline) {
             try {
@@ -501,7 +517,6 @@ class TdLibClientService(
         val result = withResilience("forwardMessages") {
             send<TdApi.Messages>(request)
         }
-        val chatTitle = getChatTitleSafe(toChatId)
         val pending = result.messages.orEmpty()
         val delivered = ArrayList<TdApi.Message>(pending.size)
         val deliveredSourceIds = ArrayList<Long>(pending.size)
@@ -522,6 +537,7 @@ class TdLibClientService(
             delivered += final
             messageIds.getOrNull(index)?.let(deliveredSourceIds::add)
         }
+        val chatTitle = getChatTitleSafe(toChatId)
         return delivered.map { it.toTelegramMessage(chatTitle) }
     }
 
@@ -2062,30 +2078,43 @@ class TdLibClientService(
      * Sends a TDLib request synchronously by bridging the async callback API
      * with a [CompletableFuture].
      *
-     * Order of checks: circuit breaker (in [withResilience]) -> flood gate ->
-     * rate limiter -> TDLib. The gate runs before a rate-limiter permit is
-     * taken, so calls rejected locally during a flood wait do not use up the
-     * shared permits. A gate rejection is ignored by the breaker
+     * Order of checks: bulkhead and circuit breaker (in [withResilience]) ->
+     * flood gate -> rate limiter -> TDLib. The gate runs before a rate-limiter
+     * permit is taken, so calls rejected locally during a flood wait do not use
+     * up the shared permits. A gate rejection is ignored by the breaker
      * (TelegramBreakerExclusionPredicate), so it never affects breaker state.
+     *
+     * Every wait is capped by the open [ToolCallDeadline]. A request that got no
+     * answer in time gates its scope for [TdLibProperties.Requests.localTimeoutGate]:
+     * TDLib may still hold it in its flood-wait delayer.
      */
     @Suppress("UNCHECKED_CAST")
     private fun <T : TdApi.Object> send(function: TdApi.Function<*>): T {
         val scope = TelegramFloodGate.scopeOf(function)
         floodGate.check(scope)
-        acquirePermitIfPending()
+        acquirePermitIfPending(function)
         return try {
             sendUngated(function)
         } catch (error: TelegramApiException) {
             floodGate.record(scope, error)
+            throw error
+        } catch (error: SendOutcomeUnknownException) {
+            floodGate.recordLocalTimeout(scope, requestSettings.localTimeoutGate)
+            throw error
+        } catch (error: TelegramTimeoutException) {
+            if (error.requestSent) floodGate.recordLocalTimeout(scope, requestSettings.localTimeoutGate)
             throw error
         }
     }
 
     @Suppress("UNCHECKED_CAST")
     private fun <T : TdApi.Object> sendUngated(function: TdApi.Function<*>): T {
+        val timeout = if (function is TdApi.DownloadFile) requestSettings.downloadTimeout else requestSettings.timeout
+        val wait = TdLibRequestAwaiter.waitFor(function, timeout)
         val future = CompletableFuture<TdApi.Object>()
         val observer = if (function is TdApi.SendMessage || function is TdApi.ForwardMessages)
             SendObservationContext.capture() else null
+        if (!TdLibRequestAwaiter.isReadOnly(function)) ToolCallDeadline.markWriteDispatched()
         client.send(function) { result ->
             try {
                 val value = result.get()
@@ -2095,16 +2124,27 @@ class TdLibClientService(
                 future.completeExceptionally(e)
             }
         }
-        return TdLibRequestAwaiter.await(future, function, TIMEOUT_SECONDS) as T
+        return TdLibRequestAwaiter.await(future, function, wait) as T
     }
 
     /** Waits for the final state of a sent message; [request] is the TDLib function that created it. */
-    private fun awaitFinalMessage(message: TdApi.Message, request: TdApi.Function<*>): TdApi.Message = try {
-        messageSendTracker?.awaitFinal(message, MESSAGE_SEND_TIMEOUT_SECONDS) ?: message
-    } catch (error: TelegramApiException) {
-        // updateMessageSendFailed with a flood wait gates the same scope as a direct 429.
-        floodGate.record(TelegramFloodGate.scopeOf(request), error)
-        throw error
+    private fun awaitFinalMessage(message: TdApi.Message, request: TdApi.Function<*>): TdApi.Message {
+        val tracker = messageSendTracker ?: return message
+        if (message.sendingState == null) return message
+        val scope = TelegramFloodGate.scopeOf(request)
+        val timeoutNanos = requestSettings.messageSendTimeout.toNanos()
+        val remaining = ToolCallDeadline.remainingNanos()
+        val deadlineBound = remaining != null && remaining < timeoutNanos
+        return try {
+            tracker.awaitFinal(message, if (deadlineBound) remaining!! else timeoutNanos, deadlineBound)
+        } catch (error: TelegramApiException) {
+            // updateMessageSendFailed with a flood wait gates the same scope as a direct 429.
+            floodGate.record(scope, error)
+            throw error
+        } catch (error: SendOutcomeUnknownException) {
+            floodGate.recordLocalTimeout(scope, requestSettings.localTimeoutGate)
+            throw error
+        }
     }
 
     /**
@@ -2114,20 +2154,50 @@ class TdLibClientService(
      */
     private val pendingPermit = ThreadLocal<BooleanArray?>()
 
-    private fun acquirePermitIfPending() {
+    /**
+     * Takes the operation's rate-limiter permit. The wait for it is bounded by
+     * the limiter's own timeout and by the open [ToolCallDeadline]: a permit
+     * that would only be available after the deadline is not waited for.
+     */
+    private fun acquirePermitIfPending(function: TdApi.Function<*>) {
         val permit = pendingPermit.get() ?: return
         if (permit[0]) return
-        RateLimiter.waitForPermission(rateLimiter)
+        val waitNanos = rateLimiter.reservePermission()
+        if (waitNanos < 0) throw RequestNotPermitted.createRequestNotPermitted(rateLimiter)
+        if (waitNanos > 0) {
+            val remaining = ToolCallDeadline.remainingNanos()
+            if (remaining != null && remaining <= waitNanos) {
+                throw TelegramTimeoutException(
+                    function.javaClass.simpleName, TelegramTimeoutException.Reason.TOOL_DEADLINE,
+                    requestSent = false, retryable = !ToolCallDeadline.writeDispatched(), waitedMillis = 0,
+                )
+            }
+            try {
+                TimeUnit.NANOSECONDS.sleep(waitNanos)
+            } catch (interrupted: InterruptedException) {
+                Thread.currentThread().interrupt()
+                throw TelegramUnavailableException(interrupted)
+            }
+        }
         permit[0] = true
     }
 
     /**
-     * Wraps a block with the Resilience4j circuit breaker and the rate limiter.
-     * The rate-limiter permit is taken by the first TDLib request in [block],
-     * after its flood-gate check (see [send]).
+     * Wraps a block with the per-account bulkhead, the Resilience4j circuit
+     * breaker and the rate limiter. Only the outermost operation on a thread
+     * takes a bulkhead permit, so nested operations cannot deadlock on it. The
+     * rate-limiter permit is taken by the first TDLib request in [block], after
+     * its flood-gate check (see [send]).
      */
     private fun <T> withResilience(operation: String, block: () -> T): T {
         val outer = pendingPermit.get()
+        if (outer == null && !bulkhead.tryAcquirePermission()) {
+            meterRegistry.counter("telegram.api.bulkhead_full", "operation", operation).increment()
+            throw TelegramBusyException(
+                bulkhead.name, bulkhead.bulkheadConfig.maxConcurrentCalls,
+                retryable = !ToolCallDeadline.writeDispatched(),
+            )
+        }
         pendingPermit.set(BooleanArray(1))
         return try {
             CircuitBreaker.decorateSupplier(circuitBreaker, block).get()
@@ -2138,8 +2208,38 @@ class TdLibClientService(
             meterRegistry.counter("telegram.api.circuit_open", "operation", operation).increment()
             throw TelegramUnavailableException(ex)
         } finally {
-            if (outer == null) pendingPermit.remove() else pendingPermit.set(outer)
+            if (outer == null) {
+                pendingPermit.remove()
+                bulkhead.onComplete()
+            } else {
+                pendingPermit.set(outer)
+            }
         }
+    }
+
+    /**
+     * A best-effort lookup (chat title, sender name) that decorates a result.
+     * It skips the flood-gate check: a gate on the lookup method (for example
+     * after get_chat hit a flood wait) must not quietly blank the titles of
+     * messages that were sent successfully. GetChat and GetUser for known IDs
+     * are answered from TDLib's local cache, so skipping the gate does not add
+     * Telegram traffic during a flood wait. A failed lookup is logged and
+     * counted (`telegram.lookup.degraded`) rather than hidden.
+     */
+    private fun <T : TdApi.Object> lookupBestEffort(lookup: String, function: TdApi.Function<*>): T? = try {
+        withResilience(lookup) {
+            acquirePermitIfPending(function)
+            try {
+                sendUngated<T>(function)
+            } catch (error: TelegramApiException) {
+                floodGate.record(TelegramFloodGate.scopeOf(function), error)
+                throw error
+            }
+        }
+    } catch (error: Exception) {
+        meterRegistry.counter("telegram.lookup.degraded", "lookup", lookup).increment()
+        log.warn("Best-effort {} lookup failed ({}); continuing without it", lookup, error.javaClass.simpleName)
+        null
     }
 
     private fun formatText(text: String, parseMode: ParseMode): TdApi.FormattedText {
@@ -2155,21 +2255,11 @@ class TdLibClientService(
         }
     }
 
-    private fun getChatTitleSafe(chatId: Long): String? {
-        return try {
-            withResilience("getChat") { send<TdApi.Chat>(TdApi.GetChat(chatId)) }.title
-        } catch (_: Exception) {
-            null
-        }
-    }
+    private fun getChatTitleSafe(chatId: Long): String? =
+        lookupBestEffort<TdApi.Chat>("getChat", TdApi.GetChat(chatId))?.title
 
-    private fun getUserSafe(userId: Long): TdApi.User? {
-        return try {
-            withResilience("getUser") { send<TdApi.User>(TdApi.GetUser(userId)) }
-        } catch (_: Exception) {
-            null
-        }
-    }
+    private fun getUserSafe(userId: Long): TdApi.User? =
+        lookupBestEffort("getUser", TdApi.GetUser(userId))
 
     // ── Mappers: TDLib → domain models ──────────────────────────────────────
 

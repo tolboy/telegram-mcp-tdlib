@@ -164,4 +164,31 @@ class SendOperationJournalTest {
         }
         assertEquals("UNKNOWN", journal().status("work", "b", 42)["status"], "an album may be partially delivered")
     }
+
+    @Test
+    fun `local rejections before TDLib are REJECTED, a sent timeout stays UNKNOWN`() {
+        val reason = dev.telegrammcp.server.exception.TelegramTimeoutException.Reason.TOOL_DEADLINE
+        assertFailsWith<dev.telegrammcp.server.exception.TelegramBusyException> {
+            journal().send("work", "busy", 42, "fp", {}) {
+                throw dev.telegrammcp.server.exception.TelegramBusyException("telegram-work", 25, retryable = true)
+            }
+        }
+        assertEquals("REJECTED", journal().status("work", "busy", 42)["status"])
+
+        assertFailsWith<dev.telegrammcp.server.exception.TelegramTimeoutException> {
+            journal().send("work", "late", 42, "fp", {}) {
+                throw dev.telegrammcp.server.exception.TelegramTimeoutException("SendMessage", reason, false, true, 0)
+            }
+        }
+        assertEquals("REJECTED", journal().status("work", "late", 42)["status"])
+
+        assertFailsWith<dev.telegrammcp.server.exception.SendOutcomeUnknownException> {
+            journal().send("work", "sent", 42, "fp", {}) {
+                throw dev.telegrammcp.server.exception.SendOutcomeUnknownException(
+                    42, null, java.util.concurrent.TimeoutException(), deadlineExceeded = true,
+                )
+            }
+        }
+        assertEquals("UNKNOWN", journal().status("work", "sent", 42)["status"])
+    }
 }

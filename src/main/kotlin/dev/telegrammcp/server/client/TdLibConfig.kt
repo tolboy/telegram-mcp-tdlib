@@ -64,6 +64,12 @@ class TdLibConfig(
     @Volatile
     private var runtimeRegistry: TelegramAccountRegistry? = null
 
+    init {
+        // Tool calls open their deadline in ToolSupport.execute, which has no
+        // access to the properties; the budget is process-wide.
+        ToolCallDeadline.budget = defaultProperties.requests.toolDeadline
+    }
+
     @Bean
     fun telegramAccountRegistry(
         delegating: DelegatingTelegramClientService,
@@ -285,6 +291,12 @@ class TdLibConfig(
                         meterRegistry,
                         chatFolderState,
                         messageSendTracker,
+                        requestSettings = defaultProperties.requests,
+                        // One account's backlog must not take every server thread.
+                        bulkhead = TdLibClientService.accountBulkhead(
+                            "telegram-${config.label}",
+                            defaultProperties.requests,
+                        ),
                     ),
                 ),
                 close = factory::close,

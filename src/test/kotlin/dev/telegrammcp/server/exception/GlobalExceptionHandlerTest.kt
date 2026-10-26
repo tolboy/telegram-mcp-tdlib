@@ -46,4 +46,23 @@ class GlobalExceptionHandlerTest {
         assertNull(response.headers.getFirst(HttpHeaders.RETRY_AFTER))
         assertNull(response.body!!.properties!!["retry_after_seconds"])
     }
+
+    @Test
+    fun `local timeouts return 504 and a full bulkhead returns 503`() {
+        val timeout = handler.handleTimeout(
+            TelegramTimeoutException("GetChat", TelegramTimeoutException.Reason.REQUEST_TIMEOUT, true, true, 40_000),
+        )
+        assertEquals(504, timeout.statusCode.value())
+        assertEquals("1", timeout.headers.getFirst(HttpHeaders.RETRY_AFTER))
+        assertEquals("REQUEST_TIMEOUT", timeout.body!!.properties!!["timeout_reason"])
+
+        val write = handler.handleTimeout(
+            TelegramTimeoutException("PinChatMessage", TelegramTimeoutException.Reason.REQUEST_TIMEOUT, true, false, 40_000),
+        )
+        assertNull(write.headers.getFirst(HttpHeaders.RETRY_AFTER), "a write that may have taken effect")
+
+        val busy = handler.handleBusy(TelegramBusyException("telegram-work", 25, retryable = true))
+        assertEquals(503, busy.statusCode.value())
+        assertEquals("1", busy.headers.getFirst(HttpHeaders.RETRY_AFTER))
+    }
 }

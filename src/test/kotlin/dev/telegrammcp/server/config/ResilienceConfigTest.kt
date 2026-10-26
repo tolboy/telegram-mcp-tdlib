@@ -1,8 +1,10 @@
 package dev.telegrammcp.server.config
 
 import dev.telegrammcp.server.exception.InvalidToolInputException
+import dev.telegrammcp.server.exception.SendOutcomeUnknownException
 import dev.telegrammcp.server.exception.TelegramApiException
 import dev.telegrammcp.server.exception.TelegramFloodGateException
+import dev.telegrammcp.server.exception.TelegramTimeoutException
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig
@@ -89,19 +91,58 @@ class ResilienceConfigTest {
     }
 
     @Test
-    fun `timeouts outlast TDLib's internal flood wait budget`() {
-        // TDLib waits out flood waits internally until their total exceeds
-        // NetQuery::total_timeout_limit_ (60 s) and only then returns 429.
-        val tdlibInternalWaitLimit = 60L
-        val timeout = dev.telegrammcp.server.client.TdLibClientService.TIMEOUT_SECONDS
-        assertTrue(timeout > tdlibInternalWaitLimit, "timeout $timeout s must exceed TDLib's 60 s internal wait")
-        assertTrue(dev.telegrammcp.server.client.TdLibClientService.MESSAGE_SEND_TIMEOUT_SECONDS > tdlibInternalWaitLimit)
-
+    fun `default waits fit inside the MCP client's request timeout`() {
+        // MCP clients commonly give up on a tool call after 60 s; the server must
+        // answer first, so every wait fits inside the tool-call deadline.
+        val mcpClientTimeout = Duration.ofSeconds(60)
         val yml = requireNotNull(javaClass.getResource("/application.yml")).readText()
+        fun seconds(name: String) = requireNotNull(
+            Regex("""\$\{$name:(\d+)s}""").find(yml)?.groupValues?.get(1)?.toLong(),
+        ) { "$name not found in application.yml" }.let(Duration::ofSeconds)
+
+        val deadline = seconds("TDLIB_TOOL_DEADLINE")
+        val request = seconds("TDLIB_REQUEST_TIMEOUT")
+        assertTrue(deadline < mcpClientTimeout, "deadline $deadline must end before the client's $mcpClientTimeout")
+        listOf(request, seconds("TDLIB_MESSAGE_SEND_TIMEOUT"), seconds("TDLIB_DOWNLOAD_TIMEOUT")).forEach {
+            assertTrue(it <= deadline, "$it must not exceed the tool deadline $deadline")
+        }
+        // The code defaults match the shipped configuration.
+        val defaults = TdLibProperties.Requests()
+        assertEquals(deadline, defaults.toolDeadline)
+        assertEquals(request, defaults.timeout)
+        assertEquals(defaults.toolDeadline, dev.telegrammcp.server.client.ToolCallDeadline.DEFAULT_BUDGET)
+
         val slow = Regex("""slow-call-duration-threshold:\s*(\d+)s""").find(yml)?.groupValues?.get(1)?.toLong()
         requireNotNull(slow) { "slow-call-duration-threshold not found in application.yml" }
-        assertTrue(slow > tdlibInternalWaitLimit, "a success after TDLib's internal waits must not count as slow")
-        assertTrue(slow < timeout, "slow calls must be detectable before the local timeout")
+        assertTrue(Duration.ofSeconds(slow) < request, "slow calls must be detectable before the local timeout")
+    }
+
+    @Test
+    fun `deadline, download and busy rejections do not open the breaker`() {
+        val breaker = ResilienceConfig().telegramCircuitBreaker(registry())
+
+        breaker.fail(10) {
+            TelegramTimeoutException("GetChat", TelegramTimeoutException.Reason.TOOL_DEADLINE, true, true, 1_000)
+        }
+        breaker.fail(10) {
+            TelegramTimeoutException("DownloadFile", TelegramTimeoutException.Reason.DOWNLOAD_TIMEOUT, true, true, 45_000)
+        }
+        breaker.fail(10) { SendOutcomeUnknownException(1, 0, TimeoutException(), deadlineExceeded = true) }
+
+        assertEquals(CircuitBreaker.State.CLOSED, breaker.state)
+        assertEquals(0, breaker.metrics.numberOfFailedCalls)
+    }
+
+    @Test
+    fun `full request timeouts still open the breaker`() {
+        listOf<() -> Throwable>(
+            { TelegramTimeoutException("GetChat", TelegramTimeoutException.Reason.REQUEST_TIMEOUT, true, true, 40_000) },
+            { SendOutcomeUnknownException(1, 0, TimeoutException()) },
+        ).forEach { failure ->
+            val breaker = ResilienceConfig().telegramCircuitBreaker(registry())
+            breaker.fail(10, failure)
+            assertEquals(CircuitBreaker.State.OPEN, breaker.state, failure().message)
+        }
     }
 
     @Test

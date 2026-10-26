@@ -65,6 +65,21 @@ tdlib:
     # and then fails with a readable error. Keep it below the client's own
     # timeout — Claude Desktop drops a stdio server after 60s.
     ready-timeout: ${TDLIB_AUTH_READY_TIMEOUT:45s}
+  # Limits for TDLib requests made by tool calls. MCP clients give up on a
+  # tool call after about 60s (TypeScript MCP SDK default, Claude Desktop), so
+  # tool-deadline bounds the whole chain of TDLib waits in one call (rate
+  # limiter, request, final message state, lookups) and must stay below the
+  # client's limit. Each wait is min(its own timeout, time left in the deadline).
+  # A request TDLib parks for flood control longer than this times out locally:
+  # the scope is then gated for local-timeout-gate (see docs/TOOL_ERRORS.md).
+  requests:
+    timeout: ${TDLIB_REQUEST_TIMEOUT:40s}
+    message-send-timeout: ${TDLIB_MESSAGE_SEND_TIMEOUT:40s}
+    download-timeout: ${TDLIB_DOWNLOAD_TIMEOUT:45s}
+    tool-deadline: ${TDLIB_TOOL_DEADLINE:50s}
+    local-timeout-gate: ${TDLIB_LOCAL_TIMEOUT_GATE:10s}
+    # Per-account bulkhead; extra concurrent calls fail fast with TELEGRAM_BUSY.
+    max-concurrent-calls: ${TDLIB_MAX_CONCURRENT_CALLS:25}
   database:
     # Blank picks the platform app-data directory (Windows/macOS/Linux).
     # Set an absolute path for containers or a managed server volume.
@@ -282,10 +297,11 @@ resilience4j:
         failure-rate-threshold: 50
         wait-duration-in-open-state: 30s
         permitted-number-of-calls-in-half-open-state: 3
-        # Above the 60 s TDLib may spend waiting out flood control inside one
-        # request (see TdLibClientService.TIMEOUT_SECONDS), so a call that succeeds
-        # after an internal flood wait is not mistaken for an unhealthy connection.
-        slow-call-duration-threshold: 65s
+        # Below tdlib.requests.timeout (40s) so a slow connection is noticed,
+        # and well above normal latency. A call that succeeds after a long
+        # TDLib-internal flood wait may count as slow; with an 80% rate threshold
+        # a single flooded chat does not open the breaker.
+        slow-call-duration-threshold: 30s
         slow-call-rate-threshold: 80
 
 # ── Logging ───────────────────────────────────────────────────────────────────

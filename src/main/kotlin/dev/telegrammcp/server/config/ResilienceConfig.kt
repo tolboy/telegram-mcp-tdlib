@@ -1,9 +1,11 @@
 package dev.telegrammcp.server.config
 
 import dev.telegrammcp.server.exception.InvalidToolInputException
+import dev.telegrammcp.server.exception.SendOutcomeUnknownException
 import dev.telegrammcp.server.exception.TelegramApiException
 import dev.telegrammcp.server.exception.TelegramErrorKind
 import dev.telegrammcp.server.exception.TelegramFloodGateException
+import dev.telegrammcp.server.exception.TelegramTimeoutException
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry
@@ -60,6 +62,10 @@ class ResilienceConfig {
  * - TDLib errors whose [TelegramErrorKind] does not count toward the breaker
  *   (caller 4xx errors, fixed 500 outcomes, flood waits, cancellations);
  * - local flood-gate rejections (nothing was sent);
+ * - local timeouts that end because the tool call's overall deadline ran out
+ *   (the wait was shorter than the per-request timeout) and DownloadFile
+ *   timeouts (a large file is slow, not a sign of an unhealthy connection);
+ *   a full per-request timeout still counts;
  * - local argument validation.
  *
  * Flood waits are excluded because TDLib already waited out 420/SLOWMODE
@@ -70,6 +76,8 @@ class TelegramBreakerExclusionPredicate : Predicate<Throwable> {
     override fun test(error: Throwable): Boolean = when (error) {
         is TelegramApiException -> !error.countsTowardBreaker
         is TelegramFloodGateException -> true
+        is TelegramTimeoutException -> !error.countsTowardBreaker
+        is SendOutcomeUnknownException -> error.deadlineExceeded
         is InvalidToolInputException -> true
         else -> false
     }
