@@ -139,6 +139,8 @@ are configurable (`tdlib.requests` in `application.yml`):
 | `tool-deadline` | `TDLIB_TOOL_DEADLINE` | 50s | the whole tool call; keep it below the client's limit |
 | `local-timeout-gate` | `TDLIB_LOCAL_TIMEOUT_GATE` | 10s | gate after a request got no answer in time (see below) |
 | `max-concurrent-calls` | `TDLIB_MAX_CONCURRENT_CALLS` | 25 | per-account bulkhead (see below) |
+| `breaker-timeout-scopes` | `TDLIB_BREAKER_TIMEOUT_SCOPES` | 3 | circuit-breaker backstop (see below) |
+| `breaker-no-answer-window` | `TDLIB_BREAKER_NO_ANSWER_WINDOW` | 180s | circuit-breaker backstop (see below) |
 
 Startup fails if a timeout or `max-concurrent-calls` is not positive. A
 per-request timeout longer than the deadline is effectively capped by it.
@@ -179,8 +181,28 @@ full request timeout. Caller errors (4xx, fixed 500 outcomes, invalid tool
 input), flood waits, flood-gate rejections, cancellations, waits cut short by
 the tool-call deadline and `DownloadFile` timeouts (a large file is slow, not a
 sign of an unhealthy connection) are ignored, so they never open it and are
-not recorded as slow calls. The slow-call threshold is 30 seconds with an 80%
-rate threshold. An open breaker surfaces as `TELEGRAM_UNAVAILABLE`.
+not recorded as slow calls.
+
+A full request timeout is often a flood wait that TDLib holds internally for
+one scope, not a sick TDLib. While TDLib reports `ConnectionStateReady` for
+the account, a full timeout therefore counts only as a backstop for a TDLib
+that hangs while still reporting Ready:
+
+- the timeouts since TDLib last answered any request came from at least
+  `breaker-timeout-scopes` (`TDLIB_BREAKER_TIMEOUT_SCOPES`, default 3)
+  different flood-gate scopes, or
+- TDLib answered no request for `breaker-no-answer-window`
+  (`TDLIB_BREAKER_NO_ANSWER_WINDOW`, default 180s), measured from the first
+  request sent after its last answer (an idle account is not "silent").
+
+Any TDLib answer, including an error, resets this. When the connection is not
+Ready (or no state was reported yet), every full timeout counts. One flooded
+chat therefore cannot open the breaker for the whole account, but a scope
+that stays flooded with no other traffic for longer than the window can.
+
+The slow-call threshold is 60 seconds, above every TDLib wait and the tool
+deadline: a call that succeeds after a long TDLib-internal flood wait is not
+counted as slow. An open breaker surfaces as `TELEGRAM_UNAVAILABLE`.
 
 ### REST endpoints
 

@@ -80,6 +80,12 @@ tdlib:
     local-timeout-gate: ${TDLIB_LOCAL_TIMEOUT_GATE:10s}
     # Per-account bulkhead; extra concurrent calls fail fast with TELEGRAM_BUSY.
     max-concurrent-calls: ${TDLIB_MAX_CONCURRENT_CALLS:25}
+    # While TDLib reports ConnectionStateReady, a full request timeout counts
+    # toward the circuit breaker only when timeouts since TDLib's last answer
+    # span this many flood-gate scopes, or TDLib answered nothing for the
+    # window below. One flood-waited chat therefore cannot open the breaker.
+    breaker-timeout-scopes: ${TDLIB_BREAKER_TIMEOUT_SCOPES:3}
+    breaker-no-answer-window: ${TDLIB_BREAKER_NO_ANSWER_WINDOW:180s}
   database:
     # Blank picks the platform app-data directory (Windows/macOS/Linux).
     # Set an absolute path for containers or a managed server volume.
@@ -297,11 +303,11 @@ resilience4j:
         failure-rate-threshold: 50
         wait-duration-in-open-state: 30s
         permitted-number-of-calls-in-half-open-state: 3
-        # Below tdlib.requests.timeout (40s) so a slow connection is noticed,
-        # and well above normal latency. A call that succeeds after a long
-        # TDLib-internal flood wait may count as slow; with an 80% rate threshold
-        # a single flooded chat does not open the breaker.
-        slow-call-duration-threshold: 30s
+        # Above every TDLib wait (tdlib.requests.*) and the tool deadline, so a
+        # call that succeeds after a TDLib-internal flood wait (up to ~40s) is
+        # never counted as slow: a flooded chat must not open the breaker. A
+        # hung TDLib is detected through timeouts (see breaker-timeout-scopes).
+        slow-call-duration-threshold: 60s
         slow-call-rate-threshold: 80
 
 # ── Logging ───────────────────────────────────────────────────────────────────

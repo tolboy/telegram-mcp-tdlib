@@ -41,6 +41,8 @@ class TdLibClientService(
     private val floodGate: TelegramFloodGate = TelegramFloodGate(),
     private val requestSettings: TdLibProperties.Requests = TdLibProperties.Requests(),
     private val bulkhead: Bulkhead = accountBulkhead("telegram", requestSettings),
+    /** Decides whether a full request timeout counts toward [circuitBreaker]. */
+    private val timeoutHealth: TdLibTimeoutHealth = TdLibTimeoutHealth.alwaysCounting(),
 ) : TelegramClientService {
 
     private val log = StructuredLogger.forClass<TdLibClientService>()
@@ -2119,7 +2121,10 @@ class TdLibClientService(
         val observer = if (function is TdApi.SendMessage || function is TdApi.ForwardMessages)
             SendObservationContext.capture() else null
         if (!TdLibRequestAwaiter.isReadOnly(function)) ToolCallDeadline.markWriteDispatched()
+        timeoutHealth.onDispatch()
         client.send(function) { result ->
+            // Any answer, including a TDLib error, shows that TDLib is alive.
+            timeoutHealth.onAnswer()
             try {
                 val value = result.get()
                 if (observer != null) SendObservationContext.delivered(value, messageSendTracker, observer)
@@ -2128,8 +2133,20 @@ class TdLibClientService(
                 future.completeExceptionally(e)
             }
         }
-        return TdLibRequestAwaiter.await(future, function, wait) as T
+        return try {
+            TdLibRequestAwaiter.await(future, function, wait) as T
+        } catch (error: SendOutcomeUnknownException) {
+            if (!error.deadlineExceeded) error.healthFailure = timeoutHealth.countsTowardBreaker(scopeOf(function))
+            throw error
+        } catch (error: TelegramTimeoutException) {
+            if (error.reason == TelegramTimeoutException.Reason.REQUEST_TIMEOUT) {
+                error.healthFailure = timeoutHealth.countsTowardBreaker(scopeOf(function))
+            }
+            throw error
+        }
     }
+
+    private fun scopeOf(function: TdApi.Function<*>): String = TelegramFloodGate.scopeOf(function)
 
     /** Waits for the final state of a sent message; [request] is the TDLib function that created it. */
     private fun awaitFinalMessage(message: TdApi.Message, request: TdApi.Function<*>): TdApi.Message {

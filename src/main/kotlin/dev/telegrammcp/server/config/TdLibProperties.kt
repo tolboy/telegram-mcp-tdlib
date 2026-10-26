@@ -145,6 +145,14 @@ data class TdLibProperties(
          * with TELEGRAM_BUSY instead of holding server threads while they queue.
          */
         val maxConcurrentCalls: Int = 25,
+        /**
+         * While TDLib reports `ConnectionStateReady`, a full request timeout
+         * counts toward the circuit breaker only if the timeouts since TDLib
+         * last answered came from at least this many flood-gate scopes...
+         */
+        val breakerTimeoutScopes: Int = 3,
+        /** ...or if TDLib answered no request for this long (see TdLibTimeoutHealth). */
+        val breakerNoAnswerWindow: Duration = Duration.ofSeconds(180),
     ) {
         init {
             listOf(timeout, messageSendTimeout, downloadTimeout, toolDeadline).forEach {
@@ -152,6 +160,10 @@ data class TdLibProperties(
             }
             require(!localTimeoutGate.isNegative) { "tdlib.requests.local-timeout-gate must not be negative" }
             require(maxConcurrentCalls > 0) { "tdlib.requests.max-concurrent-calls must be positive" }
+            require(breakerTimeoutScopes > 0) { "tdlib.requests.breaker-timeout-scopes must be positive" }
+            require(!breakerNoAnswerWindow.isNegative && !breakerNoAnswerWindow.isZero) {
+                "tdlib.requests.breaker-no-answer-window must be positive"
+            }
         }
     }
 

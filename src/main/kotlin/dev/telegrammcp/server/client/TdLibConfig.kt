@@ -56,6 +56,7 @@ class TdLibConfig(
     private val environment: Environment,
     private val buildProperties: BuildProperties? = null,
     private val changeJournal: dev.telegrammcp.server.service.ChangeJournal? = null,
+    private val connectionStates: TelegramConnectionStates = TelegramConnectionStates(),
 ) {
     private val log = StructuredLogger.forClass<TdLibConfig>()
     private val nativeInitialized = AtomicBoolean(false)
@@ -233,6 +234,7 @@ class TdLibConfig(
         return try {
             val builder: SimpleTelegramClientBuilder = factory.builder(buildSettings(config))
             changeJournal?.attach(builder, config.label)
+            connectionStates.attach(builder, config.label)
             val authGate = TelegramAuthGate(config.label, config.authReadyTimeout)
             val chatFolderState = ChatFolderState()
             val messageSendTracker = MessageSendTracker()
@@ -296,6 +298,13 @@ class TdLibConfig(
                         bulkhead = TdLibClientService.accountBulkhead(
                             "telegram-${config.label}",
                             defaultProperties.requests,
+                        ),
+                        // A flood-waited chat must not open the account's breaker,
+                        // a disconnected or hung TDLib must.
+                        timeoutHealth = TdLibTimeoutHealth(
+                            connectionReady = { connectionStates.isReady(config.label) },
+                            distinctScopes = defaultProperties.requests.breakerTimeoutScopes,
+                            noAnswerWindow = defaultProperties.requests.breakerNoAnswerWindow,
                         ),
                     ),
                 ),

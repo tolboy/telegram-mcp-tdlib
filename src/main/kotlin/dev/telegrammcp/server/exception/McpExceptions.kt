@@ -110,6 +110,12 @@ class ForwardPartiallyDeliveredException(
  * was handed to TDLib. [retryable] is true only when no write was handed to
  * TDLib during this tool call, so an unchanged retry cannot repeat a side
  * effect.
+ *
+ * [healthFailure] is cleared by the client service when the timeout is not
+ * evidence of an unhealthy TDLib (see TdLibTimeoutHealth): for example one
+ * flood-waited scope while the connection is Ready and other requests are
+ * answered. [retryAfterSeconds] is the remaining local gate of the request's
+ * scope when the request was sent.
  */
 class TelegramTimeoutException(
     val request: String,
@@ -132,7 +138,15 @@ class TelegramTimeoutException(
 ) {
     enum class Reason { REQUEST_TIMEOUT, DOWNLOAD_TIMEOUT, TOOL_DEADLINE }
 
-    val countsTowardBreaker: Boolean get() = reason == Reason.REQUEST_TIMEOUT
+    @Volatile
+    var healthFailure: Boolean = true
+        internal set
+
+    @Volatile
+    var retryAfterSeconds: Long? = null
+        internal set
+
+    val countsTowardBreaker: Boolean get() = reason == Reason.REQUEST_TIMEOUT && healthFailure
 }
 
 /**

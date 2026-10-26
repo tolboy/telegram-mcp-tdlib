@@ -65,7 +65,8 @@ class ResilienceConfig {
  * - local timeouts that end because the tool call's overall deadline ran out
  *   (the wait was shorter than the per-request timeout) and DownloadFile
  *   timeouts (a large file is slow, not a sign of an unhealthy connection);
- *   a full per-request timeout still counts;
+ *   a full per-request timeout still counts unless TdLibTimeoutHealth found
+ *   TDLib healthy (connection Ready, other requests answered, see there);
  * - local argument validation.
  *
  * Flood waits are excluded because TDLib already waited out 420/SLOWMODE
@@ -77,7 +78,7 @@ class TelegramBreakerExclusionPredicate : Predicate<Throwable> {
         is TelegramApiException -> !error.countsTowardBreaker
         is TelegramFloodGateException -> true
         is TelegramTimeoutException -> !error.countsTowardBreaker
-        is SendOutcomeUnknownException -> error.deadlineExceeded
+        is SendOutcomeUnknownException -> error.deadlineExceeded || !error.healthFailure
         is InvalidToolInputException -> true
         else -> false
     }

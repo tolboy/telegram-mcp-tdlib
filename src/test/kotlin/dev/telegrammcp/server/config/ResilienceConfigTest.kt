@@ -114,7 +114,11 @@ class ResilienceConfigTest {
 
         val slow = Regex("""slow-call-duration-threshold:\s*(\d+)s""").find(yml)?.groupValues?.get(1)?.toLong()
         requireNotNull(slow) { "slow-call-duration-threshold not found in application.yml" }
-        assertTrue(Duration.ofSeconds(slow) < request, "slow calls must be detectable before the local timeout")
+        // A call that succeeds after a TDLib-internal flood wait (up to the
+        // request timeout) must not count as slow; hangs are caught by timeouts.
+        listOf(request, seconds("TDLIB_MESSAGE_SEND_TIMEOUT"), seconds("TDLIB_DOWNLOAD_TIMEOUT"), deadline).forEach {
+            assertTrue(Duration.ofSeconds(slow) > it, "slow-call threshold must exceed every TDLib wait ($it)")
+        }
     }
 
     @Test
