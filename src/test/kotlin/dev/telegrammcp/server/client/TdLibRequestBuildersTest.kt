@@ -86,6 +86,7 @@ class TdLibRequestBuildersTest {
             val model = TdLibRequestBuilders.administratorRights(source)
             val trueModelFlags = modelFlags.filter { it.isAccessible = true; it.getBoolean(model) }
             assertEquals(1, trueModelFlags.size, "TDLib ${field.name} must map to exactly one model flag")
+            assertEquals(field.name, trueModelFlags.single().name, "TDLib ${field.name} must map to the model flag of the same name")
             val back = TdLibRequestBuilders.administratorRights(model)
             tdFields.forEach { other ->
                 assertEquals(other == field, other.getBoolean(back), "${field.name} round-trip changed ${other.name}")
