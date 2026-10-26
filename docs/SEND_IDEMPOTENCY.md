@@ -53,13 +53,21 @@ access, and a key for a different chat cannot reveal its receipt.
 | `SEND_JOURNAL_UNAVAILABLE` error | Storage is unavailable or damaged. Inspect storage and delivery; do not delete the record to force retry. |
 
 An error after reservation conservatively leaves `UNKNOWN`, even when it may
-have occurred before actual delivery. The only exception is a flood-wait
-rejection of a single-message send, which TDLib reports only for requests it
-did not execute; it is saved as `REJECTED`. Batches (albums, multi-message
+have occurred before actual delivery. The only exceptions are rejections of a
+single-message send that prove it was not executed: a Telegram flood wait
+(TDLib reports it only for requests it did not execute), the local flood gate,
+a full per-account bulkhead (`TELEGRAM_BUSY`), and a tool-call deadline that
+ran out before the request was handed to TDLib (`TELEGRAM_TIMEOUT` with the
+request not sent). They are saved as `REJECTED`. A send that was handed to
+TDLib and then timed out (`SEND_OUTCOME_UNKNOWN`, also when the tool-call
+deadline ended the wait) stays `UNKNOWN`; query `get_send_operation` instead of
+sending again, since a late delivery is still recorded. Batches (albums, multi-message
 forwards) stay `UNKNOWN` because part of them may have been delivered; a
 forward that hits flood control after a partial delivery fails with
-`TELEGRAM_FLOOD_WAIT_PARTIAL_DELIVERY` (`retryable=false`) and lists the
-delivered and unconfirmed source message IDs. This favors avoiding duplicate messages.
+`TELEGRAM_FLOOD_WAIT_PARTIAL_DELIVERY` (`retryable=false`) with structured
+`delivered_message_ids`, `unconfirmed_message_ids` and
+`not_forwardable_message_ids` error fields. Forward only missing unconfirmed
+IDs later; do not retry not-forwardable ones. This favors avoiding duplicate messages.
 Late successful Telegram responses and send updates observed by the running
 process are saved independently of the original caller's timeout. Status lookup
 and replay reconcile these saved receipts, including after a later restart.

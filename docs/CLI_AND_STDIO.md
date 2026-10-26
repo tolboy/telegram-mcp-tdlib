@@ -61,6 +61,10 @@ immediately. Tool calls wait instead: `tdlib.auth.ready-timeout`
 (`TDLIB_AUTH_READY_TIMEOUT`, 45s by default) bounds that wait and must stay below
 the client's own handshake/tool timeout. An unauthenticated account therefore
 shows up as a readable tool error rather than a connector that never appears.
+The wait is also capped by the tool call's overall deadline
+(`tdlib.requests.tool-deadline`, `TDLIB_TOOL_DEADLINE`, 50s by default), which
+bounds all Telegram waits of one call and must likewise stay below the client's
+tool timeout; see [tool errors](TOOL_ERRORS.md#timeouts-and-the-tool-call-deadline).
 
 If another process still holds the session, the server does not wait for a login
 that cannot happen: it reports the locked `td.binlog` on stderr and exits with
