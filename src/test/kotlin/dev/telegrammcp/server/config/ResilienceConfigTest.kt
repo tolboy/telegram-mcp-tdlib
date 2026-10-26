@@ -89,6 +89,22 @@ class ResilienceConfigTest {
     }
 
     @Test
+    fun `timeouts outlast TDLib's internal flood wait budget`() {
+        // TDLib waits out flood waits internally until their total exceeds
+        // NetQuery::total_timeout_limit_ (60 s) and only then returns 429.
+        val tdlibInternalWaitLimit = 60L
+        val timeout = dev.telegrammcp.server.client.TdLibClientService.TIMEOUT_SECONDS
+        assertTrue(timeout > tdlibInternalWaitLimit, "timeout $timeout s must exceed TDLib's 60 s internal wait")
+        assertTrue(dev.telegrammcp.server.client.TdLibClientService.MESSAGE_SEND_TIMEOUT_SECONDS > tdlibInternalWaitLimit)
+
+        val yml = requireNotNull(javaClass.getResource("/application.yml")).readText()
+        val slow = Regex("""slow-call-duration-threshold:\s*(\d+)s""").find(yml)?.groupValues?.get(1)?.toLong()
+        requireNotNull(slow) { "slow-call-duration-threshold not found in application.yml" }
+        assertTrue(slow > tdlibInternalWaitLimit, "a success after TDLib's internal waits must not count as slow")
+        assertTrue(slow < timeout, "slow calls must be detectable before the local timeout")
+    }
+
+    @Test
     fun `cancellations do not open the breaker`() {
         val breaker = ResilienceConfig().telegramCircuitBreaker(registry())
 

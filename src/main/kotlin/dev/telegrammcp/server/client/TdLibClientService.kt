@@ -36,8 +36,19 @@ class TdLibClientService(
     private val log = StructuredLogger.forClass<TdLibClientService>()
 
     companion object {
-        private const val TIMEOUT_SECONDS = 30L
-        private const val MESSAGE_SEND_TIMEOUT_SECONDS = 30L
+        /**
+         * Local wait for a TDLib response. TDLib waits out flood waits internally
+         * for up to 60 s in total per query (NetQuery::total_timeout_limit_ in
+         * td/telegram/net/NetQuery.h) before answering 429 "retry after N". The
+         * local timeout must outlast that window, otherwise a query parked in
+         * TDLib's flood delayer times out here: the breaker records a failure, no
+         * retry_after reaches the caller, nothing is gated, and a write is
+         * reported as SEND_OUTCOME_UNKNOWN although TDLib still sends it later.
+         * The breaker's slow-call threshold is kept above the same window
+         * (application.yml).
+         */
+        internal const val TIMEOUT_SECONDS = 75L
+        internal const val MESSAGE_SEND_TIMEOUT_SECONDS = 75L
         private const val DEFAULT_FORUM_TOPIC_ICON_COLOR = 0x6FB9F0
         private val ALLOWED_FORUM_TOPIC_ICON_COLORS = setOf(
             0x6FB9F0,

@@ -282,7 +282,10 @@ resilience4j:
         failure-rate-threshold: 50
         wait-duration-in-open-state: 30s
         permitted-number-of-calls-in-half-open-state: 3
-        slow-call-duration-threshold: 10s
+        # Above the 60 s TDLib may spend waiting out flood control inside one
+        # request (see TdLibClientService.TIMEOUT_SECONDS), so a call that succeeds
+        # after an internal flood wait is not mistaken for an unhealthy connection.
+        slow-call-duration-threshold: 65s
         slow-call-rate-threshold: 80
 
 # ── Logging ───────────────────────────────────────────────────────────────────
