@@ -2118,7 +2118,13 @@ class TdLibClientService(
             floodGate.recordLocalTimeout(scope, requestSettings.localTimeoutGate)
             throw error
         } catch (error: TelegramTimeoutException) {
-            if (error.requestSent) floodGate.recordLocalTimeout(scope, requestSettings.localTimeoutGate)
+            if (error.requestSent) {
+                floodGate.recordLocalTimeout(scope, requestSettings.localTimeoutGate)
+                // A retry before the scope's gate ends is rejected locally, so
+                // advertise the gate's remaining time, not a fixed second.
+                error.retryAfterSeconds = floodGate.remainingSeconds(scope)
+                    ?: maxOf(1L, requestSettings.localTimeoutGate.toSeconds())
+            }
             throw error
         }
     }

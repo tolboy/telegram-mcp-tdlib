@@ -147,6 +147,18 @@ class TelegramTimeoutException(
         internal set
 
     val countsTowardBreaker: Boolean get() = reason == Reason.REQUEST_TIMEOUT && healthFailure
+
+    /**
+     * The wait advertised to MCP and REST callers: none when an unchanged retry
+     * is not safe; 1 s when nothing was sent; otherwise the remaining local gate
+     * of the request's scope (a sooner retry is rejected locally).
+     */
+    val retryAfterHint: Long?
+        get() = when {
+            !retryable -> null
+            !requestSent -> 1L
+            else -> retryAfterSeconds ?: 1L
+        }
 }
 
 /**

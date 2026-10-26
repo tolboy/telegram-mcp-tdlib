@@ -61,10 +61,12 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 - **Behaviour change:** each account has a fail-fast bulkhead
   (`tdlib.requests.max-concurrent-calls`, `TDLIB_MAX_CONCURRENT_CALLS`,
   default 25). Extra concurrent calls return the new code `TELEGRAM_BUSY`
-  (`retry_after_seconds=1`) without reaching Telegram, so one account's
+  (`retry_after_seconds=1` when retryable, null otherwise) without reaching Telegram, so one account's
   backlog cannot take every server thread. A send holds its permit through
   the wait for the message's final state. REST maps `TELEGRAM_TIMEOUT` to
-  504 and `TELEGRAM_BUSY` to 503, with `Retry-After: 1` when retryable.
+  504 and `TELEGRAM_BUSY` to 503, with a `Retry-After` equal to the MCP
+  `retry_after_seconds` when retryable. A sent read that timed out advertises
+  the remaining time of its scope's local gate instead of 1 s.
 - **Behaviour change:** `PEER_FLOOD` (spam restriction) maps to
   `PERMISSION_DENIED`, is not retryable and does not set the flood gate.
 - **Behaviour change:** a multi-message forward that hits flood control after a

@@ -155,8 +155,12 @@ When a wait ends without an answer:
   still deliver it; for keyed sends, use `get_send_operation` (see below);
 - any other request returns `TELEGRAM_TIMEOUT`. `retryable` is true only when
   no write was handed to TDLib during the call (a read, or a deadline that ran
-  out before the request was sent), with `retry_after_seconds=1`; otherwise the
-  write may still take effect and the call must not be repeated blindly.
+  out before the request was sent); otherwise the write may still take effect,
+  the call must not be repeated blindly, and `retry_after_seconds` is null.
+  A retryable timeout carries `retry_after_seconds=1` when nothing was sent;
+  when the read was sent, it carries the remaining time of the scope's local
+  gate (below; at least `local-timeout-gate`, or longer if a flood wait already
+  gates the scope), because a sooner retry is rejected locally.
 
 Because TDLib can hold a request for up to 60 seconds of flood waits, a
 request parked that long times out locally instead of returning the 429. To
@@ -170,8 +174,8 @@ complete in time).
 
 Each account has a bulkhead of `max-concurrent-calls` concurrent Telegram
 operations. It fails fast instead of queueing: an extra call returns
-`TELEGRAM_BUSY` (`retry_after_seconds=1`, retryable unless a write in the same
-call was already sent) without reaching Telegram. One account's backlog (for
+`TELEGRAM_BUSY` (retryable with `retry_after_seconds=1` unless a write in the
+same call was already sent; then `retry_after_seconds` is null) without reaching Telegram. One account's backlog (for
 example a long flood wait) therefore cannot occupy every server thread, and
 other accounts are not affected. Nested operations inside one call share the
 outer permit. A message send (including each message of a forward) holds its
@@ -215,8 +219,9 @@ counted as slow. An open breaker surfaces as `TELEGRAM_UNAVAILABLE`.
 The REST API maps the same classification to HTTP statuses: flood wait 429
 with a `Retry-After` header (also for flood-gate rejections), permission 403,
 not-found 404, other caller errors 400, auth/cancelled/transient 503, other
-server errors 502, local timeouts 504 (`Retry-After: 1` when retryable), a full
-bulkhead 503 with `Retry-After: 1`. 4xx responses are logged at warn without a stack trace. The
+server errors 502, local timeouts 504, a full bulkhead 503. Timeouts and a full
+bulkhead send `Retry-After` and `retry_after_seconds` only when retryable,
+with the same value as the MCP error. 4xx responses are logged at warn without a stack trace. The
 problem detail includes `telegram_error_code`, `telegram_error_kind` and, for
 floods, `retry_after_seconds`.
 

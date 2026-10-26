@@ -52,10 +52,17 @@ class TelegramFloodGate(
             blockedUntil.remove(scope, entry)
             return
         }
-        val seconds = TimeUnit.NANOSECONDS.toSeconds(remainingNanos) +
-            if (remainingNanos % TimeUnit.SECONDS.toNanos(1) == 0L) 0 else 1
-        throw TelegramFloodGateException(scope, seconds, entry.afterLocalTimeout)
+        throw TelegramFloodGateException(scope, roundUpSeconds(remainingNanos), entry.afterLocalTimeout)
     }
+
+    /** Whole seconds (rounded up) left in [scope]'s gate, or null when it is open. */
+    fun remainingSeconds(scope: String): Long? {
+        val remainingNanos = (blockedUntil[scope] ?: return null).untilNanos - nanoTime()
+        return if (remainingNanos > 0) roundUpSeconds(remainingNanos) else null
+    }
+
+    private fun roundUpSeconds(nanos: Long): Long =
+        TimeUnit.NANOSECONDS.toSeconds(nanos) + if (nanos % TimeUnit.SECONDS.toNanos(1) == 0L) 0 else 1
 
     /** Remembers a flood wait returned by Telegram for [scope]. Other errors are ignored. */
     fun record(scope: String, error: Throwable) {

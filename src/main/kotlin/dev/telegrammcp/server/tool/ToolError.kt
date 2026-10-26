@@ -36,7 +36,7 @@ data class ToolError(
             )
             if (error is TelegramTimeoutException) return ToolError(
                 TELEGRAM_TIMEOUT, error.message ?: "Telegram request timed out", retryable = error.retryable,
-                retry_after_seconds = if (error.retryable) 1 else null,
+                retry_after_seconds = error.retryAfterHint,
                 next_action = when {
                     !error.requestSent && error.retryable -> TIMEOUT_NOT_SENT_ACTION
                     !error.requestSent -> TIMEOUT_AFTER_WRITE_ACTION
@@ -46,7 +46,7 @@ data class ToolError(
             )
             if (error is TelegramBusyException) return ToolError(
                 TELEGRAM_BUSY, error.message ?: "Telegram account busy", retryable = error.retryable,
-                retry_after_seconds = 1,
+                retry_after_seconds = if (error.retryable) 1 else null,
                 next_action = if (error.retryable) BUSY_ACTION else BUSY_AFTER_WRITE_ACTION,
             )
             val code = when (error) {

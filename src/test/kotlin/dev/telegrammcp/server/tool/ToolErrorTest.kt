@@ -172,10 +172,18 @@ class ToolErrorTest {
         val notSent = renderedError(dev.telegrammcp.server.exception.TelegramTimeoutException("GetChat", reason, false, true, 0))
         assertEquals(ToolError.TELEGRAM_TIMEOUT, notSent["code"])
         assertEquals(true, notSent["retryable"])
+        assertEquals(1L, (notSent["retry_after_seconds"] as Number).toLong(), "nothing was sent")
         assertTrue("was not sent" in notSent["next_action"].toString())
+
+        val read = renderedError(
+            dev.telegrammcp.server.exception.TelegramTimeoutException("GetChat", reason, true, true, 0)
+                .apply { retryAfterSeconds = 10 },
+        )
+        assertEquals(10L, (read["retry_after_seconds"] as Number).toLong(), "the scope's remaining local gate")
 
         val write = renderedError(dev.telegrammcp.server.exception.TelegramTimeoutException("PinChatMessage", reason, true, false, 0))
         assertEquals(false, write["retryable"])
+        assertEquals(null, write["retry_after_seconds"])
         assertTrue("may still take effect" in write["next_action"].toString())
     }
 
@@ -185,6 +193,9 @@ class ToolErrorTest {
         assertEquals(ToolError.TELEGRAM_BUSY, busy["code"])
         assertEquals(true, busy["retryable"])
         assertEquals(1L, (busy["retry_after_seconds"] as Number).toLong())
+        val busyAfterWrite = renderedError(dev.telegrammcp.server.exception.TelegramBusyException("telegram-work", 25, retryable = false))
+        assertEquals(false, busyAfterWrite["retryable"])
+        assertEquals(null, busyAfterWrite["retry_after_seconds"], "no retry hint for a call that must not be retried")
 
         val unknown = renderedError(
             dev.telegrammcp.server.exception.SendOutcomeUnknownException(1, 2, java.util.concurrent.TimeoutException(), deadlineExceeded = true),

@@ -50,10 +50,12 @@ class GlobalExceptionHandlerTest {
     @Test
     fun `local timeouts return 504 and a full bulkhead returns 503`() {
         val timeout = handler.handleTimeout(
-            TelegramTimeoutException("GetChat", TelegramTimeoutException.Reason.REQUEST_TIMEOUT, true, true, 40_000),
+            TelegramTimeoutException("GetChat", TelegramTimeoutException.Reason.REQUEST_TIMEOUT, true, true, 40_000)
+                .apply { retryAfterSeconds = 10 },
         )
         assertEquals(504, timeout.statusCode.value())
-        assertEquals("1", timeout.headers.getFirst(HttpHeaders.RETRY_AFTER))
+        assertEquals("10", timeout.headers.getFirst(HttpHeaders.RETRY_AFTER), "the scope's remaining local gate")
+        assertEquals(10L, timeout.body!!.properties!!["retry_after_seconds"])
         assertEquals("REQUEST_TIMEOUT", timeout.body!!.properties!!["timeout_reason"])
 
         val write = handler.handleTimeout(
@@ -61,8 +63,15 @@ class GlobalExceptionHandlerTest {
         )
         assertNull(write.headers.getFirst(HttpHeaders.RETRY_AFTER), "a write that may have taken effect")
 
+        val notSent = handler.handleTimeout(
+            TelegramTimeoutException("GetChat", TelegramTimeoutException.Reason.TOOL_DEADLINE, false, true, 0),
+        )
+        assertEquals("1", notSent.headers.getFirst(HttpHeaders.RETRY_AFTER), "nothing was sent")
+
         val busy = handler.handleBusy(TelegramBusyException("telegram-work", 25, retryable = true))
         assertEquals(503, busy.statusCode.value())
         assertEquals("1", busy.headers.getFirst(HttpHeaders.RETRY_AFTER))
+        val busyAfterWrite = handler.handleBusy(TelegramBusyException("telegram-work", 25, retryable = false))
+        assertNull(busyAfterWrite.headers.getFirst(HttpHeaders.RETRY_AFTER))
     }
 }

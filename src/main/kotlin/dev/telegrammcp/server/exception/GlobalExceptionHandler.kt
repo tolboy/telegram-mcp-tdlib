@@ -68,7 +68,7 @@ class GlobalExceptionHandler {
         val problem = ProblemDetail.forStatusAndDetail(HttpStatus.GATEWAY_TIMEOUT, ex.message)
         problem.setProperty("timeout_reason", ex.reason.name)
         problem.setProperty("request_sent", ex.requestSent)
-        return withRetryAfter(problem, HttpStatus.GATEWAY_TIMEOUT, 1L.takeIf { ex.retryable })
+        return withRetryAfter(problem, HttpStatus.GATEWAY_TIMEOUT, ex.retryAfterHint)
     }
 
     /** The per-account bulkhead is full; nothing was sent. */

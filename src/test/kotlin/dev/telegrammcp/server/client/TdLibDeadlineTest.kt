@@ -152,6 +152,25 @@ class TdLibDeadlineTest {
     }
 
     @Test
+    fun `a sent read that timed out advertises the remaining local gate as its retry delay`() {
+        answer { null }
+        val service = service(TdLibProperties.Requests(timeout = Duration.ofMillis(100), localTimeoutGate = Duration.ofSeconds(3)))
+
+        val error = assertFailsWith<TelegramTimeoutException> { service.getMe() }
+        assertTrue(error.requestSent && error.retryable)
+        assertEquals(3L, error.retryAfterSeconds)
+        assertEquals(3L, ToolError.from(error).retry_after_seconds)
+        val gated = assertFailsWith<TelegramFloodGateException> { service.getMe() }
+        assertTrue(gated.retryAfterSeconds <= 3, "a retry after the advertised delay is past the gate")
+
+        val ungated = service(TdLibProperties.Requests(timeout = Duration.ofMillis(100), localTimeoutGate = Duration.ZERO))
+        val noGate = assertFailsWith<TelegramTimeoutException> { ungated.leaveChat(5) }
+        assertFalse(noGate.retryable, "a write is never retryable")
+        assertEquals(null, ToolError.from(noGate).retry_after_seconds)
+        assertEquals(1L, noGate.retryAfterSeconds, "without a local gate the hint falls back to 1 s")
+    }
+
+    @Test
     fun `download timeouts use their own timeout and do not open the breaker`() {
         answer { request ->
             when (request) {
