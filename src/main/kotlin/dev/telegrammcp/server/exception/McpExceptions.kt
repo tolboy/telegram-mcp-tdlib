@@ -76,8 +76,14 @@ class TelegramFloodGateException(
  * A forward batch hit flood control after some of its messages had already
  * been delivered. Unlike a plain flood wait this is not "nothing happened":
  * retrying the unchanged call would duplicate [deliveredMessageIds], so it is
- * never retryable. [deliveredMessageIds] and [unconfirmedMessageIds] are source
- * message IDs (the caller's message_ids), in request order.
+ * never retryable. All lists hold source message IDs (the caller's
+ * message_ids) in request order:
+ * - [deliveredMessageIds]: delivered to the destination;
+ * - [unconfirmedMessageIds]: accepted by TDLib but not confirmed when the
+ *   flood wait hit (check the chat; forward only the missing ones later);
+ * - [notForwardableMessageIds]: TDLib could not forward them at all (it
+ *   returned no message for them, e.g. protected content or deleted
+ *   messages); retrying them will not help.
  */
 class ForwardPartiallyDeliveredException(
     val toChatId: Long,
@@ -85,10 +91,12 @@ class ForwardPartiallyDeliveredException(
     val unconfirmedMessageIds: List<Long>,
     val retryAfterSeconds: Long?,
     cause: TelegramApiException,
+    val notForwardableMessageIds: List<Long> = emptyList(),
 ) : McpException(
     "Telegram flood control stopped forwarding to chat $toChatId after ${deliveredMessageIds.size} of " +
-        "${deliveredMessageIds.size + unconfirmedMessageIds.size} messages were delivered " +
-        "(delivered message_ids: $deliveredMessageIds; not confirmed: $unconfirmedMessageIds)",
+        "${deliveredMessageIds.size + unconfirmedMessageIds.size + notForwardableMessageIds.size} messages were " +
+        "delivered (delivered message_ids: $deliveredMessageIds; not confirmed: $unconfirmedMessageIds" +
+        (if (notForwardableMessageIds.isEmpty()) "" else "; not forwardable: $notForwardableMessageIds") + ")",
     cause,
 )
 

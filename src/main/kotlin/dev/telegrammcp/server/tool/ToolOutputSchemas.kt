@@ -14,10 +14,15 @@ object ToolOutputSchemas {
         "type" to "object", "properties" to properties, "required" to required, "additionalProperties" to false,
     )
 
+    private val errorRequired = listOf("code", "message", "retryable", "retry_after_seconds", "next_action")
     val error = obj(mapOf("error" to obj(mapOf(
         "code" to (text + ("minLength" to 1)), "message" to text, "retryable" to boolean,
         "retry_after_seconds" to (nullableId + ("minimum" to 0)), "next_action" to text,
-    ))))
+        // Present only for TELEGRAM_FLOOD_WAIT_PARTIAL_DELIVERY.
+        "delivered_message_ids" to array(integer),
+        "unconfirmed_message_ids" to array(integer),
+        "not_forwardable_message_ids" to array(integer),
+    ), errorRequired)))
 
     private val pollOption = obj(mapOf(
         "text" to text, "voterCount" to count, "votePercentage" to count, "isChosen" to boolean,

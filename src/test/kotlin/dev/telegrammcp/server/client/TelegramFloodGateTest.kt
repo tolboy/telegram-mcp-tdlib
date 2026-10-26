@@ -344,11 +344,39 @@ class TelegramFloodGateTest {
         assertTrue("Do not repeat the same call" in error.next_action)
         assertTrue("retry the unchanged call" !in error.next_action)
 
+        assertEquals(listOf(11L), error.delivered_message_ids)
+        assertEquals(listOf(12L, 13L), error.unconfirmed_message_ids)
+        assertEquals(emptyList(), error.not_forwardable_message_ids)
+
         // The flood still gates further sends of any kind to that chat.
         assertEquals("send chat 9", assertFailsWith<TelegramFloodGateException> {
             service.forwardMessages(5, 9, listOf(12))
         }.scope)
         assertFailsWith<TelegramFloodGateException> { service.sendMessage(9, "hi", dev.telegrammcp.server.model.ParseMode.PLAIN, null, null) }
+    }
+
+    @Test
+    fun `messages TDLib refuses to forward are listed separately from unconfirmed ones`() {
+        answer { request ->
+            when (request) {
+                is TdApi.ForwardMessages -> {
+                    val first = pending(9, 101)
+                    val third = pending(9, 103)
+                    tracker.onSucceeded(TdApi.UpdateMessageSendSucceeded(sent(9, 201), first.id))
+                    tracker.onFailed(TdApi.UpdateMessageSendFailed(third, third.id, flood(7)))
+                    TdApi.Messages(3, arrayOf(first, null, third))
+                }
+                else -> TdApi.Error(400, "Chat not found")
+            }
+        }
+
+        val partial = assertFailsWith<ForwardPartiallyDeliveredException> { service.forwardMessages(5, 9, listOf(11, 12, 13)) }
+        val error = dev.telegrammcp.server.tool.ToolError.from(partial)
+        assertEquals(listOf(11L), error.delivered_message_ids)
+        assertEquals(listOf(13L), error.unconfirmed_message_ids)
+        assertEquals(listOf(12L), error.not_forwardable_message_ids)
+        assertTrue("Do not retry not_forwardable_message_ids" in error.next_action)
+        assertTrue("12" in partial.message!!)
     }
 
     @Test

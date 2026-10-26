@@ -520,6 +520,9 @@ class TdLibClientService(
         val pending = result.messages.orEmpty()
         val delivered = ArrayList<TdApi.Message>(pending.size)
         val deliveredSourceIds = ArrayList<Long>(pending.size)
+        // TDLib returns null for messages it cannot forward at all (for example
+        // protected content or deleted messages); a retry will not help them.
+        val notForwardable = messageIds.filterIndexed { index, _ -> pending.getOrNull(index) == null }
         pending.forEachIndexed { index, message ->
             if (message == null) return@forEachIndexed
             val final = try {
@@ -530,8 +533,9 @@ class TdLibClientService(
                 if (!error.isFloodWait || delivered.isEmpty()) throw error
                 throw ForwardPartiallyDeliveredException(
                     toChatId, deliveredSourceIds.toList(),
-                    messageIds.filterNot { it in deliveredSourceIds },
+                    messageIds.filterNot { it in deliveredSourceIds || it in notForwardable },
                     error.retryAfterSeconds, error,
+                    notForwardableMessageIds = notForwardable,
                 )
             }
             delivered += final

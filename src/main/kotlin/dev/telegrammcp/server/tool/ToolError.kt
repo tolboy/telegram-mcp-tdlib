@@ -1,14 +1,24 @@
 package dev.telegrammcp.server.tool
 
+import com.fasterxml.jackson.annotation.JsonInclude
 import dev.telegrammcp.server.exception.*
 
-/** Stable recovery hints; retryable means an unchanged call may be retried safely. */
+/**
+ * Stable recovery hints; retryable means an unchanged call may be retried safely.
+ * The message-ID lists are only present for [PARTIAL_DELIVERY].
+ */
 data class ToolError(
     val code: String,
     val message: String,
     val retryable: Boolean = false,
     val retry_after_seconds: Long? = null,
     val next_action: String,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    val delivered_message_ids: List<Long>? = null,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    val unconfirmed_message_ids: List<Long>? = null,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    val not_forwardable_message_ids: List<Long>? = null,
 ) {
     companion object {
         fun from(error: Exception): ToolError {
@@ -20,6 +30,9 @@ data class ToolError(
             if (error is ForwardPartiallyDeliveredException) return ToolError(
                 PARTIAL_DELIVERY, error.message, retryable = false, retry_after_seconds = error.retryAfterSeconds,
                 next_action = PARTIAL_DELIVERY_ACTION,
+                delivered_message_ids = error.deliveredMessageIds,
+                unconfirmed_message_ids = error.unconfirmedMessageIds,
+                not_forwardable_message_ids = error.notForwardableMessageIds,
             )
             if (error is TelegramTimeoutException) return ToolError(
                 TELEGRAM_TIMEOUT, error.message ?: "Telegram request timed out", retryable = error.retryable,
@@ -91,8 +104,10 @@ data class ToolError(
         const val PARTIAL_DELIVERY = "TELEGRAM_FLOOD_WAIT_PARTIAL_DELIVERY"
         private const val PARTIAL_DELIVERY_ACTION = "Telegram flood control interrupted a forward after some " +
             "messages were already delivered. Do not repeat the same call: it would forward the delivered messages " +
-            "again. Check the destination chat, wait at least retry_after_seconds, then forward only the message_ids " +
-            "that are not there yet (as a new call with a new idempotency_key, if you use one)."
+            "again. Check the destination chat, wait at least retry_after_seconds, then forward only the IDs in " +
+            "unconfirmed_message_ids that are not there yet (as a new call with a new idempotency_key, if you use " +
+            "one). Do not retry not_forwardable_message_ids: Telegram refused to forward them (for example protected " +
+            "or deleted messages), and a retry will not change that."
 
         const val TELEGRAM_TIMEOUT = "TELEGRAM_TIMEOUT"
         private const val TIMEOUT_NOT_SENT_ACTION = "The request was not sent: the tool call ran out of time " +

@@ -145,6 +145,28 @@ class ToolErrorTest {
     }
 
     @Test
+    fun `partial delivery exposes structured message id lists`() {
+        val error = renderedError(
+            dev.telegrammcp.server.exception.ForwardPartiallyDeliveredException(
+                9, listOf(11), listOf(13), 7, TelegramApiException(429, "Too Many Requests: retry after 7"),
+                notForwardableMessageIds = listOf(12),
+            ),
+        )
+        assertEquals(ToolError.PARTIAL_DELIVERY, error["code"])
+        assertEquals(listOf(11), (error["delivered_message_ids"] as List<*>).map { (it as Number).toInt() })
+        assertEquals(listOf(13), (error["unconfirmed_message_ids"] as List<*>).map { (it as Number).toInt() })
+        assertEquals(listOf(12), (error["not_forwardable_message_ids"] as List<*>).map { (it as Number).toInt() })
+        assertTrue("Do not retry not_forwardable_message_ids" in error["next_action"].toString())
+    }
+
+    @Test
+    fun `other errors omit the message id lists`() {
+        val error = renderedError(TelegramApiException(429, "Too Many Requests: retry after 30"))
+        assertFalse("delivered_message_ids" in error)
+        assertFalse("not_forwardable_message_ids" in error)
+    }
+
+    @Test
     fun `local timeouts say whether the request was sent and if a retry is safe`() {
         val reason = dev.telegrammcp.server.exception.TelegramTimeoutException.Reason.TOOL_DEADLINE
         val notSent = renderedError(dev.telegrammcp.server.exception.TelegramTimeoutException("GetChat", reason, false, true, 0))
