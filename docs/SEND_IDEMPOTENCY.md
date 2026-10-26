@@ -46,13 +46,33 @@ access, and a key for a different chat cannot reveal its receipt.
 | `SENT` | A final Telegram message ID was saved. This is not a read receipt. |
 | `SCHEDULED` | Telegram accepted a scheduled message; this does not confirm eventual delivery. |
 | `UNKNOWN` | A reservation exists without a saved final result. Delivery may have happened; inspect the chat. Repeating the key will not send again. |
+| `REJECTED` | A single-message send was rejected by Telegram flood control (or the local flood gate) before it was executed; nothing was sent. Retrying the same key with unchanged parameters after `retry_after_seconds` sends it. |
 | `NOT_FOUND` | No saved reservation exists in this account's current journal. This says nothing about unkeyed sends or deleted/restored journals. |
 | `OPERATION_IN_PROGRESS` error | Another caller holds the operation lock. Wait and query status. |
 | `IDEMPOTENCY_CONFLICT` error | The key is bound to different parameters or a different destination. Do not invent another key to retry an uncertain send. |
 | `SEND_JOURNAL_UNAVAILABLE` error | Storage is unavailable or damaged. Inspect storage and delivery; do not delete the record to force retry. |
 
 An error after reservation conservatively leaves `UNKNOWN`, even when it may
-have occurred before actual delivery. This favors avoiding duplicate messages.
+have occurred before actual delivery. The only exceptions are rejections of a
+single-message send that prove it was not executed: a Telegram flood wait
+(TDLib reports it only for requests it did not execute), the local flood gate,
+a full per-account bulkhead (`TELEGRAM_BUSY`), and a tool-call deadline that
+ran out before the request was handed to TDLib (`TELEGRAM_TIMEOUT` with the
+request not sent). All four count only when they are retryable (no earlier write
+of the same tool call was handed to TDLib). They are saved as `REJECTED`. A send that was handed to
+TDLib and then timed out (`SEND_OUTCOME_UNKNOWN`, also when the tool-call
+deadline ended the wait) stays `UNKNOWN`; query `get_send_operation` instead of
+sending again, since a late delivery is still recorded. Batches (albums, multi-message
+forwards) stay `UNKNOWN` because part of them may have been delivered; a
+forward that hits flood control, a timeout, an unknown send outcome or the
+tool deadline while other messages were delivered or remain unconfirmed fails with
+`TELEGRAM_FLOOD_WAIT_PARTIAL_DELIVERY` (`retryable=false`) with structured
+`delivered_message_ids`, `unconfirmed_message_ids` and
+`not_forwardable_message_ids` error fields. Forward only missing unconfirmed
+IDs later; do not retry not-forwardable ones. This favors avoiding duplicate messages.
+The server reconciles available final states across the entire dispatched batch,
+so a failure of the first item cannot hide a later delivery or authorize an
+unchanged retry while another item is still in flight.
 Late successful Telegram responses and send updates observed by the running
 process are saved independently of the original caller's timeout. Status lookup
 and replay reconcile these saved receipts, including after a later restart.

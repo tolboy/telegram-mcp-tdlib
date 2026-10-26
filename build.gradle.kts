@@ -67,15 +67,34 @@ java {
 }
 
 repositories {
+    // The TDLight repository may serve only it.tdlight artifacts, and it.tdlight
+    // artifacts may come only from it. Their checksums are pinned in
+    // gradle/verification-metadata.xml.
+    exclusiveContent {
+        forRepository {
+            maven("https://mvn.mchv.eu/repository/mchv/") { name = "tdlight" }
+        }
+        filter {
+            includeGroup("it.tdlight")
+        }
+    }
     mavenCentral()
-    maven("https://mvn.mchv.eu/repository/mchv/") // tdlight-java (TDLib)
 }
+
+/** Native TDLight targets packaged in the Boot JAR and checked by verifyNativeRuntimeCoverage. */
+val tdlightNativeTargets = listOf(
+    "linux_amd64_gnu_ssl3",
+    "linux_arm64_gnu_ssl3",
+    "windows_amd64",
+    "macos_arm64",
+)
 
 // ─── Dependency versions not managed by Spring Boot BOM ─────────────────────
 val mcpSdkVersion = "2.1.0"
 val springAiMcpVersion = "2.0.1"
-val tdlightVersion = "3.5.3+td.1.8.65"
-val tdlightNativesVersion = "4.0.589"
+// tdlight-java BOM version: it pins tdlight-java, tdlight-api and the matching
+// tdlight-natives build, so the JNI natives never drift from the Java API.
+val tdlightVersion = "3.5.9+td.1.8.68"
 val resilience4jVersion = "2.4.0"
 val caffeineVersion = "3.3.1"
 val logstashVersion = "9.0"
@@ -109,13 +128,16 @@ dependencies {
     implementation("com.google.zxing:core:3.5.4")
 
     // ── Telegram (TDLib via tdlight-java) ─────────────────────────────────────
-    implementation("it.tdlight:tdlight-java:$tdlightVersion")
+    implementation(platform("it.tdlight:tdlight-java-bom:$tdlightVersion"))
+    implementation("it.tdlight:tdlight-java")
     // Classifier-based natives. Package every supported desktop/server target
     // in the Boot JAR; tdlight selects the matching classifier at runtime.
-    implementation("it.tdlight:tdlight-natives:$tdlightNativesVersion:linux_amd64_gnu_ssl3")
-    implementation("it.tdlight:tdlight-natives:$tdlightNativesVersion:linux_arm64_gnu_ssl3")
-    implementation("it.tdlight:tdlight-natives:$tdlightNativesVersion:windows_amd64")
-    implementation("it.tdlight:tdlight-natives:$tdlightNativesVersion:macos_arm64")
+    // The natives version comes from the tdlight BOM above.
+    tdlightNativeTargets.forEach { target ->
+        implementation("it.tdlight:tdlight-natives") {
+            artifact { classifier = target }
+        }
+    }
 
     // ── Caching (entity resolver) ──────────────────────────────────────────
     implementation("com.github.ben-manes.caffeine:caffeine:$caffeineVersion")
@@ -185,12 +207,7 @@ tasks.register("verifyNativeRuntimeCoverage") {
     dependsOn(tasks.bootJar)
     doLast {
         val bootJar = tasks.bootJar.get().archiveFile.get().asFile
-        val requiredClassifiers = listOf(
-            "linux_amd64_gnu_ssl3",
-            "linux_arm64_gnu_ssl3",
-            "windows_amd64",
-            "macos_arm64",
-        )
+        val requiredClassifiers = tdlightNativeTargets
         val entries = ZipFile(bootJar).use { zip ->
             zip.entries().asSequence().map { it.name }.toList()
         }
@@ -200,7 +217,21 @@ tasks.register("verifyNativeRuntimeCoverage") {
         check(missing.isEmpty()) {
             "Boot JAR ${bootJar.name} is missing TDLight native package(s): ${missing.joinToString()}"
         }
-        logger.lifecycle("Verified TDLight native runtime coverage: ${requiredClassifiers.joinToString()}")
+        val nativeVersions = entries
+            .mapNotNull { entry ->
+                Regex("""^BOOT-INF/lib/tdlight-natives-(.+)-(${requiredClassifiers.joinToString("|")})\.jar$""")
+                    .find(entry)
+                    ?.groupValues
+                    ?.get(1)
+            }
+            .toSortedSet()
+        check(nativeVersions.size == 1) {
+            "Boot JAR ${bootJar.name} must contain exactly one TDLight natives version, found: $nativeVersions"
+        }
+        logger.lifecycle(
+            "Verified TDLight native runtime coverage: ${requiredClassifiers.joinToString()} " +
+                "(tdlight-natives ${nativeVersions.single()})",
+        )
     }
 }
 

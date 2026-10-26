@@ -2,6 +2,7 @@ package dev.telegrammcp.server.tool.research
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
+import dev.telegrammcp.server.client.ToolCallDeadline
 import dev.telegrammcp.server.config.PublicSearchProperties
 import dev.telegrammcp.server.exception.InvalidToolInputException
 import dev.telegrammcp.server.model.TelegramMessage
@@ -137,14 +138,20 @@ class SearchMessagesForIntentTool(
         // semaphore, with a wall-clock timeout so a single slow chat cannot
         // block the entire tool call. Partial results are preserved on timeout.
         val fanout = publicSearchProps.fanout
+        val timeoutMillis = minOf(
+            fanout.toolCallTimeoutMs,
+            ToolCallDeadline.remainingNanos()?.let { java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(it).coerceAtLeast(0) }
+                ?: Long.MAX_VALUE,
+        )
         val chatSemaphore = Semaphore(fanout.maxConcurrentChats.coerceAtLeast(1))
         val timedOut = java.util.concurrent.atomic.AtomicBoolean(false)
         val completedResults = ConcurrentHashMap<Int, Map<String, Any>>()
         val requestContext = (accountContext?.coroutineContext() ?: kotlin.coroutines.EmptyCoroutineContext) +
-            dev.telegrammcp.server.security.AccessPermissionContext.coroutineContext()
+            dev.telegrammcp.server.security.AccessPermissionContext.coroutineContext() +
+            ToolCallDeadline.coroutineContext()
         val results: List<Map<String, Any>> = runBlocking(requestContext) {
             try {
-                withTimeout(fanout.toolCallTimeoutMs) {
+                withTimeout(timeoutMillis) {
                     coroutineScope {
                         rawChats.mapIndexed { idx, raw ->
                             async(Dispatchers.IO) {
@@ -159,7 +166,7 @@ class SearchMessagesForIntentTool(
                 timedOut.set(true)
                 log.withTool(TOOL_NAME).warn(
                     "Tool call timed out after {}ms (chats={}, query_variants={})",
-                    fanout.toolCallTimeoutMs, rawChats.size, searchQueries.size,
+                    timeoutMillis, rawChats.size, searchQueries.size,
                 )
             }
             completedResults.toSortedMap().values.toList()
@@ -183,7 +190,7 @@ class SearchMessagesForIntentTool(
         )
         if (timedOut.get()) {
             payload["timed_out"] = true
-            payload["timeout_ms"] = fanout.toolCallTimeoutMs
+            payload["timeout_ms"] = timeoutMillis
         }
         payload
     }

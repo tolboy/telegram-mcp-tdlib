@@ -104,6 +104,12 @@ class DestructiveApprovalService(
         if (!operationGuardService.isDestructiveTool(toolName)) return
 
         val description = describe(arguments)
+        // Waiting for a human must not use up the Telegram request budget of the call.
+        dev.telegrammcp.server.client.ToolCallDeadline.excluding { requireMode(exchange, toolName, description) }
+        log.info("Destructive tool '{}' approved by the operator", toolName)
+    }
+
+    private fun requireMode(exchange: McpSyncServerExchange?, toolName: String, description: String) {
         when (props.confirmation.approval) {
             ApprovalMode.OFF -> return
             ApprovalMode.ELICITATION -> requireElicitation(exchange, toolName, description)
@@ -115,7 +121,6 @@ class DestructiveApprovalService(
                     requireLoopback(toolName, description)
                 }
         }
-        log.info("Destructive tool '{}' approved by the operator", toolName)
     }
 
     private fun requireElicitation(

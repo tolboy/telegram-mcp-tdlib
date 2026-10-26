@@ -2,6 +2,7 @@ package dev.telegrammcp.server.client
 
 import it.tdlight.jni.TdApi
 import dev.telegrammcp.server.exception.SendOutcomeUnknownException
+import dev.telegrammcp.server.exception.TelegramApiException
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutionException
@@ -53,7 +54,15 @@ class MessageSendTracker {
         complete(Key(update.message.chatId, update.oldMessageId), Outcome.Failure(update.error))
     }
 
-    fun awaitFinal(message: TdApi.Message, timeoutSeconds: Long): TdApi.Message {
+    fun awaitFinal(message: TdApi.Message, timeoutSeconds: Long): TdApi.Message =
+        awaitFinal(message, TimeUnit.SECONDS.toNanos(timeoutSeconds), deadlineExceeded = false)
+
+    /**
+     * Waits up to [timeoutNanos] for the final state of [message]. [deadlineExceeded]
+     * marks the resulting [SendOutcomeUnknownException] as caused by the tool
+     * call's overall deadline rather than the full send timeout.
+     */
+    fun awaitFinal(message: TdApi.Message, timeoutNanos: Long, deadlineExceeded: Boolean): TdApi.Message {
         if (message.sendingState == null) return message
 
         val key = Key(message.chatId, message.id)
@@ -66,11 +75,11 @@ class MessageSendTracker {
         }
 
         return try {
-            active.get(timeoutSeconds, TimeUnit.SECONDS).unwrap(key)
+            active.get(timeoutNanos.coerceAtLeast(0), TimeUnit.NANOSECONDS).unwrap(key)
         } catch (error: ExecutionException) {
             throw error.cause ?: error
         } catch (error: TimeoutException) {
-            throw SendOutcomeUnknownException(key.chatId, key.oldMessageId, error)
+            throw SendOutcomeUnknownException(key.chatId, key.oldMessageId, error, deadlineExceeded)
         } catch (error: InterruptedException) {
             Thread.currentThread().interrupt()
             throw SendOutcomeUnknownException(key.chatId, key.oldMessageId, error)
@@ -105,9 +114,13 @@ class MessageSendTracker {
 
     private fun Outcome.unwrap(key: Key): TdApi.Message = when (this) {
         is Outcome.Success -> message
-        is Outcome.Failure -> throw IllegalStateException(
-            "Telegram failed to send message ${key.oldMessageId} in chat ${key.chatId} " +
-            "(${error.code}): ${error.message}",
+        // updateMessageSendFailed is a definite rejection (e.g. a flood wait
+        // that hit after the provisional message was created); keep its code
+        // so tool errors classify it like a direct request error.
+        is Outcome.Failure -> throw TelegramApiException(
+            error.code,
+            error.message.orEmpty(),
+            IllegalStateException("Telegram failed to send message ${key.oldMessageId} in chat ${key.chatId}"),
         )
     }
 

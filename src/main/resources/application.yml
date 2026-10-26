@@ -65,6 +65,28 @@ tdlib:
     # and then fails with a readable error. Keep it below the client's own
     # timeout — Claude Desktop drops a stdio server after 60s.
     ready-timeout: ${TDLIB_AUTH_READY_TIMEOUT:45s}
+  # Limits for TDLib requests made by tool calls. MCP clients give up on a
+  # tool call after about 60s (TypeScript MCP SDK default, Claude Desktop), so
+  # tool-deadline bounds the whole chain of TDLib waits in one call (rate
+  # limiter, request, final message state, lookups) and must stay below the
+  # client's limit. Each wait is min(its own timeout, time left in the deadline).
+  # A request TDLib parks for flood control longer than this times out locally:
+  # the scope is then gated for local-timeout-gate (see docs/TOOL_ERRORS.md).
+  requests:
+    timeout: ${TDLIB_REQUEST_TIMEOUT:40s}
+    message-send-timeout: ${TDLIB_MESSAGE_SEND_TIMEOUT:40s}
+    # In a tool call a download wait is also capped by the time left in tool-deadline.
+    download-timeout: ${TDLIB_DOWNLOAD_TIMEOUT:45s}
+    tool-deadline: ${TDLIB_TOOL_DEADLINE:50s}
+    local-timeout-gate: ${TDLIB_LOCAL_TIMEOUT_GATE:10s}
+    # Per-account bulkhead; extra concurrent calls fail fast with TELEGRAM_BUSY.
+    max-concurrent-calls: ${TDLIB_MAX_CONCURRENT_CALLS:25}
+    # While TDLib reports ConnectionStateReady, a full request timeout counts
+    # toward the circuit breaker only when timeouts since TDLib's last answer
+    # span this many flood-gate scopes, or TDLib answered nothing for the
+    # window below. One flood-waited chat therefore cannot open the breaker.
+    breaker-timeout-scopes: ${TDLIB_BREAKER_TIMEOUT_SCOPES:3}
+    breaker-no-answer-window: ${TDLIB_BREAKER_NO_ANSWER_WINDOW:180s}
   database:
     # Blank picks the platform app-data directory (Windows/macOS/Linux).
     # Set an absolute path for containers or a managed server volume.
@@ -282,7 +304,13 @@ resilience4j:
         failure-rate-threshold: 50
         wait-duration-in-open-state: 30s
         permitted-number-of-calls-in-half-open-state: 3
-        slow-call-duration-threshold: 10s
+        # Slow-call detection is effectively DISABLED: 60s is above the request
+        # timeout (40s), the download timeout (45s) and the tool deadline (50s),
+        # so no tool call is ever recorded as slow. Deliberate: a slow success is
+        # a request TDLib held for a flood wait, and counting it would let one
+        # flooded chat open the breaker. A hung TDLib is detected through
+        # timeouts and the connection state (see breaker-timeout-scopes).
+        slow-call-duration-threshold: 60s
         slow-call-rate-threshold: 80
 
 # ── Logging ───────────────────────────────────────────────────────────────────

@@ -8,6 +8,7 @@ import dev.telegrammcp.server.security.SecretResolver
 import dev.telegrammcp.server.service.PlatformPaths
 import dev.telegrammcp.server.util.StructuredLogger
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry
 import io.github.resilience4j.ratelimiter.RateLimiter
 import io.micrometer.core.instrument.MeterRegistry
 import it.tdlight.Init
@@ -50,10 +51,13 @@ class TdLibConfig(
     private val platformPaths: PlatformPaths,
     private val rateLimiter: RateLimiter,
     private val circuitBreaker: CircuitBreaker,
+    private val circuitBreakerRegistry: CircuitBreakerRegistry,
     private val meterRegistry: MeterRegistry,
     private val environment: Environment,
     private val buildProperties: BuildProperties? = null,
     private val changeJournal: dev.telegrammcp.server.service.ChangeJournal? = null,
+    private val clientServices: TdLibClientServiceFactory =
+        TdLibClientServiceFactory(TelegramConnectionStates(), meterRegistry),
 ) {
     private val log = StructuredLogger.forClass<TdLibConfig>()
     private val nativeInitialized = AtomicBoolean(false)
@@ -61,6 +65,12 @@ class TdLibConfig(
 
     @Volatile
     private var runtimeRegistry: TelegramAccountRegistry? = null
+
+    init {
+        // McpConfig runs every MCP tool callback inside ToolCallDeadline.run,
+        // which reads this process-wide budget.
+        ToolCallDeadline.budget = defaultProperties.requests.toolDeadline
+    }
 
     @Bean
     fun telegramAccountRegistry(
@@ -225,6 +235,7 @@ class TdLibConfig(
         return try {
             val builder: SimpleTelegramClientBuilder = factory.builder(buildSettings(config))
             changeJournal?.attach(builder, config.label)
+            clientServices.attach(builder, config.label)
             val authGate = TelegramAuthGate(config.label, config.authReadyTimeout)
             val chatFolderState = ChatFolderState()
             val messageSendTracker = MessageSendTracker()
@@ -268,25 +279,33 @@ class TdLibConfig(
                 "telegram-${config.label}",
                 rateLimiter.rateLimiterConfig,
             )
-            val accountCircuitBreaker = CircuitBreaker.of(
+            // Created through the registry so actuator metrics and health see it.
+            val accountCircuitBreaker = circuitBreakerRegistry.circuitBreaker(
                 "telegram-${config.label}",
                 circuitBreaker.circuitBreakerConfig,
             )
             TelegramAccountRegistry.AccountHandle(
                 label = config.label,
                 service = authGate.gate(
-                    TdLibClientService(
-                        client,
-                        accountRateLimiter,
-                        accountCircuitBreaker,
-                        meterRegistry,
-                        chatFolderState,
-                        messageSendTracker,
+                    clientServices.create(
+                        account = config.label,
+                        client = client,
+                        rateLimiter = accountRateLimiter,
+                        circuitBreaker = accountCircuitBreaker,
+                        requests = defaultProperties.requests,
+                        bulkheadName = "telegram-${config.label}",
+                        chatFolderState = chatFolderState,
+                        messageSendTracker = messageSendTracker,
                     ),
                 ),
-                close = factory::close,
+                close = {
+                    // A closed client must not leave its last Ready behind for the breaker.
+                    clientServices.release(config.label)
+                    factory.close()
+                },
             )
         } catch (e: Exception) {
+            clientServices.release(config.label)
             runCatching { factory.close() }
             throw e
         }

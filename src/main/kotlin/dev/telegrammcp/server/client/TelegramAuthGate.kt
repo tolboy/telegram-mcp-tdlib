@@ -71,8 +71,13 @@ class TelegramAuthGate(
             AuthState.Pending -> Unit
         }
 
+        // The wait counts toward the tool call's deadline and never outlasts it.
+        val waitMillis = minOf(
+            readyTimeout.toMillis(),
+            ToolCallDeadline.remainingNanos()?.let { TimeUnit.NANOSECONDS.toMillis(it).coerceAtLeast(0) } ?: Long.MAX_VALUE,
+        )
         try {
-            terminal.await(readyTimeout.toMillis(), TimeUnit.MILLISECONDS)
+            terminal.await(waitMillis, TimeUnit.MILLISECONDS)
         } catch (interrupted: InterruptedException) {
             Thread.currentThread().interrupt()
             throw authError("Interrupted while waiting for Telegram account '$label' to authenticate")
@@ -83,7 +88,7 @@ class TelegramAuthGate(
             is AuthState.Failed -> throw authError(finalState.reason)
             AuthState.Pending -> {
                 throw authError(
-                    "Telegram account '$label' is not authenticated yet (waited ${readyTimeout.toSeconds()}s). " +
+                    "Telegram account '$label' is not authenticated yet (waited ${waitMillis / 1000}s). " +
                         "Complete the login with 'telegram-mcp auth', or supply TDLIB_AUTH_CODE / " +
                         "TDLIB_2FA_PASSWORD for a headless start.",
                 )

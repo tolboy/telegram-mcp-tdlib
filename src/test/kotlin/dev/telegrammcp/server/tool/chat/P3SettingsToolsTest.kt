@@ -25,6 +25,7 @@ import io.modelcontextprotocol.server.McpSyncServerExchange
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class P3SettingsToolsTest {
 
@@ -131,5 +132,92 @@ class P3SettingsToolsTest {
         assertFalse(result.isError)
         verify { telegramClient.setChatMemberAdministratorRights(42L, 55L, ChatAdministratorRights(canDeleteMessages = true)) }
         verify { operationGuard.checkPermission("set_admin_rights", any()) }
+    }
+
+    @Test
+    fun `administrator right write forwards welcome-message right and advertises it`() {
+        val tool = SetAdminRightsTool(telegramClient, entityResolver, guardrails, operationGuard, audit, mapper, SimpleMeterRegistry())
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.setChatMemberAdministratorRights(42L, 55L, any()) } returns true
+
+        val result = tool.executeChecked(
+            exchange,
+            mapOf(
+                "chat_id" to 42,
+                "user_id" to 55,
+                "rights" to mapOf("can_send_welcome_messages" to true, "can_pin_messages" to true),
+                "confirmed" to true,
+            ),
+        )
+
+        assertFalse(result.isError)
+        verify {
+            telegramClient.setChatMemberAdministratorRights(
+                42L,
+                55L,
+                ChatAdministratorRights(canPinMessages = true, canSendWelcomeMessages = true),
+            )
+        }
+        val rightsSchema = mapper.writeValueAsString(tool.definition().inputSchema())
+        assertTrue(rightsSchema.contains("can_send_welcome_messages"), rightsSchema)
+    }
+
+    @Test
+    fun `administrator right write rejects unknown keys instead of revoking everything`() {
+        val tool = SetAdminRightsTool(telegramClient, entityResolver, guardrails, operationGuard, audit, mapper, SimpleMeterRegistry())
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.setChatMemberAdministratorRights(42L, 55L, any()) } returns true
+
+        val result = tool.executeChecked(
+            exchange,
+            mapOf(
+                "chat_id" to 42,
+                "user_id" to 55,
+                // Typo of can_delete_messages.
+                "rights" to mapOf("can_delete_message" to true, "can_pin_messages" to true),
+                "confirmed" to true,
+            ),
+        )
+
+        assertTrue(result.isError)
+        val error = ((result.structuredContent() as Map<*, *>)["data"] as Map<*, *>)["error"] as Map<*, *>
+        assertEquals("INVALID_INPUT", error["code"])
+        assertTrue(error["message"].toString().contains("can_delete_message"), error.toString())
+        verify(exactly = 0) { telegramClient.setChatMemberAdministratorRights(any(), any(), any()) }
+
+        val schema = mapper.readTree(mapper.writeValueAsString(tool.definition().inputSchema()))
+        val rights = schema.path("properties").path("rights")
+        assertEquals(false, rights.path("additionalProperties").asBoolean(true))
+        val advertised = rights.path("properties").fieldNames().asSequence().toSet()
+        val tdlibRights = it.tdlight.jni.TdApi.ChatAdministratorRights::class.java.fields
+            .filter { it.type == Boolean::class.javaPrimitiveType && !java.lang.reflect.Modifier.isStatic(it.modifiers) }
+            .map { field -> field.name.replace(Regex("([A-Z])")) { "_" + it.value.lowercase() }.let { n -> if (n.startsWith("is_")) n else "can_" + n.removePrefix("can_") } }
+            .toSet()
+        assertEquals(tdlibRights, advertised, "schema must advertise exactly TDLib's administrator rights")
+    }
+
+    @Test
+    fun `every administrator right key sets the TDLib field of the same name`() {
+        val tool = SetAdminRightsTool(telegramClient, entityResolver, guardrails, operationGuard, audit, mapper, SimpleMeterRegistry())
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        val captured = slot<ChatAdministratorRights>()
+        every { telegramClient.setChatMemberAdministratorRights(42L, 55L, capture(captured)) } returns true
+
+        val tdFields = it.tdlight.jni.TdApi.ChatAdministratorRights::class.java.fields
+            .filter { it.type == Boolean::class.javaPrimitiveType && !java.lang.reflect.Modifier.isStatic(it.modifiers) }
+        assertEquals(18, tdFields.size)
+        tdFields.forEach { field ->
+            // TDLib's own snake_case name, e.g. canSendWelcomeMessages -> can_send_welcome_messages.
+            val key = field.name.replace(Regex("[A-Z]")) { "_" + it.value.lowercase() }
+            val result = tool.executeChecked(
+                exchange,
+                mapOf("chat_id" to 42, "user_id" to 55, "rights" to mapOf(key to true), "confirmed" to true),
+            )
+            assertFalse(result.isError, "$key was rejected: ${result.structuredContent()}")
+
+            val sent = dev.telegrammcp.server.client.TdLibRequestBuilders.administratorRights(captured.captured)
+            val enabled = tdFields.filter { it.getBoolean(sent) }.map { it.name }
+            assertEquals(listOf(field.name), enabled, "key $key must set exactly TDLib's ${field.name}")
+        }
     }
 }

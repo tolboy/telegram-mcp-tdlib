@@ -8,7 +8,7 @@ import io.mockk.mockk
 import it.tdlight.client.GenericResultHandler
 import it.tdlight.client.Result
 import it.tdlight.client.SimpleTelegramClient
-import it.tdlight.client.TelegramError
+import dev.telegrammcp.server.exception.TelegramApiException
 import it.tdlight.jni.TdApi
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
@@ -102,7 +102,7 @@ class TdLibMessageReactionsTest {
     fun `other permission failures are propagated`() {
         respond { if (it is TdApi.GetMessage) message(true) else TdApi.Error(403, "CHAT_ACCESS_DENIED") }
 
-        val error = assertFailsWith<TelegramError> { service.getMessageReactions(42, 100) }
+        val error = assertFailsWith<TelegramApiException> { service.getMessageReactions(42, 100) }
 
         assertEquals("CHAT_ACCESS_DENIED", error.errorMessage)
     }
@@ -111,7 +111,8 @@ class TdLibMessageReactionsTest {
     fun `message lookup errors are not hidden`() {
         respond { TdApi.Error(404, "MESSAGE_NOT_FOUND") }
 
-        assertFailsWith<TelegramError> { service.getMessageReactions(42, 100) }
+        val error = assertFailsWith<TelegramApiException> { service.getMessageReactions(42, 100) }
+        assertEquals(404, error.errorCode)
         assertEquals(1, requests.size)
     }
 

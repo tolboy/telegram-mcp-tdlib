@@ -58,7 +58,7 @@ class ReplyToMessageTool(
           "properties": {
             "idempotency_key": {
               "type": "string",
-              "description": "Optional unique reply key (1-128 ASCII letters, digits, '.', '_', ':', '-'). Identical retries return a saved receipt without sending again. UNKNOWN requires checking delivery."
+              "description": "Optional unique reply key (1-128 ASCII letters, digits, '.', '_', ':', '-'). Identical retries return a saved receipt without sending again. UNKNOWN requires checking delivery; REJECTED (flood wait) may be retried with the same key."
             },
             "chat_id": {
               "type": ["string", "number"],

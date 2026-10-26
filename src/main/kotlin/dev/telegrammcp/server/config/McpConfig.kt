@@ -71,7 +71,11 @@ class McpConfig {
             log.info("Registering MCP tool: {} — {}", tool.name(), tool.description())
             SyncToolSpecification(tool) { exchange, request ->
                 val arguments = request.arguments() ?: emptyMap()
-                val result = try {
+                // The single place a tool call's deadline is opened: every
+                // registered handler runs under it, whether or not it goes
+                // through ToolSupport.execute. The operator's approval wait is
+                // excluded from it (DestructiveApprovalService).
+                val result = dev.telegrammcp.server.client.ToolCallDeadline.run { try {
                     // Once per session, and on any tool: an operator should learn
                     // that approval cannot be requested before a destructive call
                     // fails, not from the failure itself.
@@ -131,7 +135,7 @@ class McpConfig {
                 }
                 } catch (error: Exception) {
                     ToolSupport.errorResult(error)
-                }
+                } }
                 dev.telegrammcp.server.tool.ToolPagination.decorate(tool, result)
             }
         }.also {

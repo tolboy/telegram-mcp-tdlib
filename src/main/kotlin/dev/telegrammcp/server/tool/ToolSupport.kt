@@ -104,6 +104,8 @@ object ToolSupport {
         val startNanos = System.nanoTime()
 
         return try {
+            // The tool call's ToolCallDeadline is opened once, around the
+            // whole handler, by the MCP tool callback (McpConfig).
             val payload = block()
             val durationMs = elapsedMillis(startNanos)
             auditService?.record(toolName, arguments, AuditOutcome.SUCCESS, durationMs = durationMs)

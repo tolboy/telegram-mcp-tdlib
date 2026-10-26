@@ -224,7 +224,7 @@ class ConnectorManifestTool(
             "routingHints" to buildList {
                 if ("send_message" in toolNames) add("Use send_message with chat_id=self for the current account's Saved Messages.")
                 if ("get_send_operation" in toolNames && toolNames.any { it in setOf("send_message", "reply_to_message") }) {
-                    add("For recoverable text sends/replies, supply a unique idempotency_key and use get_send_operation after a lost response. UNKNOWN requires inspecting delivery, not another send.")
+                    add("For recoverable text sends/replies, supply a unique idempotency_key and use get_send_operation after a lost response. UNKNOWN requires inspecting delivery, not another send; REJECTED (flood wait, nothing sent) allows retrying with the same key.")
                 }
                 addAll(listOf(
                 "chat_id accepts numeric ids, @usernames, +phone numbers, and the canonical self identifier.",

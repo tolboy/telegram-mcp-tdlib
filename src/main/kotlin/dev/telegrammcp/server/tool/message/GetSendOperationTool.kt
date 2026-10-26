@@ -26,7 +26,7 @@ class GetSendOperationTool(
 ) : McpToolHandler {
     override fun definition(): McpSchema.Tool = ToolSupport.definition(
         "get_send_operation",
-        "Read the selected account's saved send receipt. SENT confirms a stored final message ID; UNKNOWN requires checking delivery, never automatic resend; NOT_FOUND means no saved reservation. An active send returns OPERATION_IN_PROGRESS.",
+        "Read the selected account's saved send receipt. SENT confirms a stored final message ID; UNKNOWN requires checking delivery, never automatic resend; NOT_FOUND means no saved reservation; REJECTED means Telegram refused before sending (flood wait), so an identical retry with the same key sends again. An active send returns OPERATION_IN_PROGRESS.",
         """{"type":"object","properties":{
           "chat_id":{"type":["string","number"],"description":"Destination chat identifier, as used for the send."},
           "idempotency_key":{"type":"string","description":"Key supplied to send_message or reply_to_message."}

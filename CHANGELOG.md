@@ -3,6 +3,142 @@
 Notable changes to Telegram MCP Server are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- Fix retry safety across multi-step tool calls: a Telegram flood, local flood
+  gate or transient read failure after an earlier write no longer advertises an
+  unchanged retry. Such flood failures omit REST retry headers and keep keyed
+  receipts `UNKNOWN` rather than allowing another execution.
+- Reconcile available final states of every dispatched forward after the first
+  failure, including later successful deliveries. A first-item flood cannot make
+  other delivered or in-flight messages retryable; only an entirely rejected
+  batch can return a plain retryable flood error.
+- Propagate the original tool-call deadline and write history into public-search
+  coroutine workers, and cap their fanout timeout by the remaining call budget.
+- Update TDLib from 1.8.65 to 1.8.68 (tdlight-java 3.5.3+td.1.8.65 to
+  3.5.9+td.1.8.68). The tdlight-natives version now comes from the tdlight BOM
+  instead of a separate pin. Adapt to the 1.8.68 TL schema: `BotCommand`
+  `is_ephemeral`, `InputVoiceNote`, `InputSticker` and the new
+  `can_send_welcome_messages` administrator right.
+- **Behaviour change:** `set_admin_rights` accepts `can_send_welcome_messages`.
+  Because the tool replaces the complete rights set, omitting it revokes the
+  right, as for every other flag. `get_admins` and `get_participants` entries
+  now include `administrator_rights` for administrators so callers can read
+  and preserve current rights.
+- Classify Telegram API errors instead of reporting them as `INTERNAL_ERROR`,
+  using the TDLib code plus explicit tables of real TDLib and Telegram error
+  strings (see [docs/TOOL_ERRORS.md](docs/TOOL_ERRORS.md)). Asynchronous send
+  failures (`updateMessageSendFailed`) are classified the same way.
+- **Behaviour change:** Telegram flood control (420/429, `FLOOD_WAIT_N`,
+  `FLOOD_PREMIUM_WAIT_N`, `SLOWMODE_WAIT_N`, `2FA_CONFIRM_WAIT_N`,
+  `TAKEOUT_INIT_DELAY_N`, `Too Many Requests: retry after N`) uses the new
+  retryable code `TELEGRAM_FLOOD_WAIT` with `retry_after_seconds`.
+  `RATE_LIMITED` keeps its existing meaning (this server's anti-spam guard) and
+  stays `retryable=false`.
+- **Behaviour change:** after a flood wait, calls in the same scope fail fast
+  with `TELEGRAM_FLOOD_WAIT` and the remaining seconds, without reaching
+  Telegram, until the delay elapses. Scopes are per account: all message
+  sends to a chat (send, album, forward, resend, inline and bot-start sends)
+  share one per-chat scope; account-wide writes (joins, invite-link joins,
+  adding members, creating groups, adding/importing contacts) are keyed by
+  method only; `DownloadFile` by file ID; other writes by TDLib method +
+  target chat (method without a chat); reads by method. A write's flood never
+  blocks reads. Best-effort title/sender lookups skip the gate and, when they
+  fail, are logged and counted (`telegram.lookup.degraded`). The gate is checked before the
+  rate-limiter permit, so gated calls do not consume it. A reported delay of 0
+  is treated as 1 second. The gate is in memory.
+- **Behaviour change:** every tool call has an overall deadline
+  (`tdlib.requests.tool-deadline`, `TDLIB_TOOL_DEADLINE`, default 50 seconds,
+  below the ~60 second limit of common MCP clients). Every Telegram wait in
+  the call (rate-limiter permit, each TDLib request, final message state,
+  lookups, the authentication wait, speech-recognition polling) is capped by
+  the time left; operator approval waits are excluded. The TDLib request
+  timeout (40 s, previously 30 s), the final-message timeout (40 s) and the
+  new `DownloadFile` timeout (45 s) are configurable (`TDLIB_REQUEST_TIMEOUT`,
+  `TDLIB_MESSAGE_SEND_TIMEOUT`, `TDLIB_DOWNLOAD_TIMEOUT`; in a tool call the
+  download wait is also capped by the deadline). The circuit breaker's
+  slow-call threshold is raised from 10 to 60 seconds, above every TDLib wait
+  and the tool deadline, which effectively disables slow-call detection: a
+  slow success is a TDLib-held flood wait, not a health failure.
+- **Behaviour change:** when a wait ends without an answer, a send returns
+  `SEND_OUTCOME_UNKNOWN` (keyed sends: check `get_send_operation`) and any
+  other request returns the new code `TELEGRAM_TIMEOUT`, retryable only when
+  no write of the call was sent. A request that was sent and timed out gates
+  its scope for `tdlib.requests.local-timeout-gate` (10 s), because TDLib may
+  still be waiting out flood control for it. Deadline-bound and `DownloadFile`
+  timeouts do not count toward the circuit breaker.
+- **Behaviour change:** startup fails when `tdlib.requests.tool-deadline` is
+  not longer than `tdlib.requests.timeout` and
+  `tdlib.requests.message-send-timeout`; the error names the settings and
+  their values.
+- **Behaviour change:** each account has a fail-fast bulkhead
+  (`tdlib.requests.max-concurrent-calls`, `TDLIB_MAX_CONCURRENT_CALLS`,
+  default 25). Extra concurrent calls return the new code `TELEGRAM_BUSY`
+  (`retry_after_seconds=1` when retryable, null otherwise) without reaching Telegram, so one account's
+  backlog cannot take every server thread. A send holds its permit through
+  the wait for the message's final state. REST maps `TELEGRAM_TIMEOUT` to
+  504 and `TELEGRAM_BUSY` to 503, with a `Retry-After` equal to the MCP
+  `retry_after_seconds` when retryable. A sent read that timed out advertises
+  the remaining time of its scope's local gate instead of 1 s.
+- **Behaviour change:** `PEER_FLOOD` (spam restriction) maps to
+  `PERMISSION_DENIED`, is not retryable and does not set the flood gate.
+- **Behaviour change:** a multi-message forward that hits flood control, a
+  local timeout, an unknown send outcome or the tool deadline after a
+  partial delivery fails with the new code
+  `TELEGRAM_FLOOD_WAIT_PARTIAL_DELIVERY` (`retryable=false`) with structured
+  `delivered_message_ids`, `unconfirmed_message_ids` and
+  `not_forwardable_message_ids` (messages TDLib could not forward at all,
+  which must not be retried). `retry_after_seconds` is the flood wait, or
+  the remaining local send gate of the chat when no final state arrived.
+- Read-only (retryable) requests are an explicit allowlist of TDLib functions;
+  `recognizeSpeech` and `getCallbackQueryAnswer` are treated as writes.
+- **Behaviour change:** 4xx permission messages (`Can't access the chat`,
+  `Not enough rights…`, `Have no access to the chat`, `Have no write access to
+  the chat`, `Have no access to the user`, `Chat is not accessible`,
+  `User is inaccessible`, `CHAT_ADMIN_REQUIRED`, `CHAT_SEND_*_FORBIDDEN`, …)
+  map to `PERMISSION_DENIED`, checked before not-found. `Invalid user
+  identifier` maps to `ENTITY_NOT_FOUND`. 403 maps to
+  `PERMISSION_DENIED`, 401 to `AUTH_REQUIRED`.
+- **Behaviour change:** `ENTITY_NOT_FOUND` is used only for 404 and an explicit
+  table of not-found messages. `File not found` and `Chat list not found` are
+  `INVALID_INPUT`. Other 4xx map to `INVALID_INPUT`.
+- **Behaviour change:** 5xx errors are no longer retryable as a class. Only
+  allow-listed transient failures (502, 503, `WORKER_BUSY…`, `Timeout expired`)
+  of read-only requests are retryable `TELEGRAM_UNAVAILABLE`; the same failures
+  of writes are `TELEGRAM_UNAVAILABLE` with `retryable=false`. Fixed 500
+  outcomes (`Topic not found`, `Sticker set not found`, `Unknown parse mode`, …)
+  map to `ENTITY_NOT_FOUND` or `INVALID_INPUT`, and other 5xx (for example
+  `Receive invalid response`, which may follow a successful write) map to
+  `TELEGRAM_API_ERROR` with `retryable=false`.
+- **Behaviour change:** cancelled or aborted requests (`Canceled…`,
+  `406 Request canceled`, `500 Request aborted`) map to the new code
+  `TELEGRAM_REQUEST_CANCELLED` (`retryable=false`).
+- **Behaviour change:** a single-message keyed send rejected by flood control or
+  the flood gate, or (when retryable) by a full bulkhead or by a deadline that
+  ran out before the request was sent is recorded as the new receipt status `REJECTED`; retrying the
+  same key with the same parameters sends it. Batches stay `UNKNOWN`.
+- **Behaviour change:** `set_admin_rights` rejects unknown keys in `rights`
+  with `INVALID_INPUT` instead of ignoring them, and its input schema declares
+  `additionalProperties: false`.
+- **Behaviour change:** REST endpoints map Telegram errors by kind: flood wait
+  429 with `Retry-After`, permission 403, not-found 404, other caller errors
+  400, auth/cancelled/transient 503, other server errors 502 (previously all
+  502). 4xx are logged at warn without a stack trace.
+- The Telegram circuit breaker counts only Telegram health failures (non-fixed
+  5xx and timeouts). Caller errors, invalid tool input, flood waits, flood-gate
+  rejections and cancellations are ignored and are not recorded as slow calls.
+  Per-account breakers are created through the circuit breaker registry.
+  While TDLib reports the account connected, a full request timeout counts
+  only when timeouts come from several flood-gate scopes
+  (`TDLIB_BREAKER_TIMEOUT_SCOPES`, 3) or TDLib answered nothing for
+  `TDLIB_BREAKER_NO_ANSWER_WINDOW` (180 s), so one flood-waited chat cannot
+  open it. Every live client service, including the one the auth wizard
+  hot-swaps in after login, is built by one shared factory and gets this rule.
+- Build: the TDLight Maven repository serves only `it.tdlight` (Gradle
+  `exclusiveContent`), and `it.tdlight` artifacts are checksum-pinned in
+  `gradle/verification-metadata.xml` (SHA-256). `verifyNativeRuntimeCoverage`
+  prints the resolved `tdlight-natives` version.
+
 ## 1.17.3 - 2026-10-17
 
 - Make `session clear` refuse a live TDLib session: probe every existing lock

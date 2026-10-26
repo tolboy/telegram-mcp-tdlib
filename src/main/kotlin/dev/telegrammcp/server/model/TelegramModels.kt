@@ -103,6 +103,8 @@ data class ChatMember(
     val lastName: String? = null,
     val username: String? = null,
     val status: MemberStatus,
+    /** Current administrator rights; present only for administrators. */
+    val administratorRights: ChatAdministratorRights? = null,
 )
 
 /** Membership status within a chat. */
@@ -208,6 +210,8 @@ data class ChatAdministratorRights(
     val canDeleteStories: Boolean = false,
     val canManageDirectMessages: Boolean = false,
     val canManageTags: Boolean = false,
+    /** TDLib 1.8.68+: may manage the chat's welcome messages. */
+    val canSendWelcomeMessages: Boolean = false,
     val isAnonymous: Boolean = false,
 )
 

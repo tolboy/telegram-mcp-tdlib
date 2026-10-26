@@ -14,6 +14,7 @@ RUN chmod +x gradlew && ./gradlew --version
 
 # Cache dependencies
 COPY build.gradle.kts settings.gradle.kts gradle.properties ./
+COPY gradle/verification-metadata.xml gradle/verification-metadata.xml
 RUN ./gradlew dependencies --no-daemon || true
 
 # Build the application
