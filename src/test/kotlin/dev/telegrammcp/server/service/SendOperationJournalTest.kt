@@ -216,4 +216,20 @@ class SendOperationJournalTest {
         }
         assertEquals("UNKNOWN", journal().status("work", "sent-read", 42)["status"], "a sent request is never REJECTED")
     }
+
+    @Test
+    fun `a flood after an earlier write keeps the receipt UNKNOWN and cannot resend`() {
+        val failures = listOf(
+            TelegramApiException(429, "retry after 7").apply { priorWriteDispatched = true },
+            TelegramFloodGateException("send chat 42", 7).apply { priorWriteDispatched = true },
+        )
+        failures.forEachIndexed { index, error ->
+            val key = "after-write-$index"
+            assertFailsWith<Exception> { journal().send("work", key, 42, "fp", {}) { throw error } }
+            assertEquals("UNKNOWN", journal().status("work", key, 42)["status"])
+            val replay = journal().send("work", key, 42, "fp", {}) { fail("must not resend an uncertain write") }
+            assertEquals("UNKNOWN", replay["status"])
+            assertEquals(true, replay["replayed"])
+        }
+    }
 }

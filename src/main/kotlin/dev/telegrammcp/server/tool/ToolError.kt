@@ -24,8 +24,9 @@ data class ToolError(
         fun from(error: Exception): ToolError {
             if (error is TelegramApiException) return fromTelegram(error)
             if (error is TelegramFloodGateException) return ToolError(
-                FLOOD_WAIT, error.message, retryable = true, retry_after_seconds = error.retryAfterSeconds,
-                next_action = FLOOD_WAIT_ACTION,
+                FLOOD_WAIT, error.message, retryable = error.isRetryable,
+                retry_after_seconds = error.retryAfterSeconds.takeIf { error.isRetryable },
+                next_action = if (error.isRetryable) FLOOD_WAIT_ACTION else AFTER_WRITE_ACTION,
             )
             if (error is ForwardPartiallyDeliveredException) return ToolError(
                 PARTIAL_DELIVERY, error.message, retryable = false, retry_after_seconds = error.retryAfterSeconds,
@@ -100,18 +101,21 @@ data class ToolError(
         private const val FLOOD_WAIT_ACTION = "Telegram flood control rejected the request without executing it. " +
             "Wait at least retry_after_seconds, then retry the unchanged call (for keyed sends, reuse the same " +
             "idempotency_key). Retrying sooner is rejected locally and does not reach Telegram."
+        private const val AFTER_WRITE_ACTION = "An earlier write in this tool call was already sent. " +
+            "Do not repeat the unchanged call: it could duplicate that write. Check its result and resume only " +
+            "the unfinished steps."
 
         const val PARTIAL_DELIVERY = "TELEGRAM_FLOOD_WAIT_PARTIAL_DELIVERY"
-        private const val PARTIAL_DELIVERY_ACTION = "Telegram flood control interrupted a forward after some " +
-            "messages were already delivered. Do not repeat the same call: it would forward the delivered messages " +
-            "again. Check the destination chat, wait at least retry_after_seconds, then forward only the IDs in " +
+        private const val PARTIAL_DELIVERY_ACTION = "Telegram flood control interrupted a forward whose messages " +
+            "were already dispatched. Do not repeat the same call: some messages are delivered or may still arrive. " +
+            "Check the destination chat, wait at least retry_after_seconds, then forward only the IDs in " +
             "unconfirmed_message_ids that are not there yet (as a new call with a new idempotency_key, if you use " +
             "one). Do not retry not_forwardable_message_ids: Telegram refused to forward them (for example protected " +
             "or deleted messages), and a retry will not change that."
 
-        private const val PARTIAL_DELIVERY_UNCONFIRMED_ACTION = "A forward stopped after some messages were " +
-            "already delivered: the final state of the next message did not arrive in time. Do not repeat the " +
-            "same call: it would forward the delivered messages again. Check the destination chat, then forward " +
+        private const val PARTIAL_DELIVERY_UNCONFIRMED_ACTION = "Some forwarded messages failed or their final " +
+            "states did not arrive in time. Do not repeat the same call: some messages are delivered or may still " +
+            "arrive. Check the destination chat, then forward " +
             "only the IDs in unconfirmed_message_ids that are not there yet (as a new call with a new " +
             "idempotency_key, if you use one); they may still arrive. When retry_after_seconds is set, the chat is " +
             "briefly gated: wait at least that long before the new call. Do not retry not_forwardable_message_ids."
@@ -145,8 +149,9 @@ data class ToolError(
             val message = error.message
             return when (error.kind) {
                 TelegramErrorKind.FLOOD_WAIT -> ToolError(
-                    FLOOD_WAIT, message, retryable = true, retry_after_seconds = error.retryAfterSeconds,
-                    next_action = FLOOD_WAIT_ACTION,
+                    FLOOD_WAIT, message, retryable = error.isRetryable,
+                    retry_after_seconds = error.retryAfterSeconds.takeIf { error.isRetryable },
+                    next_action = if (error.isRetryable) FLOOD_WAIT_ACTION else AFTER_WRITE_ACTION,
                 )
                 TelegramErrorKind.AUTH_REQUIRED -> ToolError(
                     "AUTH_REQUIRED", message,
@@ -173,8 +178,8 @@ data class ToolError(
                         "Verify any side effects before retrying a write.",
                 )
                 TelegramErrorKind.TRANSIENT_SERVER -> ToolError(
-                    "TELEGRAM_UNAVAILABLE", message, retryable = error.readOnlyRequest,
-                    next_action = if (error.readOnlyRequest) {
+                    "TELEGRAM_UNAVAILABLE", message, retryable = error.isRetryable,
+                    next_action = if (error.priorWriteDispatched) AFTER_WRITE_ACTION else if (error.isRetryable) {
                         "Transient Telegram server error; retry the read after a short delay."
                     } else {
                         "Transient Telegram server error. The write may have taken effect; check the chat " +

@@ -48,6 +48,17 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    fun `a flood after an earlier write does not instruct REST clients to retry`() {
+        val api = handler.handleTelegramApi(TelegramApiException(429, "retry after 7").apply { priorWriteDispatched = true })
+        val gate = handler.handleFloodGate(TelegramFloodGateException("method SetBio", 7).apply { priorWriteDispatched = true })
+        listOf(api, gate).forEach { response ->
+            assertEquals(429, response.statusCode.value())
+            assertNull(response.headers.getFirst(HttpHeaders.RETRY_AFTER))
+            assertNull(response.body!!.properties?.get("retry_after_seconds"))
+        }
+    }
+
+    @Test
     fun `local timeouts return 504 and a full bulkhead returns 503`() {
         val timeout = handler.handleTimeout(
             TelegramTimeoutException("GetChat", TelegramTimeoutException.Reason.REQUEST_TIMEOUT, true, true, 40_000)

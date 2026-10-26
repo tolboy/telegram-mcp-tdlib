@@ -4,6 +4,7 @@ import dev.telegrammcp.server.tool.executeChecked
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
+import dev.telegrammcp.server.client.ToolCallDeadline
 import dev.telegrammcp.server.config.PublicSearchProperties
 import dev.telegrammcp.server.model.TelegramMessage
 import dev.telegrammcp.server.service.AuditService
@@ -18,6 +19,9 @@ import io.modelcontextprotocol.spec.McpSchema
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.Instant
+import java.time.Duration
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.test.assertEquals
@@ -229,4 +233,43 @@ class SearchMessagesForIntentToolTest {
         objectMapper = objectMapper,
         meterRegistry = SimpleMeterRegistry(),
     )
+
+    @Test
+    fun `both resolution and query workers carry the caller deadline`() {
+        val resolverActive = AtomicBoolean(false)
+        val searchActive = AtomicBoolean(false)
+        every { entityResolver.resolve(42 as Any) } answers {
+            resolverActive.set(ToolCallDeadline.isActive)
+            42L
+        }
+        every { telegramClient.searchMessages(42L, any(), 0L, 10) } answers {
+            searchActive.set(ToolCallDeadline.isActive)
+            emptyList()
+        }
+        ToolCallDeadline.run(Duration.ofSeconds(10)) {
+            tool.executeChecked(exchange, mapOf("chats" to listOf(42), "query" to "query"))
+        }
+        assertTrue(resolverActive.get(), "the resolver runs on an IO worker")
+        assertTrue(searchActive.get(), "the nested query fan-out must inherit the same state")
+        assertFalse(ToolCallDeadline.isActive)
+    }
+
+    @Test
+    fun `the fanout timeout is capped by the remaining tool budget`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.searchMessages(42L, any(), 0L, 10) } answers {
+            Thread.sleep(10_000)
+            emptyList()
+        }
+        val start = System.nanoTime()
+        val result = ToolCallDeadline.run(Duration.ofMillis(500)) {
+            tool.executeChecked(exchange, mapOf("chats" to listOf(42), "query" to "query"))
+        }
+        val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)
+        val data = objectMapper.readTree((result.content.first() as McpSchema.TextContent).text())
+        assertTrue(data["timed_out"].asBoolean())
+        assertTrue(data["timeout_ms"].asLong() in 0L..500L)
+        assertFalse(data["complete"].asBoolean())
+        assertTrue(elapsed < 3_000, "the 25s fanout timeout must not override a 500ms tool budget ($elapsed ms)")
+    }
 }

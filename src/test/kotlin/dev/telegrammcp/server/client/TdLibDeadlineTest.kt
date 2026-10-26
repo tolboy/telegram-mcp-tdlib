@@ -322,4 +322,22 @@ class TdLibDeadlineTest {
         val service = service(TdLibProperties.Requests(messageSendTimeout = Duration.ofMillis(200)))
         assertFailsWith<SendOutcomeUnknownException> { service.forwardMessages(5, 9, listOf(11, 12)) }
     }
+
+    @Test
+    fun `a timeout on the first forward preserves a later confirmed delivery`() {
+        answer { request ->
+            when (request) {
+                is TdApi.ForwardMessages -> {
+                    tracker.onSucceeded(TdApi.UpdateMessageSendSucceeded(TdApi.Message().apply { chatId = 9; id = 202 }, 102))
+                    TdApi.Messages(2, arrayOf(pending(9, 101), pending(9, 102)))
+                }
+                else -> null
+            }
+        }
+        val service = service(TdLibProperties.Requests(messageSendTimeout = Duration.ofMillis(100)))
+        val partial = assertFailsWith<ForwardPartiallyDeliveredException> { service.forwardMessages(5, 9, listOf(11, 12)) }
+        assertEquals(listOf(12L), partial.deliveredMessageIds)
+        assertEquals(listOf(11L), partial.unconfirmedMessageIds)
+        assertFalse(ToolError.from(partial).retryable)
+    }
 }

@@ -38,15 +38,19 @@ class TelegramApiException(
     /** Flood control: the request was not executed; retry after [retryAfterSeconds]. */
     val isFloodWait: Boolean get() = kind == TelegramErrorKind.FLOOD_WAIT
 
-    /** True when Telegram definitely did not execute the request (safe to record as rejected). */
+    /** True when Telegram definitely did not execute this request; earlier writes are tracked separately. */
     val wasNotExecuted: Boolean get() = isFloodWait
 
     /** True when the failure says something about Telegram's health and should count toward the breaker. */
     val countsTowardBreaker: Boolean get() = kind.countsTowardBreaker
 
+    /** Captured before the failed request; a rejection cannot undo an earlier write in this call. */
+    var priorWriteDispatched: Boolean = false
+        internal set
+
     /** Retrying the unchanged call may succeed and cannot duplicate a side effect. */
     val isRetryable: Boolean
-        get() = isFloodWait || (kind == TelegramErrorKind.TRANSIENT_SERVER && readOnlyRequest)
+        get() = !priorWriteDispatched && (isFloodWait || (kind == TelegramErrorKind.TRANSIENT_SERVER && readOnlyRequest))
 
     companion object {
         fun parseRetryAfterSeconds(message: String): Long? = TelegramErrorClassifier.parseRetryAfterSeconds(message)
@@ -70,12 +74,18 @@ class TelegramFloodGateException(
     } else {
         "Telegram flood wait still active for $scope; retry after ${retryAfterSeconds}s (request not sent)"
     },
-)
+) {
+    /** A local rejection of a later step does not make the full call safe to repeat. */
+    var priorWriteDispatched: Boolean = false
+        internal set
+
+    val isRetryable: Boolean get() = !priorWriteDispatched
+}
 
 /**
- * A forward batch stopped after some of its messages had already been
- * delivered: flood control, or no final state in time (a local timeout,
- * an unknown send outcome or the tool deadline; see [cause]). Unlike a plain
+ * A forward batch did not fully complete: some messages were delivered or
+ * remain unconfirmed after flood control, another rejection, or a local timeout,
+ * an unknown send outcome or the tool deadline (see [cause]). Unlike a plain
  * flood wait or timeout this is not "nothing happened":
  * retrying the unchanged call would duplicate [deliveredMessageIds], so it is
  * never retryable. All lists hold source message IDs (the caller's
@@ -96,14 +106,14 @@ class ForwardPartiallyDeliveredException(
     val notForwardableMessageIds: List<Long> = emptyList(),
 ) : McpException(
     (if (cause is TelegramApiException && cause.isFloodWait) "Telegram flood control stopped forwarding"
-    else "Forwarding stopped without a confirmed final state (${cause.javaClass.simpleName})") +
+    else "Forwarding did not fully complete (${cause.javaClass.simpleName})") +
         " to chat $toChatId after ${deliveredMessageIds.size} of " +
         "${deliveredMessageIds.size + unconfirmedMessageIds.size + notForwardableMessageIds.size} messages were " +
         "delivered (delivered message_ids: $deliveredMessageIds; not confirmed: $unconfirmedMessageIds" +
         (if (notForwardableMessageIds.isEmpty()) "" else "; not forwardable: $notForwardableMessageIds") + ")",
     cause,
 ) {
-    /** True when Telegram flood control stopped the batch; otherwise a wait for a final state ran out. */
+    /** True when the first failure was Telegram flood control. */
     val floodWait: Boolean get() = (cause as? TelegramApiException)?.isFloodWait == true
 }
 

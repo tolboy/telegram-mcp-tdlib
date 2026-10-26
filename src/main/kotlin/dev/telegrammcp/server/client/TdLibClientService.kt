@@ -527,43 +527,53 @@ class TdLibClientService(
         toChatId: Long,
         messageIds: List<Long>,
     ): List<TdApi.Message> {
+        val priorWriteDispatched = ToolCallDeadline.writeDispatched()
         val result = withResilience("forwardMessages") {
             send<TdApi.Messages>(request)
         }
         val pending = result.messages.orEmpty()
         val delivered = ArrayList<TdApi.Message>(pending.size)
         val deliveredSourceIds = ArrayList<Long>(pending.size)
+        val failures = ArrayList<Exception>()
         // TDLib returns null for messages it cannot forward at all (for example
         // protected content or deleted messages); a retry will not help them.
         val notForwardable = messageIds.filterIndexed { index, _ -> pending.getOrNull(index) == null }
         pending.forEachIndexed { index, message ->
             if (message == null) return@forEachIndexed
-            fun partial(error: Throwable, retryAfterSeconds: Long?) = ForwardPartiallyDeliveredException(
-                toChatId, deliveredSourceIds.toList(),
-                messageIds.filterNot { it in deliveredSourceIds || it in notForwardable },
-                retryAfterSeconds, error,
-                notForwardableMessageIds = notForwardable,
-            )
-            // A stop after part of the batch went out must not be reported as
-            // "nothing was sent, retry unchanged" or as one unknown outcome for
-            // the whole batch: the caller needs the delivered IDs to avoid
-            // duplicating them.
+            // Every item is already dispatched. After a failure, inspect the
+            // remaining known outcomes without waiting again: a later item can
+            // already have succeeded, even if the first one failed.
             val final = try {
-                awaitFinalMessage(message, request)
+                awaitFinalMessage(message, request, priorWriteDispatched, pollOnly = failures.isNotEmpty())
             } catch (error: TelegramApiException) {
-                if (!error.isFloodWait || delivered.isEmpty()) throw error
-                throw partial(error, error.retryAfterSeconds)
+                failures += error
+                return@forEachIndexed
             } catch (error: SendOutcomeUnknownException) {
-                if (delivered.isEmpty()) throw error
-                // awaitFinalMessage gated the chat's send scope: a forward of
-                // the unconfirmed IDs before the gate ends is rejected locally.
-                throw partial(error, floodGate.remainingSeconds(TelegramFloodGate.scopeOf(request)))
+                failures += error
+                return@forEachIndexed
             } catch (error: TelegramTimeoutException) {
-                if (delivered.isEmpty()) throw error
-                throw partial(error, floodGate.remainingSeconds(TelegramFloodGate.scopeOf(request)))
+                failures += error
+                return@forEachIndexed
             }
             delivered += final
             messageIds.getOrNull(index)?.let(deliveredSourceIds::add)
+        }
+        if (failures.isNotEmpty()) {
+            if (delivered.isEmpty() && notForwardable.isEmpty()) {
+                if (failures.all { it is TelegramApiException && it.isFloodWait }) {
+                    // Only every item's definite rejection proves the batch safe to repeat.
+                    throw failures.filterIsInstance<TelegramApiException>().maxBy { it.retryAfterSeconds ?: 0 }
+                }
+                if (pending.count { it != null } == 1 || failures.all { it is SendOutcomeUnknownException }) {
+                    throw failures.first()
+                }
+            }
+            throw ForwardPartiallyDeliveredException(
+                toChatId, deliveredSourceIds.toList(),
+                messageIds.filterNot { it in deliveredSourceIds || it in notForwardable },
+                floodGate.remainingSeconds(TelegramFloodGate.scopeOf(request)), failures.first(),
+                notForwardableMessageIds = notForwardable,
+            )
         }
         return delivered
     }
@@ -2118,11 +2128,16 @@ class TdLibClientService(
     @Suppress("UNCHECKED_CAST")
     private fun <T : TdApi.Object> send(function: TdApi.Function<*>): T {
         val scope = TelegramFloodGate.scopeOf(function)
-        floodGate.check(scope)
-        acquirePermitIfPending(function)
+        val priorWriteDispatched = ToolCallDeadline.writeDispatched()
         return try {
+            floodGate.check(scope)
+            acquirePermitIfPending(function)
             sendUngated(function)
+        } catch (error: dev.telegrammcp.server.exception.TelegramFloodGateException) {
+            error.priorWriteDispatched = priorWriteDispatched
+            throw error
         } catch (error: TelegramApiException) {
+            error.priorWriteDispatched = priorWriteDispatched
             floodGate.record(scope, error)
             throw error
         } catch (error: SendOutcomeUnknownException) {
@@ -2180,22 +2195,27 @@ class TdLibClientService(
      * one bulkhead permit for both, so concurrent sends parked in the
      * final-state wait still count toward the account's limit.
      */
-    private fun sendAndAwaitFinal(operation: String, request: TdApi.Function<*>): TdApi.Message =
-        holdingBulkhead(operation) {
-            awaitFinalMessage(withResilience(operation) { send<TdApi.Message>(request) }, request)
+    private fun sendAndAwaitFinal(operation: String, request: TdApi.Function<*>): TdApi.Message {
+        val priorWriteDispatched = ToolCallDeadline.writeDispatched()
+        return holdingBulkhead(operation) {
+            awaitFinalMessage(withResilience(operation) { send<TdApi.Message>(request) }, request, priorWriteDispatched)
         }
+    }
 
     /** Waits for the final state of a sent message; [request] is the TDLib function that created it. */
-    private fun awaitFinalMessage(message: TdApi.Message, request: TdApi.Function<*>): TdApi.Message {
+    private fun awaitFinalMessage(
+        message: TdApi.Message, request: TdApi.Function<*>, priorWriteDispatched: Boolean, pollOnly: Boolean = false,
+    ): TdApi.Message {
         val tracker = messageSendTracker ?: return message
         if (message.sendingState == null) return message
         val scope = TelegramFloodGate.scopeOf(request)
-        val timeoutNanos = requestSettings.messageSendTimeout.toNanos()
+        val timeoutNanos = if (pollOnly) 0L else requestSettings.messageSendTimeout.toNanos()
         val remaining = ToolCallDeadline.remainingNanos()
         val deadlineBound = remaining != null && remaining < timeoutNanos
         return try {
             tracker.awaitFinal(message, if (deadlineBound) remaining!! else timeoutNanos, deadlineBound)
         } catch (error: TelegramApiException) {
+            error.priorWriteDispatched = priorWriteDispatched
             // updateMessageSendFailed with a flood wait gates the same scope as a direct 429.
             floodGate.record(scope, error)
             throw error

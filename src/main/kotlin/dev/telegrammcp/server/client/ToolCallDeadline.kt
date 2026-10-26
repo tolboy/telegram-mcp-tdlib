@@ -1,6 +1,7 @@
 package dev.telegrammcp.server.client
 
 import java.time.Duration
+import kotlinx.coroutines.asContextElement
 
 /**
  * Overall time budget for the Telegram work of one MCP tool call.
@@ -19,8 +20,9 @@ import java.time.Duration
  * deadline does not cover it: a call with an approval can take up to the
  * approval timeout plus [budget].
  *
- * The budget is per thread. Work without an open budget (background jobs,
- * fan-out threads that have their own budget) uses the per-request timeouts.
+ * Coroutine fan-out carries the same state through [coroutineContext], so
+ * workers share the original budget and write history. Background work
+ * without an open budget uses the per-request timeouts.
  */
 object ToolCallDeadline {
 
@@ -36,12 +38,17 @@ object ToolCallDeadline {
     internal var nanoTime: () -> Long = System::nanoTime
 
     private class State(val budgetNanos: Long, val startNanos: Long) {
+        @Volatile
         var excludedNanos = 0L
         var excludedSince = -1L
+        @Volatile
         var writeDispatched = false
     }
 
     private val current = ThreadLocal<State?>()
+
+    /** Captures the original call state, rather than starting a fresh budget in each worker. */
+    fun coroutineContext(): kotlin.coroutines.CoroutineContext = current.asContextElement()
 
     /** Runs [block] with a fresh budget; a nested call keeps the outer budget. */
     fun <T> run(budget: Duration = this.budget, block: () -> T): T {

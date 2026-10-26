@@ -45,14 +45,14 @@ keeps the TDLib code and text, for example
 |---|---|---|
 | Cancellation: `Canceled…` (any code), `406 Request canceled`, `500 Request aborted` | `TELEGRAM_REQUEST_CANCELLED` | false |
 | `PEER_FLOOD` (the account is spam-restricted by Telegram; not a timed wait) | `PERMISSION_DENIED` | false |
-| 420 or 429, or a `FLOOD_WAIT_N`, `FLOOD_PREMIUM_WAIT_N`, `SLOWMODE_WAIT_N`, `2FA_CONFIRM_WAIT_N` or `TAKEOUT_INIT_DELAY_N` message | `TELEGRAM_FLOOD_WAIT` | true |
+| 420 or 429, or a `FLOOD_WAIT_N`, `FLOOD_PREMIUM_WAIT_N`, `SLOWMODE_WAIT_N`, `2FA_CONFIRM_WAIT_N` or `TAKEOUT_INIT_DELAY_N` message | `TELEGRAM_FLOOD_WAIT` | true only without an earlier write in the call; batches require every item to be rejected |
 | 401 | `AUTH_REQUIRED` | false |
 | 403, or 4xx with a permission message (`Can't access the chat`, `Not enough rights…`, `CHAT_ADMIN_REQUIRED`, `CHAT_WRITE_FORBIDDEN`, `CHAT_SEND_*_FORBIDDEN`, `USER_PRIVACY_RESTRICTED`, `Have no access to the chat`, `Have no write access to the chat`, `Have no access to the user`, `Chat is not accessible`, `User is inaccessible`, …) | `PERMISSION_DENIED` | false |
 | 404, or 4xx whose message is in the not-found table (`Chat not found`, `Message not found`, `Invalid message identifier specified`, `Invalid user identifier`, `PEER_ID_INVALID`, `MSG_ID_INVALID`, …) | `ENTITY_NOT_FOUND` | false |
 | other 4xx (including `File not found` and `Chat list not found`) | `INVALID_INPUT` | false |
 | fixed 500 outcomes: `Chat not found`, `Topic not found`, `Sticker set not found`, `Created sticker set not found` | `ENTITY_NOT_FOUND` | false |
 | fixed 500 outcomes: `Unknown parse mode`, `Can't find suitable file name` | `INVALID_INPUT` | false |
-| transient 5xx: 502, 503, `WORKER_BUSY…`, `Timeout expired` | `TELEGRAM_UNAVAILABLE` | true for read-only requests, false for writes |
+| transient 5xx: 502, 503, `WORKER_BUSY…`, `Timeout expired` | `TELEGRAM_UNAVAILABLE` | true for read-only requests without an earlier write in the call |
 | other 5xx (for example `Receive invalid response`) | `TELEGRAM_API_ERROR` | false |
 | anything else | `TELEGRAM_API_ERROR` | false |
 
@@ -80,8 +80,12 @@ retryable, does not set the flood gate, and the guidance points to @SpamBot.
 TDLib already waits out 420 waits (`FLOOD_WAIT_N`, `SLOWMODE_WAIT_N`, and the
 others above) and resends internally; once the waits of one request add up to
 more than 60 seconds (`NetQuery::total_timeout_limit_`) it gives up with
-`429 Too Many Requests: retry after N`. That request was not executed, so
-retrying the unchanged call after `retry_after_seconds` is safe.
+`429 Too Many Requests: retry after N`. That request was not executed. Retrying
+the unchanged call is safe only if no earlier write in that call was dispatched.
+For example, creating a supergroup and then failing to enable forum topics
+must not invite repeating the creation. Such failures, including local gate
+rejections of a later step, set `retryable=false`, omit the retry delay and
+instruct the caller to inspect the earlier write before resuming unfinished steps.
 `retry_after_seconds` is parsed from either form and is omitted when Telegram
 did not report a delay. A reported delay of 0 is treated as 1 second, both in
 `retry_after_seconds` and in the flood gate, so the error never invites an
@@ -128,6 +132,11 @@ runs a tool. Every Telegram wait in the call (rate-limiter permit, each TDLib
 request, the final state of a sent message, best-effort lookups, the account
 authentication wait, speech-recognition polling) waits for at most
 min(its own timeout, the time left in the deadline).
+
+The public-search coroutine workers carry the same original deadline and write
+history. Their separate fanout timeout is capped by the remaining budget;
+workers never start a fresh budget. A timeout response's `timeout_ms` reports
+this effective cap.
 
 The wait for a human approval of a destructive tool is **not** covered by the
 deadline: it is excluded from the budget. A loopback approval is bounded by
@@ -176,7 +185,7 @@ Because TDLib can hold a request for up to 60 seconds of flood waits, a
 request parked that long times out locally instead of returning the 429. To
 avoid piling more requests behind it, a local timeout of a request that was
 sent gates its flood-gate scope (above) for `local-timeout-gate`; calls in the
-scope then fail fast with `TELEGRAM_FLOOD_WAIT` (`retryable=true`, the
+scope then fail fast with `TELEGRAM_FLOOD_WAIT` (`retryable=true` unless an earlier write of the call was dispatched, the
 remaining seconds, and a message saying that an earlier request did not
 complete in time).
 
@@ -247,7 +256,7 @@ An open breaker surfaces as `TELEGRAM_UNAVAILABLE`.
 ### REST endpoints
 
 The REST API maps the same classification to HTTP statuses: flood wait 429
-with a `Retry-After` header (also for flood-gate rejections), permission 403,
+with a `Retry-After` header when retryable (also for flood-gate rejections), permission 403,
 not-found 404, other caller errors 400, auth/cancelled/transient 503, other
 server errors 502, local timeouts 504, a full bulkhead 503. Timeouts and a full
 bulkhead send `Retry-After` and `retry_after_seconds` only when retryable,
@@ -267,24 +276,27 @@ For keyed sends, use `get_send_operation` to inspect the persistent
 receipt; see [send idempotency](SEND_IDEMPOTENCY.md). Unknown receipts still
 require checking the target chat; a receipt can take a moment to settle after
 a deadline-bound `SEND_OUTCOME_UNKNOWN`. A single-message keyed send rejected
-by flood control, by the local flood gate, or (only while no write of the call
-was handed to TDLib, i.e. when the error is retryable) by a full bulkhead or a
-deadline that ran out before the request was sent is recorded as `REJECTED`:
+by flood control, by the local flood gate, by a full bulkhead or by a deadline
+that ran out before the request was sent is recorded as `REJECTED` only when
+the error is retryable and no earlier write of the call was dispatched:
 nothing was sent, and retrying with the same key and unchanged request sends
 it. Any other failure leaves the receipt `UNKNOWN`.
 
-When a multi-message forward stops after some messages were already
-delivered, the tool returns `TELEGRAM_FLOOD_WAIT_PARTIAL_DELIVERY` with
-`retryable=false`. This happens on flood control (`retry_after_seconds` is
-the flood wait) and also when the final state of the next message did not
+When a multi-message forward fails while other messages were delivered or
+remain unconfirmed, the tool returns `TELEGRAM_FLOOD_WAIT_PARTIAL_DELIVERY` with
+`retryable=false`. This happens on flood control and also when a final state did not
 arrive in time: a local timeout, an unknown send outcome, or the tool
 deadline. In that case the destination chat's send scope is gated for
 `local-timeout-gate` (10 s by default) and `retry_after_seconds` is the
 gate's remaining time (null only when the gate is disabled); a forward of
 the unconfirmed IDs before then is rejected locally. The code keeps its name
-for compatibility, and `next_action` says which case it is. When nothing was
-delivered yet, the forward returns the plain error (`TELEGRAM_FLOOD_WAIT`,
-`SEND_OUTCOME_UNKNOWN` or `TELEGRAM_TIMEOUT`). The error carries the source
+for compatibility, and `next_action` says which case it is. After the first
+failure the server checks every remaining item's available final state without
+waiting again, including successes later in request order. A flood on the first
+item alone never proves the batch safe to retry. Only a definite flood rejection
+of every item permits a plain retryable `TELEGRAM_FLOOD_WAIT` (and only without
+earlier writes in the call). If all outcomes remain unknown, the forward keeps
+the plain non-retryable `SEND_OUTCOME_UNKNOWN`. A partial error carries the source
 message IDs as structured fields (also listed in the message):
 
 - `delivered_message_ids`: delivered to the destination;
@@ -303,8 +315,8 @@ message ID or a durable operation handle. Journal errors use
 
 `retryable=true` is used only for Telegram flood control and local flood
 gates (except a partially delivered forward), transient 5xx errors of read-only
-requests (see above), and `TELEGRAM_TIMEOUT`/`TELEGRAM_BUSY` when no write of
-the call was sent. `retryable=false` means automatic replay is not known to be safe; it does not
+requests (see above), and `TELEGRAM_TIMEOUT`/`TELEGRAM_BUSY`. Every case requires
+that no earlier write of the call was dispatched. `retryable=false` means automatic replay is not known to be safe; it does not
 mean the failure is permanent. All other mappings are conservative. Anti-spam
 rejections include duplicate detection, so even a finite delay does not authorize
 another send. `retry_after_seconds`, when present, is rounded up from milliseconds

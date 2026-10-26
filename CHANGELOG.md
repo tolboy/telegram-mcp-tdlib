@@ -5,6 +5,16 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- Fix retry safety across multi-step tool calls: a Telegram flood, local flood
+  gate or transient read failure after an earlier write no longer advertises an
+  unchanged retry. Such flood failures omit REST retry headers and keep keyed
+  receipts `UNKNOWN` rather than allowing another execution.
+- Reconcile available final states of every dispatched forward after the first
+  failure, including later successful deliveries. A first-item flood cannot make
+  other delivered or in-flight messages retryable; only an entirely rejected
+  batch can return a plain retryable flood error.
+- Propagate the original tool-call deadline and write history into public-search
+  coroutine workers, and cap their fanout timeout by the remaining call budget.
 - Update TDLib from 1.8.65 to 1.8.68 (tdlight-java 3.5.3+td.1.8.65 to
   3.5.9+td.1.8.68). The tdlight-natives version now comes from the tdlight BOM
   instead of a separate pin. Adapt to the 1.8.68 TL schema: `BotCommand`

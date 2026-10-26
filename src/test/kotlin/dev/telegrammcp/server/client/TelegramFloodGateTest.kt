@@ -478,4 +478,39 @@ class TelegramFloodGateTest {
         assertTrue(dev.telegrammcp.server.tool.ToolError.from(flood).retryable)
         assertNull(flood.cause as? ForwardPartiallyDeliveredException)
     }
+
+    @Test
+    fun `a flood on the first forward preserves the later delivered message ids`() {
+        forwardWith { index -> if (index == 0) flood(7) else null }
+
+        val partial = assertFailsWith<ForwardPartiallyDeliveredException> {
+            ToolCallDeadline.run { service.forwardMessages(5, 9, listOf(11, 12, 13)) }
+        }
+        assertEquals(listOf(12L, 13L), partial.deliveredMessageIds)
+        assertEquals(listOf(11L), partial.unconfirmedMessageIds)
+        assertEquals(false, dev.telegrammcp.server.tool.ToolError.from(partial).retryable)
+        assertEquals(7L, partial.retryAfterSeconds)
+    }
+
+    @Test
+    fun `a flood on the first forward cannot make other in-flight messages retryable`() {
+        answer { request ->
+            when (request) {
+                is TdApi.ForwardMessages -> {
+                    val first = pending(9, 101)
+                    tracker.onFailed(TdApi.UpdateMessageSendFailed(first, first.id, flood(7)))
+                    TdApi.Messages(2, arrayOf(first, pending(9, 102)))
+                }
+                else -> TdApi.Error(400, "Chat not found")
+            }
+        }
+
+        val partial = assertFailsWith<ForwardPartiallyDeliveredException> {
+            ToolCallDeadline.run { service.forwardMessages(5, 9, listOf(11, 12)) }
+        }
+        assertEquals(emptyList(), partial.deliveredMessageIds)
+        assertEquals(listOf(11L, 12L), partial.unconfirmedMessageIds)
+        assertEquals(false, dev.telegrammcp.server.tool.ToolError.from(partial).retryable)
+        assertTrue(partial.retryAfterSeconds!! >= 7)
+    }
 }

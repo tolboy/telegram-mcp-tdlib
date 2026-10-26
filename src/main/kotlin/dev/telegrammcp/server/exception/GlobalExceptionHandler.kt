@@ -51,14 +51,14 @@ class GlobalExceptionHandler {
         val problem = ProblemDetail.forStatusAndDetail(status, ex.message)
         problem.setProperty("telegram_error_code", ex.errorCode)
         problem.setProperty("telegram_error_kind", ex.kind.name)
-        return withRetryAfter(problem, status, ex.retryAfterSeconds.takeIf { ex.isFloodWait })
+        return withRetryAfter(problem, status, ex.retryAfterSeconds.takeIf { ex.isFloodWait && ex.isRetryable })
     }
 
     @ExceptionHandler(TelegramFloodGateException::class)
     fun handleFloodGate(ex: TelegramFloodGateException): ResponseEntity<ProblemDetail> {
         log.warn("Telegram flood wait active: {}", ex.message)
         val problem = ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, ex.message)
-        return withRetryAfter(problem, HttpStatus.TOO_MANY_REQUESTS, ex.retryAfterSeconds)
+        return withRetryAfter(problem, HttpStatus.TOO_MANY_REQUESTS, ex.retryAfterSeconds.takeIf { ex.isRetryable })
     }
 
     /** A local wait ran out; 504 because the server is a gateway to Telegram. */
