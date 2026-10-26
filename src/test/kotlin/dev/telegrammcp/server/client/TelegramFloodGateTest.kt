@@ -188,6 +188,7 @@ class TelegramFloodGateTest {
         val clock = AtomicLong(0)
         val racing = TelegramFloodGate { clock.get() }
         val second = TimeUnit.SECONDS.toNanos(1)
+        val maxAdvance = clock.get() + 1_000 * second
         val workers = 8
         val rounds = 2_000
         val pool = Executors.newFixedThreadPool(workers + 1)
@@ -196,8 +197,11 @@ class TelegramFloodGateTest {
         try {
             val ticker = pool.submit {
                 start.await()
+                // Advance at most 1 000 s in total: short (1 s) entries keep
+                // expiring during the race, but the 1 000 000 s waits can never
+                // expire, however many ticks a slow CI machine manages.
                 while (running.get()) {
-                    clock.addAndGet(second / 2)
+                    if (clock.get() < maxAdvance) clock.addAndGet(second / 2)
                     Thread.onSpinWait()
                 }
             }
@@ -207,8 +211,8 @@ class TelegramFloodGateTest {
                     repeat(rounds) { round ->
                         val scope = if (round % 2 == 0) "shared" else "worker $worker"
                         racing.record(scope, TelegramApiException(429, "Too Many Requests: retry after 1000000"))
-                        // The clock moves 0.5 s per tick; a 1 000 000 s wait cannot expire
-                        // within the test, so it must stay visible to every check.
+                        // The clock moves 0.5 s per tick, capped at 1 000 s; a 1 000 000 s
+                        // wait cannot expire within the test, so it must stay visible to every check.
                         assertFailsWith<TelegramFloodGateException>("lost gate for $scope") { racing.check(scope) }
                         // Short entries expire under the ticker; removal must not touch the long ones.
                         racing.record("short $worker", TelegramApiException(420, "FLOOD_WAIT_1"))
