@@ -69,7 +69,8 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   the remaining time of its scope's local gate instead of 1 s.
 - **Behaviour change:** `PEER_FLOOD` (spam restriction) maps to
   `PERMISSION_DENIED`, is not retryable and does not set the flood gate.
-- **Behaviour change:** a multi-message forward that hits flood control after a
+- **Behaviour change:** a multi-message forward that hits flood control, a
+  local timeout, an unknown send outcome or the tool deadline after a
   partial delivery fails with the new code
   `TELEGRAM_FLOOD_WAIT_PARTIAL_DELIVERY` (`retryable=false`) with structured
   `delivered_message_ids`, `unconfirmed_message_ids` and
@@ -99,8 +100,8 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   `406 Request canceled`, `500 Request aborted`) map to the new code
   `TELEGRAM_REQUEST_CANCELLED` (`retryable=false`).
 - **Behaviour change:** a single-message keyed send rejected by flood control or
-  the flood gate, by a full bulkhead, or by a deadline that ran out before the
-  request was sent is recorded as the new receipt status `REJECTED`; retrying the
+  the flood gate, or (when retryable) by a full bulkhead or by a deadline that
+  ran out before the request was sent is recorded as the new receipt status `REJECTED`; retrying the
   same key with the same parameters sends it. Batches stay `UNKNOWN`.
 - **Behaviour change:** `set_admin_rights` rejects unknown keys in `rights`
   with `INVALID_INPUT` instead of ignoring them, and its input schema declares

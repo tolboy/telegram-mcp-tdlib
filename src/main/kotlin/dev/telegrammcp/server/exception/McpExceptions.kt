@@ -73,14 +73,16 @@ class TelegramFloodGateException(
 )
 
 /**
- * A forward batch hit flood control after some of its messages had already
- * been delivered. Unlike a plain flood wait this is not "nothing happened":
+ * A forward batch stopped after some of its messages had already been
+ * delivered: flood control, or no final state in time (a local timeout,
+ * an unknown send outcome or the tool deadline; see [cause]). Unlike a plain
+ * flood wait or timeout this is not "nothing happened":
  * retrying the unchanged call would duplicate [deliveredMessageIds], so it is
  * never retryable. All lists hold source message IDs (the caller's
  * message_ids) in request order:
  * - [deliveredMessageIds]: delivered to the destination;
  * - [unconfirmedMessageIds]: accepted by TDLib but not confirmed when the
- *   flood wait hit (check the chat; forward only the missing ones later);
+ *   batch stopped (check the chat; forward only the missing ones later);
  * - [notForwardableMessageIds]: TDLib could not forward them at all (it
  *   returned no message for them, e.g. protected content or deleted
  *   messages); retrying them will not help.
@@ -90,15 +92,20 @@ class ForwardPartiallyDeliveredException(
     val deliveredMessageIds: List<Long>,
     val unconfirmedMessageIds: List<Long>,
     val retryAfterSeconds: Long?,
-    cause: TelegramApiException,
+    cause: Throwable,
     val notForwardableMessageIds: List<Long> = emptyList(),
 ) : McpException(
-    "Telegram flood control stopped forwarding to chat $toChatId after ${deliveredMessageIds.size} of " +
+    (if (cause is TelegramApiException && cause.isFloodWait) "Telegram flood control stopped forwarding"
+    else "Forwarding stopped without a confirmed final state (${cause.javaClass.simpleName})") +
+        " to chat $toChatId after ${deliveredMessageIds.size} of " +
         "${deliveredMessageIds.size + unconfirmedMessageIds.size + notForwardableMessageIds.size} messages were " +
         "delivered (delivered message_ids: $deliveredMessageIds; not confirmed: $unconfirmedMessageIds" +
         (if (notForwardableMessageIds.isEmpty()) "" else "; not forwardable: $notForwardableMessageIds") + ")",
     cause,
-)
+) {
+    /** True when Telegram flood control stopped the batch; otherwise a wait for a final state ran out. */
+    val floodWait: Boolean get() = (cause as? TelegramApiException)?.isFloodWait == true
+}
 
 /**
  * No TDLib answer arrived in time for a request other than a message send

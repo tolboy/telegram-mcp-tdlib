@@ -2,6 +2,7 @@ package dev.telegrammcp.server.client
 
 import dev.telegrammcp.server.config.ResilienceConfig
 import dev.telegrammcp.server.config.TdLibProperties
+import dev.telegrammcp.server.exception.ForwardPartiallyDeliveredException
 import dev.telegrammcp.server.exception.SendOutcomeUnknownException
 import dev.telegrammcp.server.exception.TelegramBusyException
 import dev.telegrammcp.server.exception.TelegramFloodGateException
@@ -254,5 +255,64 @@ class TdLibDeadlineTest {
         } finally {
             pool.shutdownNow()
         }
+    }
+
+    /** Forwards 11, 12, 13 to chat 9: the first is delivered, the others never reach a final state. */
+    private fun forwardFirstOnly() = answer { request ->
+        when (request) {
+            is TdApi.ForwardMessages -> {
+                val provisional = (0 until 3).map { pending(9, 101L + it) }
+                tracker.onSucceeded(TdApi.UpdateMessageSendSucceeded(TdApi.Message().apply { chatId = 9; id = 201 }, 101))
+                TdApi.Messages(3, provisional.toTypedArray())
+            }
+            else -> null
+        }
+    }
+
+    @Test
+    fun `a forward that stops without a final state after a delivery reports the partial delivery`() {
+        forwardFirstOnly()
+        val service = service(TdLibProperties.Requests(messageSendTimeout = Duration.ofMillis(200)))
+
+        val partial = assertFailsWith<ForwardPartiallyDeliveredException> { service.forwardMessages(5, 9, listOf(11, 12, 13)) }
+        assertTrue(partial.cause is SendOutcomeUnknownException)
+        assertFalse(partial.floodWait)
+        assertEquals(listOf(11L), partial.deliveredMessageIds)
+        assertEquals(listOf(12L, 13L), partial.unconfirmedMessageIds)
+        val error = ToolError.from(partial)
+        assertEquals(ToolError.PARTIAL_DELIVERY, error.code)
+        assertFalse(error.retryable)
+        assertEquals(null, error.retry_after_seconds)
+        assertEquals(listOf(11L), error.delivered_message_ids)
+        assertEquals(listOf(12L, 13L), error.unconfirmed_message_ids)
+        assertTrue("Do not repeat the same call" in error.next_action)
+        assertTrue("did not arrive in time" in error.next_action)
+    }
+
+    @Test
+    fun `a forward cut by the tool deadline after a delivery reports the partial delivery`() {
+        forwardFirstOnly()
+        val service = service()
+
+        val (result, elapsed) = timed {
+            ToolCallDeadline.run(Duration.ofMillis(400)) { service.forwardMessages(5, 9, listOf(11, 12, 13)) }
+        }
+        val partial = result.exceptionOrNull() as ForwardPartiallyDeliveredException
+        assertTrue((partial.cause as SendOutcomeUnknownException).deadlineExceeded)
+        assertEquals(listOf(11L), partial.deliveredMessageIds)
+        assertEquals(listOf(12L, 13L), partial.unconfirmedMessageIds)
+        assertTrue(elapsed < 2_000, "stopped at the deadline ($elapsed ms)")
+    }
+
+    @Test
+    fun `a forward with nothing delivered still reports one unknown outcome`() {
+        answer { request ->
+            when (request) {
+                is TdApi.ForwardMessages -> TdApi.Messages(2, arrayOf(pending(9, 101), pending(9, 102)))
+                else -> null
+            }
+        }
+        val service = service(TdLibProperties.Requests(messageSendTimeout = Duration.ofMillis(200)))
+        assertFailsWith<SendOutcomeUnknownException> { service.forwardMessages(5, 9, listOf(11, 12)) }
     }
 }

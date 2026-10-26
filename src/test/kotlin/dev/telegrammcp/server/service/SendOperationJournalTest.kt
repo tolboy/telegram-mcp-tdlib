@@ -191,4 +191,29 @@ class SendOperationJournalTest {
         }
         assertEquals("UNKNOWN", journal().status("work", "sent", 42)["status"])
     }
+
+    @Test
+    fun `a local rejection after an earlier write of the call stays UNKNOWN`() {
+        val reason = dev.telegrammcp.server.exception.TelegramTimeoutException.Reason.TOOL_DEADLINE
+        assertFailsWith<dev.telegrammcp.server.exception.TelegramBusyException> {
+            journal().send("work", "busy-after-write", 42, "fp", {}) {
+                throw dev.telegrammcp.server.exception.TelegramBusyException("telegram-work", 25, retryable = false)
+            }
+        }
+        assertEquals("UNKNOWN", journal().status("work", "busy-after-write", 42)["status"])
+
+        assertFailsWith<dev.telegrammcp.server.exception.TelegramTimeoutException> {
+            journal().send("work", "late-after-write", 42, "fp", {}) {
+                throw dev.telegrammcp.server.exception.TelegramTimeoutException("SendMessage", reason, false, false, 0)
+            }
+        }
+        assertEquals("UNKNOWN", journal().status("work", "late-after-write", 42)["status"])
+
+        assertFailsWith<dev.telegrammcp.server.exception.TelegramTimeoutException> {
+            journal().send("work", "sent-read", 42, "fp", {}) {
+                throw dev.telegrammcp.server.exception.TelegramTimeoutException("SendMessage", reason, true, true, 0)
+            }
+        }
+        assertEquals("UNKNOWN", journal().status("work", "sent-read", 42)["status"], "a sent request is never REJECTED")
+    }
 }

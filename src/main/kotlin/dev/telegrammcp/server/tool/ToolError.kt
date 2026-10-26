@@ -29,7 +29,7 @@ data class ToolError(
             )
             if (error is ForwardPartiallyDeliveredException) return ToolError(
                 PARTIAL_DELIVERY, error.message, retryable = false, retry_after_seconds = error.retryAfterSeconds,
-                next_action = PARTIAL_DELIVERY_ACTION,
+                next_action = if (error.floodWait) PARTIAL_DELIVERY_ACTION else PARTIAL_DELIVERY_UNCONFIRMED_ACTION,
                 delivered_message_ids = error.deliveredMessageIds,
                 unconfirmed_message_ids = error.unconfirmedMessageIds,
                 not_forwardable_message_ids = error.notForwardableMessageIds,
@@ -108,6 +108,12 @@ data class ToolError(
             "unconfirmed_message_ids that are not there yet (as a new call with a new idempotency_key, if you use " +
             "one). Do not retry not_forwardable_message_ids: Telegram refused to forward them (for example protected " +
             "or deleted messages), and a retry will not change that."
+
+        private const val PARTIAL_DELIVERY_UNCONFIRMED_ACTION = "A forward stopped after some messages were " +
+            "already delivered: the final state of the next message did not arrive in time. Do not repeat the " +
+            "same call: it would forward the delivered messages again. Check the destination chat, then forward " +
+            "only the IDs in unconfirmed_message_ids that are not there yet (as a new call with a new " +
+            "idempotency_key, if you use one); they may still arrive. Do not retry not_forwardable_message_ids."
 
         const val TELEGRAM_TIMEOUT = "TELEGRAM_TIMEOUT"
         private const val TIMEOUT_NOT_SENT_ACTION = "The request was not sent: the tool call ran out of time " +

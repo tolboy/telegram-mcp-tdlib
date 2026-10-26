@@ -58,12 +58,14 @@ single-message send that prove it was not executed: a Telegram flood wait
 (TDLib reports it only for requests it did not execute), the local flood gate,
 a full per-account bulkhead (`TELEGRAM_BUSY`), and a tool-call deadline that
 ran out before the request was handed to TDLib (`TELEGRAM_TIMEOUT` with the
-request not sent). They are saved as `REJECTED`. A send that was handed to
+request not sent). The last two count only when they are retryable (no write
+of the same tool call was handed to TDLib before). They are saved as `REJECTED`. A send that was handed to
 TDLib and then timed out (`SEND_OUTCOME_UNKNOWN`, also when the tool-call
 deadline ended the wait) stays `UNKNOWN`; query `get_send_operation` instead of
 sending again, since a late delivery is still recorded. Batches (albums, multi-message
 forwards) stay `UNKNOWN` because part of them may have been delivered; a
-forward that hits flood control after a partial delivery fails with
+forward that hits flood control, a timeout, an unknown send outcome or the
+tool deadline after a partial delivery fails with
 `TELEGRAM_FLOOD_WAIT_PARTIAL_DELIVERY` (`retryable=false`) with structured
 `delivered_message_ids`, `unconfirmed_message_ids` and
 `not_forwardable_message_ids` error fields. Forward only missing unconfirmed

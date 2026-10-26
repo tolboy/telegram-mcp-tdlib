@@ -237,18 +237,26 @@ For keyed sends, use `get_send_operation` to inspect the persistent
 receipt; see [send idempotency](SEND_IDEMPOTENCY.md). Unknown receipts still
 require checking the target chat; a receipt can take a moment to settle after
 a deadline-bound `SEND_OUTCOME_UNKNOWN`. A single-message keyed send rejected
-by flood control, by the local flood gate, by a full bulkhead, or by a
+by flood control, by the local flood gate, or (only while no write of the call
+was handed to TDLib, i.e. when the error is retryable) by a full bulkhead or a
 deadline that ran out before the request was sent is recorded as `REJECTED`:
 nothing was sent, and retrying with the same key and unchanged request sends
-it.
+it. Any other failure leaves the receipt `UNKNOWN`.
 
-When a multi-message forward hits flood control after some messages were
-already delivered, the tool returns `TELEGRAM_FLOOD_WAIT_PARTIAL_DELIVERY`
-with `retryable=false` and `retry_after_seconds`. The error carries the source
+When a multi-message forward stops after some messages were already
+delivered, the tool returns `TELEGRAM_FLOOD_WAIT_PARTIAL_DELIVERY` with
+`retryable=false`. This happens on flood control (`retry_after_seconds` is
+the flood wait) and also when the final state of the next message did not
+arrive in time: a local timeout, an unknown send outcome, or the tool
+deadline (`retry_after_seconds` is null; the code keeps its name for
+compatibility, and `next_action` says which case it is). When nothing was
+delivered yet, the forward returns the plain error (`TELEGRAM_FLOOD_WAIT`,
+`SEND_OUTCOME_UNKNOWN` or `TELEGRAM_TIMEOUT`). The error carries the source
 message IDs as structured fields (also listed in the message):
 
 - `delivered_message_ids`: delivered to the destination;
-- `unconfirmed_message_ids`: not confirmed when the flood wait hit;
+- `unconfirmed_message_ids`: not confirmed when the batch stopped (they may
+  still arrive);
 - `not_forwardable_message_ids`: TDLib returned no message for them (for
   example protected content or deleted messages). Do not retry these; a retry
   will not change the outcome.

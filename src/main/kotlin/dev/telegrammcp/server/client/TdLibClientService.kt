@@ -538,18 +538,27 @@ class TdLibClientService(
         val notForwardable = messageIds.filterIndexed { index, _ -> pending.getOrNull(index) == null }
         pending.forEachIndexed { index, message ->
             if (message == null) return@forEachIndexed
+            fun partial(error: Throwable, retryAfterSeconds: Long?) = ForwardPartiallyDeliveredException(
+                toChatId, deliveredSourceIds.toList(),
+                messageIds.filterNot { it in deliveredSourceIds || it in notForwardable },
+                retryAfterSeconds, error,
+                notForwardableMessageIds = notForwardable,
+            )
+            // A stop after part of the batch went out must not be reported as
+            // "nothing was sent, retry unchanged" or as one unknown outcome for
+            // the whole batch: the caller needs the delivered IDs to avoid
+            // duplicating them.
             val final = try {
                 awaitFinalMessage(message, request)
             } catch (error: TelegramApiException) {
-                // A flood after part of the batch went out must not be reported as
-                // "nothing was sent, retry unchanged": that would duplicate messages.
                 if (!error.isFloodWait || delivered.isEmpty()) throw error
-                throw ForwardPartiallyDeliveredException(
-                    toChatId, deliveredSourceIds.toList(),
-                    messageIds.filterNot { it in deliveredSourceIds || it in notForwardable },
-                    error.retryAfterSeconds, error,
-                    notForwardableMessageIds = notForwardable,
-                )
+                throw partial(error, error.retryAfterSeconds)
+            } catch (error: SendOutcomeUnknownException) {
+                if (delivered.isEmpty()) throw error
+                throw partial(error, null)
+            } catch (error: TelegramTimeoutException) {
+                if (delivered.isEmpty()) throw error
+                throw partial(error, null)
             }
             delivered += final
             messageIds.getOrNull(index)?.let(deliveredSourceIds::add)

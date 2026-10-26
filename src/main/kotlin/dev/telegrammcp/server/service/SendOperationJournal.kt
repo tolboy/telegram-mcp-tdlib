@@ -44,8 +44,9 @@ class SendOperationJournal(private val root: Path, private val mapper: ObjectMap
 
     /**
      * Single-message send. beforeSend runs only for a new operation, before
-     * the durable reservation. A flood-wait rejection, or a local rejection before
-     * the request reached TDLib (bulkhead full, deadline ran out), is recorded as REJECTED.
+     * the durable reservation. A flood-wait rejection, or a retryable local rejection
+     * before the request reached TDLib (bulkhead full, deadline ran out), is recorded
+     * as REJECTED (see [wasNotExecuted]).
      */
     fun send(
         account: String,
@@ -187,12 +188,16 @@ class SendOperationJournal(private val root: Path, private val mapper: ObjectMap
     companion object {
         const val REJECTED = "REJECTED"
 
-        /** Telegram (or the local flood gate) rejected the send before executing it. */
+        /**
+         * Telegram (or a local check) definitely rejected the send before
+         * executing it. A local timeout or a full bulkhead qualifies only when
+         * it is retryable, i.e. no write of the call was handed to TDLib; after
+         * an earlier write the outcome stays UNKNOWN.
+         */
         fun wasNotExecuted(error: Throwable): Boolean =
             error is TelegramFloodGateException || (error is TelegramApiException && error.wasNotExecuted) ||
-                // Rejected locally before anything was handed to TDLib.
-                (error is dev.telegrammcp.server.exception.TelegramTimeoutException && !error.requestSent) ||
-                error is dev.telegrammcp.server.exception.TelegramBusyException
+                (error is dev.telegrammcp.server.exception.TelegramTimeoutException && !error.requestSent && error.retryable) ||
+                (error is dev.telegrammcp.server.exception.TelegramBusyException && error.retryable)
 
         fun validateKey(key: String) {
             if (!Regex("[A-Za-z0-9._:-]{1,128}").matches(key)) {
