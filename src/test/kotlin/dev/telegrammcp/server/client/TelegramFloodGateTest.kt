@@ -181,6 +181,58 @@ class TelegramFloodGateTest {
         gate.check("shared")
     }
 
+    @Test
+    fun `expiry removal racing with new records never loses an active gate`() {
+        // One worker keeps advancing the shared clock, so entries expire while
+        // other workers check (removing expired entries) and record new ones.
+        val clock = AtomicLong(0)
+        val racing = TelegramFloodGate { clock.get() }
+        val second = TimeUnit.SECONDS.toNanos(1)
+        val workers = 8
+        val rounds = 2_000
+        val pool = Executors.newFixedThreadPool(workers + 1)
+        val start = CountDownLatch(1)
+        val running = java.util.concurrent.atomic.AtomicBoolean(true)
+        try {
+            val ticker = pool.submit {
+                start.await()
+                while (running.get()) {
+                    clock.addAndGet(second / 2)
+                    Thread.onSpinWait()
+                }
+            }
+            val futures = (0 until workers).map { worker ->
+                pool.submit {
+                    start.await()
+                    repeat(rounds) { round ->
+                        val scope = if (round % 2 == 0) "shared" else "worker $worker"
+                        racing.record(scope, TelegramApiException(429, "Too Many Requests: retry after 1000000"))
+                        // The clock moves 0.5 s per tick; a 1 000 000 s wait cannot expire
+                        // within the test, so it must stay visible to every check.
+                        assertFailsWith<TelegramFloodGateException>("lost gate for $scope") { racing.check(scope) }
+                        // Short entries expire under the ticker; removal must not touch the long ones.
+                        racing.record("short $worker", TelegramApiException(420, "FLOOD_WAIT_1"))
+                        runCatching { racing.check("short $worker") }
+                        racing.recordLocalTimeout("short shared", Duration.ofSeconds(1))
+                        runCatching { racing.check("short shared") }
+                    }
+                }
+            }
+            start.countDown()
+            futures.forEach { it.get(60, TimeUnit.SECONDS) }
+            running.set(false)
+            ticker.get(10, TimeUnit.SECONDS)
+        } finally {
+            running.set(false)
+            pool.shutdownNow()
+        }
+
+        assertFailsWith<TelegramFloodGateException> { racing.check("shared") }
+        (0 until workers).forEach { worker ->
+            assertFailsWith<TelegramFloodGateException> { racing.check("worker $worker") }
+        }
+    }
+
     // ---- service-level isolation --------------------------------------------------------
 
     private val client = mockk<SimpleTelegramClient>()
