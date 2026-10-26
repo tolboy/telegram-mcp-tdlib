@@ -158,6 +158,13 @@ data class TdLibProperties(
             listOf(timeout, messageSendTimeout, downloadTimeout, toolDeadline).forEach {
                 require(!it.isNegative && !it.isZero) { "tdlib.requests timeouts must be positive" }
             }
+            // A wait longer than the deadline could never run to its own end, so a
+            // timeout that cannot fire would silently turn into a deadline cut.
+            require(toolDeadline > timeout && toolDeadline > messageSendTimeout) {
+                "tdlib.requests.tool-deadline ($toolDeadline) must be longer than tdlib.requests.timeout " +
+                    "($timeout) and tdlib.requests.message-send-timeout ($messageSendTimeout); raise " +
+                    "TDLIB_TOOL_DEADLINE or lower TDLIB_REQUEST_TIMEOUT / TDLIB_MESSAGE_SEND_TIMEOUT"
+            }
             require(!localTimeoutGate.isNegative) { "tdlib.requests.local-timeout-gate must not be negative" }
             require(maxConcurrentCalls > 0) { "tdlib.requests.max-concurrent-calls must be positive" }
             require(breakerTimeoutScopes > 0) { "tdlib.requests.breaker-timeout-scopes must be positive" }

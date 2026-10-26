@@ -54,6 +54,10 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   its scope for `tdlib.requests.local-timeout-gate` (10 s), because TDLib may
   still be waiting out flood control for it. Deadline-bound and `DownloadFile`
   timeouts do not count toward the circuit breaker.
+- **Behaviour change:** startup fails when `tdlib.requests.tool-deadline` is
+  not longer than `tdlib.requests.timeout` and
+  `tdlib.requests.message-send-timeout`; the error names the settings and
+  their values.
 - **Behaviour change:** each account has a fail-fast bulkhead
   (`tdlib.requests.max-concurrent-calls`, `TDLIB_MAX_CONCURRENT_CALLS`,
   default 25). Extra concurrent calls return the new code `TELEGRAM_BUSY`

@@ -142,8 +142,11 @@ are configurable (`tdlib.requests` in `application.yml`):
 | `breaker-timeout-scopes` | `TDLIB_BREAKER_TIMEOUT_SCOPES` | 3 | circuit-breaker backstop (see below) |
 | `breaker-no-answer-window` | `TDLIB_BREAKER_NO_ANSWER_WINDOW` | 180s | circuit-breaker backstop (see below) |
 
-Startup fails if a timeout or `max-concurrent-calls` is not positive. A
-per-request timeout longer than the deadline is effectively capped by it.
+Startup fails if a timeout or `max-concurrent-calls` is not positive, and
+if `tool-deadline` is not longer than both `timeout` and
+`message-send-timeout` (the error names the settings and their values).
+`download-timeout` may exceed the deadline; a download wait is then cut by the
+deadline.
 
 When a wait ends without an answer:
 

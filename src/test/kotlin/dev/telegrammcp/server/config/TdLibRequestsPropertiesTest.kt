@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.source.MapConfigurationProper
 import java.time.Duration
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 class TdLibRequestsPropertiesTest {
     private fun bind(values: Map<String, String>) =
@@ -35,5 +36,28 @@ class TdLibRequestsPropertiesTest {
         assertFailsWith<Exception> { bind(mapOf("tdlib.requests.timeout" to "0s")) }
         assertFailsWith<Exception> { bind(mapOf("tdlib.requests.tool-deadline" to "-1s")) }
         assertFailsWith<Exception> { bind(mapOf("tdlib.requests.max-concurrent-calls" to "0")) }
+    }
+
+    @Test
+    fun `the tool deadline must be longer than the request and send timeouts`() {
+        for (values in listOf(
+            mapOf("tdlib.requests.tool-deadline" to "40s"),
+            mapOf("tdlib.requests.tool-deadline" to "30s", "tdlib.requests.message-send-timeout" to "20s"),
+            mapOf("tdlib.requests.timeout" to "20s", "tdlib.requests.message-send-timeout" to "55s"),
+        )) {
+            val error = assertFailsWith<Exception>("$values") { bind(values) }
+            val message = generateSequence<Throwable>(error) { it.cause }.mapNotNull { it.message }.joinToString(" | ")
+            assertTrue("tdlib.requests.tool-deadline" in message && "message-send-timeout" in message, message)
+        }
+        val direct = assertFailsWith<IllegalArgumentException> {
+            TdLibProperties.Requests(timeout = Duration.ofSeconds(60))
+        }
+        assertEquals(
+            "tdlib.requests.tool-deadline (PT50S) must be longer than tdlib.requests.timeout (PT1M) and " +
+                "tdlib.requests.message-send-timeout (PT40S); raise TDLIB_TOOL_DEADLINE or lower " +
+                "TDLIB_REQUEST_TIMEOUT / TDLIB_MESSAGE_SEND_TIMEOUT",
+            direct.message,
+        )
+        TdLibProperties.Requests(timeout = Duration.ofSeconds(20), messageSendTimeout = Duration.ofSeconds(20), toolDeadline = Duration.ofSeconds(21))
     }
 }
