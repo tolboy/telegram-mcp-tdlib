@@ -1,5 +1,6 @@
 package dev.telegrammcp.server.client
 
+import dev.telegrammcp.server.exception.ForwardPartiallyDeliveredException
 import dev.telegrammcp.server.exception.TelegramApiException
 import dev.telegrammcp.server.exception.TelegramFloodGateException
 import dev.telegrammcp.server.config.ResilienceConfig
@@ -260,5 +261,54 @@ class TelegramFloodGateTest {
     private fun sent(chatId: Long, id: Long) = TdApi.Message().apply {
         this.chatId = chatId
         this.id = id
+    }
+
+    /** Forwards three messages to chat 9; [outcome] decides each provisional message's final state. */
+    private fun forwardWith(outcome: (index: Int) -> TdApi.Error?) = answer { request ->
+        when (request) {
+            is TdApi.ForwardMessages -> {
+                val provisional = (0 until 3).map { pending(9, 101L + it) }
+                provisional.forEachIndexed { index, message ->
+                    val error = outcome(index)
+                    if (error == null) tracker.onSucceeded(TdApi.UpdateMessageSendSucceeded(sent(9, 201L + index), message.id))
+                    else tracker.onFailed(TdApi.UpdateMessageSendFailed(message, message.id, error))
+                }
+                TdApi.Messages(3, provisional.toTypedArray())
+            }
+            else -> TdApi.Error(400, "Chat not found")
+        }
+    }
+
+    @Test
+    fun `a forward flood after a delivered message is not retryable`() {
+        forwardWith { index -> if (index == 0) null else flood(7) }
+
+        val partial = assertFailsWith<ForwardPartiallyDeliveredException> {
+            service.forwardMessages(fromChatId = 5, toChatId = 9, messageIds = listOf(11, 12, 13))
+        }
+        assertEquals(listOf(11L), partial.deliveredMessageIds)
+        assertEquals(listOf(12L, 13L), partial.unconfirmedMessageIds)
+        assertEquals(7L, partial.retryAfterSeconds)
+
+        val error = dev.telegrammcp.server.tool.ToolError.from(partial)
+        assertEquals(false, error.retryable)
+        assertEquals(7L, error.retry_after_seconds)
+        assertTrue("Do not repeat the same call" in error.next_action)
+        assertTrue("retry the unchanged call" !in error.next_action)
+
+        // The flood still gates further forwards to that chat.
+        assertEquals("method ForwardMessages chat 9", assertFailsWith<TelegramFloodGateException> {
+            service.forwardMessages(5, 9, listOf(12))
+        }.scope)
+    }
+
+    @Test
+    fun `a forward flood before anything was delivered stays a retryable flood wait`() {
+        forwardWith { flood(7) }
+
+        val flood = assertFailsWith<TelegramApiException> { service.forwardMessages(5, 9, listOf(11, 12, 13)) }
+        assertTrue(flood.isFloodWait)
+        assertTrue(dev.telegrammcp.server.tool.ToolError.from(flood).retryable)
+        assertNull(flood.cause as? ForwardPartiallyDeliveredException)
     }
 }

@@ -17,6 +17,10 @@ data class ToolError(
                 FLOOD_WAIT, error.message, retryable = true, retry_after_seconds = error.retryAfterSeconds,
                 next_action = FLOOD_WAIT_ACTION,
             )
+            if (error is ForwardPartiallyDeliveredException) return ToolError(
+                PARTIAL_DELIVERY, error.message, retryable = false, retry_after_seconds = error.retryAfterSeconds,
+                next_action = PARTIAL_DELIVERY_ACTION,
+            )
             val code = when (error) {
                 is dev.telegrammcp.server.security.PermissionDeniedException -> "PERMISSION_DENIED"
                 is SendOperationConflictException -> "IDEMPOTENCY_CONFLICT"
@@ -66,6 +70,12 @@ data class ToolError(
         private const val FLOOD_WAIT_ACTION = "Telegram flood control rejected the request without executing it. " +
             "Wait at least retry_after_seconds, then retry the unchanged call (for keyed sends, reuse the same " +
             "idempotency_key). Retrying sooner is rejected locally and does not reach Telegram."
+
+        const val PARTIAL_DELIVERY = "TELEGRAM_FLOOD_WAIT_PARTIAL_DELIVERY"
+        private const val PARTIAL_DELIVERY_ACTION = "Telegram flood control interrupted a forward after some " +
+            "messages were already delivered. Do not repeat the same call: it would forward the delivered messages " +
+            "again. Check the destination chat, wait at least retry_after_seconds, then forward only the message_ids " +
+            "that are not there yet (as a new call with a new idempotency_key, if you use one)."
 
         const val SPAM_RESTRICTED_ACTION = "Telegram has restricted this account for spam (PEER_FLOOD): it cannot " +
             "message users or add members who have not contacted it first. This is not a timed flood wait and " +

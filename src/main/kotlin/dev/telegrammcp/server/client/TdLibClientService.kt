@@ -1,6 +1,7 @@
 ﻿package dev.telegrammcp.server.client
 
 import dev.telegrammcp.server.exception.ChatNotAllowedException
+import dev.telegrammcp.server.exception.ForwardPartiallyDeliveredException
 import dev.telegrammcp.server.exception.TelegramUnavailableException
 import dev.telegrammcp.server.model.*
 import dev.telegrammcp.server.util.StructuredLogger
@@ -501,7 +502,27 @@ class TdLibClientService(
             send<TdApi.Messages>(request)
         }
         val chatTitle = getChatTitleSafe(toChatId)
-        return result.messages?.map { awaitFinalMessage(it, request).toTelegramMessage(chatTitle) } ?: emptyList()
+        val pending = result.messages.orEmpty()
+        val delivered = ArrayList<TdApi.Message>(pending.size)
+        val deliveredSourceIds = ArrayList<Long>(pending.size)
+        pending.forEachIndexed { index, message ->
+            if (message == null) return@forEachIndexed
+            val final = try {
+                awaitFinalMessage(message, request)
+            } catch (error: TelegramApiException) {
+                // A flood after part of the batch went out must not be reported as
+                // "nothing was sent, retry unchanged": that would duplicate messages.
+                if (!error.isFloodWait || delivered.isEmpty()) throw error
+                throw ForwardPartiallyDeliveredException(
+                    toChatId, deliveredSourceIds.toList(),
+                    messageIds.filterNot { it in deliveredSourceIds },
+                    error.retryAfterSeconds, error,
+                )
+            }
+            delivered += final
+            messageIds.getOrNull(index)?.let(deliveredSourceIds::add)
+        }
+        return delivered.map { it.toTelegramMessage(chatTitle) }
     }
 
     override fun pinMessage(chatId: Long, messageId: Long, disableNotification: Boolean): Boolean {

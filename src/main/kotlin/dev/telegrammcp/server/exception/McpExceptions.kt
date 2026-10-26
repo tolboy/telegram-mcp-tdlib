@@ -64,6 +64,26 @@ class TelegramFloodGateException(
     "Telegram flood wait still active for $scope; retry after ${retryAfterSeconds}s (request not sent)",
 )
 
+/**
+ * A forward batch hit flood control after some of its messages had already
+ * been delivered. Unlike a plain flood wait this is not "nothing happened":
+ * retrying the unchanged call would duplicate [deliveredMessageIds], so it is
+ * never retryable. [deliveredMessageIds] and [unconfirmedMessageIds] are source
+ * message IDs (the caller's message_ids), in request order.
+ */
+class ForwardPartiallyDeliveredException(
+    val toChatId: Long,
+    val deliveredMessageIds: List<Long>,
+    val unconfirmedMessageIds: List<Long>,
+    val retryAfterSeconds: Long?,
+    cause: TelegramApiException,
+) : McpException(
+    "Telegram flood control stopped forwarding to chat $toChatId after ${deliveredMessageIds.size} of " +
+        "${deliveredMessageIds.size + unconfirmedMessageIds.size} messages were delivered " +
+        "(delivered message_ids: $deliveredMessageIds; not confirmed: $unconfirmedMessageIds)",
+    cause,
+)
+
 /** The caller supplied invalid or missing tool arguments. */
 class InvalidToolInputException(
     message: String,
