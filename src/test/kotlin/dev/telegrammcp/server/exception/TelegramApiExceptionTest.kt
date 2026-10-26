@@ -63,6 +63,12 @@ class TelegramApiExceptionTest {
         "400, CHANNEL_PRIVATE",
         "400, USER_PRIVACY_RESTRICTED",
         "403, USER_BANNED_IN_CHANNEL",
+        "400, Have no access to the chat",
+        "400, Have no write access to the chat",
+        "400, Have no access to the user",
+        "400, Chat is not accessible",
+        "400, User is inaccessible",
+        "400, PEER_FLOOD",
     )
     fun `permission failures are PERMISSION_DENIED`(code: Int, message: String) {
         assertEquals(TelegramErrorKind.PERMISSION_DENIED, kind(code, message))
@@ -78,6 +84,7 @@ class TelegramApiExceptionTest {
         "400, MSG_ID_INVALID",
         "400, PEER_ID_INVALID",
         "400, USERNAME_NOT_OCCUPIED",
+        "400, Invalid user identifier",
         "404, Not Found",
         // Fixed 500 outcomes TDLib produces locally.
         "500, Topic not found",
@@ -143,5 +150,20 @@ class TelegramApiExceptionTest {
         assertNull(TelegramApiException.parseRetryAfterSeconds("FLOOD_WAIT_"))
         assertNull(TelegramApiException.parseRetryAfterSeconds("Chat not found"))
         assertNull(TelegramApiException(429, "Too Many Requests").retryAfterSeconds)
+        assertEquals(1L, TelegramApiException.parseRetryAfterSeconds("Too Many Requests: retry after 0"), "0 is reported as 1")
+        assertEquals(1L, TelegramApiException.parseRetryAfterSeconds("FLOOD_WAIT_0"))
+    }
+
+    @Test
+    fun `PEER_FLOOD is a spam restriction, not a flood wait`() {
+        val error = TelegramApiException(400, "PEER_FLOOD")
+        assertEquals(TelegramErrorKind.PERMISSION_DENIED, error.kind)
+        assertFalse(error.isFloodWait)
+        assertFalse(error.wasNotExecuted)
+        assertFalse(error.isRetryable)
+        assertFalse(error.countsTowardBreaker)
+        assertNull(error.retryAfterSeconds)
+        // Whatever code Telegram uses, it is never treated as a timed flood wait.
+        assertEquals(TelegramErrorKind.PERMISSION_DENIED, TelegramApiException(420, "PEER_FLOOD").kind)
     }
 }

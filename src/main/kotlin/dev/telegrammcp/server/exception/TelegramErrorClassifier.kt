@@ -53,6 +53,11 @@ object TelegramErrorClassifier {
         "Can't access the chosen chat",
         "Not enough rights",
         "Have not enough rights",
+        "Have no access to the chat",
+        "Have no write access to the chat",
+        "Have no access to the user",
+        "Chat is not accessible",
+        "User is inaccessible",
     )
 
     /** Telegram server error names (core.telegram.org/api/errors) that TDLib forwards as 400. */
@@ -91,6 +96,7 @@ object TelegramErrorClassifier {
         "Invalid chat identifier specified",
         "Wrong chat identifier specified",
         "Invalid user identifier specified",
+        "Invalid user identifier",
         "Invalid message identifier specified",
         "Invalid message identifier",
         "Wrong message identifier",
@@ -136,8 +142,23 @@ object TelegramErrorClassifier {
     private fun isTransientServer(code: Int, message: String): Boolean =
         code == 502 || code == 503 || message.startsWith("WORKER_BUSY") || message == "Timeout expired"
 
+    /**
+     * Telegram's PEER_FLOOD: the account is spam-restricted and may not message
+     * users who have not contacted it. Despite the name this is not a timed flood
+     * wait (no delay, 400), so it is a permission failure and never retryable.
+     */
+    private const val PEER_FLOOD = "PEER_FLOOD"
+
+    fun isSpamRestricted(message: String): Boolean = message == PEER_FLOOD
+
+    /**
+     * The delay a flood error asks for. "retry after 0" (or a 0 suffix) is
+     * reported as 1 second so callers never see retry_after_seconds: 0 next to
+     * a flood the local gate holds for at least 1 second.
+     */
     fun parseRetryAfterSeconds(message: String): Long? =
         (WAIT_SUFFIX.find(message) ?: RETRY_AFTER.find(message))?.groupValues?.get(1)?.toLongOrNull()
+            ?.coerceAtLeast(1)
 
     fun isFloodWait(code: Int, message: String): Boolean =
         code == 420 || code == 429 || WAIT_SUFFIX.containsMatchIn(message)
@@ -150,6 +171,7 @@ object TelegramErrorClassifier {
 
     fun classify(code: Int, message: String): TelegramErrorKind = when {
         isCancellation(message) -> TelegramErrorKind.CANCELLED
+        isSpamRestricted(message) -> TelegramErrorKind.PERMISSION_DENIED
         isFloodWait(code, message) -> TelegramErrorKind.FLOOD_WAIT
         code == 401 -> TelegramErrorKind.AUTH_REQUIRED
         code == 403 -> TelegramErrorKind.PERMISSION_DENIED

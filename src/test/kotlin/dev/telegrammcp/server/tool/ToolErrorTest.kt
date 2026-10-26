@@ -105,6 +105,28 @@ class ToolErrorTest {
     }
 
     @Test
+    fun `PEER_FLOOD reports a spam restriction instead of a flood wait`() {
+        val error = ToolError.from(TelegramApiException(400, "PEER_FLOOD"))
+        assertEquals("PERMISSION_DENIED", error.code)
+        assertFalse(error.retryable)
+        assertEquals(null, error.retry_after_seconds)
+        assertTrue("spam" in error.next_action, error.next_action)
+        assertTrue("@SpamBot" in error.next_action, error.next_action)
+        assertFalse("retry the unchanged call" in error.next_action)
+    }
+
+    @Test
+    fun `newly classified access strings map to PERMISSION_DENIED and ENTITY_NOT_FOUND`() {
+        listOf("Have no access to the chat", "Have no write access to the chat", "Have no access to the user",
+            "Chat is not accessible", "User is inaccessible").forEach { message ->
+            val error = ToolError.from(TelegramApiException(400, message))
+            assertEquals("PERMISSION_DENIED", error.code, message)
+            assertFalse(error.retryable, message)
+        }
+        assertEquals("ENTITY_NOT_FOUND", ToolError.from(TelegramApiException(400, "Invalid user identifier")).code)
+    }
+
+    @Test
     fun `telegram flood wait is rendered in the structured error envelope`() {
         val result = ToolSupport.errorResult(TelegramApiException(429, "Too Many Requests: retry after 30"))
         val envelope = result.structuredContent() as Map<*, *>

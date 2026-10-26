@@ -67,6 +67,10 @@ data class ToolError(
             "Wait at least retry_after_seconds, then retry the unchanged call (for keyed sends, reuse the same " +
             "idempotency_key). Retrying sooner is rejected locally and does not reach Telegram."
 
+        const val SPAM_RESTRICTED_ACTION = "Telegram has restricted this account for spam (PEER_FLOOD): it cannot " +
+            "message users or add members who have not contacted it first. This is not a timed flood wait and " +
+            "waiting or retrying will not help. Ask the operator to check the account status with @SpamBot."
+
         /**
          * Maps a classified TDLib rejection (see TelegramErrorClassifier). Only
          * flood waits and allow-listed transient failures of read-only requests
@@ -83,7 +87,9 @@ data class ToolError(
                     "AUTH_REQUIRED", message,
                     next_action = "Ask the operator to authenticate the selected account.",
                 )
-                TelegramErrorKind.PERMISSION_DENIED -> ToolError(
+                TelegramErrorKind.PERMISSION_DENIED -> if (TelegramErrorClassifier.isSpamRestricted(error.errorMessage)) {
+                    ToolError("PERMISSION_DENIED", message, next_action = SPAM_RESTRICTED_ACTION)
+                } else ToolError(
                     "PERMISSION_DENIED", message,
                     next_action = "The Telegram account cannot access this chat or lacks the rights for this action; " +
                         "do not retry unchanged.",
