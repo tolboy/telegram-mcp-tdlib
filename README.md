@@ -191,7 +191,7 @@ is in [PUBLIC_BENCHMARK_AND_ROADMAP.md](docs/PUBLIC_BENCHMARK_AND_ROADMAP.md).
 
 ## Tool profiles
 
-You don't expose 115 tools on day one. `MCP_TOOL_PROFILE` narrows the advertised surface
+You don't expose 116 tools on day one. `MCP_TOOL_PROFILE` narrows the advertised surface
 *before a client ever sees it*, without weakening account scoping, read-only mode,
 confirmation, audit, or anti-spam:
 
@@ -207,7 +207,7 @@ See [TOOL_PROFILES.md](docs/TOOL_PROFILES.md) for the exact intent of each surfa
 
 ## Features
 
-- **115 MCP tools** — messages, polls, read receipts, scheduled sends, chats, folders,
+- **116 MCP tools** — messages, polls, read receipts, scheduled sends, chats, folders,
   invite-link administration, contacts, media, drafts, privacy, bot commands, detailed group
   permissions, profile, search, and account routing.
 - **TDLib via tdlight-java** — real user accounts, not just the Bot API.
@@ -663,6 +663,7 @@ For remote deployment, terminate TLS before the service and restrict network acc
 | `inbox_snapshot` | Bounded unread inbox with a JSON character budget |
 | `conversation_bundle` | Compact conversation page with an exclusive older-than cursor |
 | `changes_since` | Persistent observed message changes, with explicit coverage gaps |
+| `wait_for_changes` | Wait for observed message changes using a resumable cursor and optional chat filter |
 | `export_job` | Start, resume, inspect, read, cancel and delete durable history exports |
 
 See [compact tasks and export](docs/TASKS_AND_EXPORTS.md) and [managed local daemon](docs/LOCAL_DAEMON.md).
@@ -674,7 +675,7 @@ The full inventory is grouped below. In practice you start with a
 [tool profile](#tool-profiles) rather than enabling all of it at once.
 
 <details>
-<summary><b>Show all 115 tools</b></summary>
+<summary><b>Show all 116 tools</b></summary>
 
 ### Messages (30 tools)
 

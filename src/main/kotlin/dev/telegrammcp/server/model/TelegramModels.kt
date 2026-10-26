@@ -35,6 +35,35 @@ data class TelegramMessage(
     val mediaType: String? = null,
     val forwardFrom: String? = null,
     val poll: TelegramPoll? = null,
+    val isOutgoing: Boolean = false,
+    /** Null when the message has never been edited. */
+    val editDate: Instant? = null,
+    /** Decimal int64 string to preserve precision in JavaScript clients; null outside albums. */
+    val mediaAlbumId: String? = null,
+    val forwardOrigin: MessageForwardOrigin? = null,
+    /** The reply's chat, which can differ from this message's chat. */
+    val replyInChatId: Long? = null,
+    val replyQuote: MessageReplyQuote? = null,
+    /** TDLib content kind in snake_case, also available for unsupported content. */
+    val contentType: String? = null,
+)
+
+/** Origin already disclosed on a forwarded message; hidden senders remain name-only. */
+data class MessageForwardOrigin(
+    val kind: String,
+    val date: Instant,
+    val userId: Long? = null,
+    val chatId: Long? = null,
+    val messageId: Long? = null,
+    val senderName: String? = null,
+    val authorSignature: String? = null,
+)
+
+/** Telegram's quoted text and UTF-16 offset within the replied-to message. */
+data class MessageReplyQuote(
+    val text: String,
+    val position: Int,
+    val isManual: Boolean,
 )
 
 /** Shareable Telegram link generated for a specific message. */

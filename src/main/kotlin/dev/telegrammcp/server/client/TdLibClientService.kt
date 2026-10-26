@@ -2340,11 +2340,16 @@ class TdLibClientService(
         if (tdParseMode == null) {
             return TextFormatter.plainText(text)
         }
+        // Parse before dispatching the write. A rejected format must be visible
+        // to the caller, and a timeout or flood wait must retain its retry policy.
+        // Silently sending plain text here can publish unintended raw markup.
         return try {
             send(TdApi.ParseTextEntities(text, tdParseMode))
-        } catch (_: Exception) {
-            log.warn("Failed to parse text as {}, falling back to plain text", parseMode)
-            TextFormatter.plainText(text)
+        } catch (error: TelegramApiException) {
+            if (error.kind == dev.telegrammcp.server.exception.TelegramErrorKind.INVALID_INPUT) {
+                error.preWriteValidationFailed = !error.priorWriteDispatched
+            }
+            throw error
         }
     }
 
@@ -2374,71 +2379,8 @@ class TdLibClientService(
             else -> "Unknown"
         }
 
-        val senderId = when (val sender = this.senderId) {
-            is TdApi.MessageSenderUser -> sender.userId
-            is TdApi.MessageSenderChat -> sender.chatId
-            else -> null
-        }
-
-        val text = when (val content = this.content) {
-            is TdApi.MessageText -> content.text?.text
-            is TdApi.MessagePhoto -> content.caption?.text ?: "[Photo]"
-            is TdApi.MessageVideo -> content.caption?.text ?: "[Video]"
-            is TdApi.MessageDocument -> content.caption?.text ?: "[Document: ${content.document?.fileName}]"
-            is TdApi.MessageAudio -> content.caption?.text ?: "[Audio]"
-            is TdApi.MessageVoiceNote -> content.caption?.text ?: "[Voice]"
-            is TdApi.MessageSticker -> "[Sticker: ${content.sticker?.emoji}]"
-            is TdApi.MessageAnimation -> content.caption?.text ?: "[GIF]"
-            is TdApi.MessageVideoNote -> "[Video note]"
-            is TdApi.MessagePoll -> "[Poll: ${content.poll?.question?.text}]"
-            is TdApi.MessageLocation -> "[Location: ${content.location?.latitude}, ${content.location?.longitude}]"
-            is TdApi.MessageContact -> "[Contact: ${content.contact?.firstName} ${content.contact?.lastName}]"
-            else -> "[${content?.javaClass?.simpleName ?: "Unknown"}]"
-        }
-
-        val mediaType = when (this.content) {
-            is TdApi.MessageText -> null
-            is TdApi.MessagePhoto -> "photo"
-            is TdApi.MessageVideo -> "video"
-            is TdApi.MessageDocument -> "document"
-            is TdApi.MessageAudio -> "audio"
-            is TdApi.MessageVoiceNote -> "voice"
-            is TdApi.MessageSticker -> "sticker"
-            is TdApi.MessageAnimation -> "animation"
-            is TdApi.MessageVideoNote -> "video_note"
-            is TdApi.MessagePoll -> "poll"
-            is TdApi.MessageLocation -> "location"
-            is TdApi.MessageContact -> "contact"
-            else -> "other"
-        }
-
-        val replyToId = when (val reply = this.replyTo) {
-            is TdApi.MessageReplyToMessage -> reply.messageId
-            else -> null
-        }
-
-        return TelegramMessage(
-            messageId = this.id,
-            chatId = this.chatId,
-            chatTitle = chatTitle,
-            senderName = senderName,
-            senderId = senderId,
-            text = text,
-            date = Instant.ofEpochSecond(this.date.toLong()),
-            replyToMessageId = replyToId,
-            messageThreadId = this.topicId.toMessageThreadId(),
-            mediaType = mediaType,
-            poll = (this.content as? TdApi.MessagePoll)?.poll?.toTelegramPoll(),
-        )
+        return TdLibMessageMapper.map(this, chatTitle, senderName)
     }
-
-    private fun TdApi.Poll.toTelegramPoll(): TelegramPoll = TelegramPoll(
-        question = question?.text.orEmpty(),
-        totalVoterCount = totalVoterCount,
-        isAnonymous = isAnonymous,
-        isClosed = isClosed,
-        options = options?.map { option -> option.toTelegramPollOption() } ?: emptyList(),
-    )
 
     private fun TdApi.Message.toScheduledMessage(chatTitle: String?): ScheduledMessage {
         val state = schedulingState
@@ -2499,13 +2441,6 @@ class TdLibClientService(
         includeBots,
         includeGroups,
         includeChannels,
-    )
-
-    private fun TdApi.PollOption.toTelegramPollOption(): TelegramPollOption = TelegramPollOption(
-        text = text?.text.orEmpty(),
-        voterCount = voterCount,
-        votePercentage = votePercentage,
-        isChosen = isChosen,
     )
 
     private fun TdApi.Chat.toChatInfo(fullInfo: TdApi.Object? = null): ChatInfo {
@@ -2666,15 +2601,6 @@ class TdLibClientService(
         toInt().also { topicId ->
             require(topicId.toLong() == this) { "Forum topic ID is outside the supported integer range" }
         }
-
-    /** Keep the existing public message-thread field compatible with TDLib's topic union. */
-    private fun TdApi.MessageTopic?.toMessageThreadId(): Long? = when (this) {
-        is TdApi.MessageTopicThread -> messageThreadId.takeIf { it != 0L }
-        is TdApi.MessageTopicForum -> forumTopicId.toLong().takeIf { it != 0L }
-        is TdApi.MessageTopicDirectMessages -> directMessagesChatTopicId.takeIf { it != 0L }
-        is TdApi.MessageTopicSavedMessages -> savedMessagesTopicId.takeIf { it != 0L }
-        else -> null
-    }
 
     /** Compact data carrier for media parsing. */
     private data class MediaData(

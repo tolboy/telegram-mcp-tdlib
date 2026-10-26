@@ -5,6 +5,11 @@ tool inventory. Set `MCP_TOOL_PROFILE` before starting the server; changing it
 requires a restart so the MCP client receives a consistent `tools/list` result.
 The default is `reader`; selecting `all` is always explicit.
 
+`wait_for_changes` is available in every profile, including read-only mode.
+It waits on the local account journal, applies the caller's chat scope and
+does not send Telegram requests while waiting. See [cursor and timeout
+semantics](TASKS_AND_EXPORTS.md#wait-for-changes).
+
 | Profile | Intended use | Write tools advertised? |
 |---|---|---|
 | `all` | Full Telegram administration and automation | Yes, subject to normal server policy |

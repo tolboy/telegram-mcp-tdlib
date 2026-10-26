@@ -46,7 +46,7 @@ access, and a key for a different chat cannot reveal its receipt.
 | `SENT` | A final Telegram message ID was saved. This is not a read receipt. |
 | `SCHEDULED` | Telegram accepted a scheduled message; this does not confirm eventual delivery. |
 | `UNKNOWN` | A reservation exists without a saved final result. Delivery may have happened; inspect the chat. Repeating the key will not send again. |
-| `REJECTED` | A single-message send was rejected by Telegram flood control (or the local flood gate) before it was executed; nothing was sent. Retrying the same key with unchanged parameters after `retry_after_seconds` sends it. |
+| `REJECTED` | A single-message send was definitely prevented before any write, including flood control, local admission checks or invalid text formatting. Nothing was sent. Retry unchanged parameters only when the error permits it; correcting parameters requires a new key. |
 | `NOT_FOUND` | No saved reservation exists in this account's current journal. This says nothing about unkeyed sends or deleted/restored journals. |
 | `OPERATION_IN_PROGRESS` error | Another caller holds the operation lock. Wait and query status. |
 | `IDEMPOTENCY_CONFLICT` error | The key is bound to different parameters or a different destination. Do not invent another key to retry an uncertain send. |
@@ -59,7 +59,12 @@ single-message send that prove it was not executed: a Telegram flood wait
 a full per-account bulkhead (`TELEGRAM_BUSY`), and a tool-call deadline that
 ran out before the request was handed to TDLib (`TELEGRAM_TIMEOUT` with the
 request not sent). All four count only when they are retryable (no earlier write
-of the same tool call was handed to TDLib). They are saved as `REJECTED`. A send that was handed to
+of the same tool call was handed to TDLib). They are saved as `REJECTED`.
+An invalid HTML/Markdown parse explicitly verified before any write is also
+saved as `REJECTED`. Its `INVALID_INPUT` error is not retryable: correct the
+formatting and use a new key for the changed request. Parser failures after an
+earlier write remain `UNKNOWN`; other parser errors keep their normal policies.
+A send that was handed to
 TDLib and then timed out (`SEND_OUTCOME_UNKNOWN`, also when the tool-call
 deadline ended the wait) stays `UNKNOWN`; query `get_send_operation` instead of
 sending again, since a late delivery is still recorded. Batches (albums, multi-message

@@ -107,6 +107,7 @@ class AntiSpamGuardServiceTest {
         val guard = newGuard()
         repeat(500) {
             guard.check("get_history", mapOf("chat_id" to 12345L))
+            guard.check("wait_for_changes", mapOf("chat_id" to 12345L, "timeout_seconds" to 0))
             guard.check("list_chats", emptyMap())
         }
     }

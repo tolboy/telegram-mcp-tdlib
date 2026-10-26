@@ -39,6 +39,18 @@ object ToolOutputSchemas {
         "date" to mapOf("type" to listOf("string", "number")),
         "replyToMessageId" to nullableId, "messageThreadId" to nullableId,
         "mediaType" to nullableText, "forwardFrom" to nullableText, "poll" to poll,
+        "isOutgoing" to boolean,
+        "editDate" to mapOf("type" to listOf("string", "number", "null")),
+        "mediaAlbumId" to nullableText, "replyInChatId" to nullableId, "contentType" to nullableText,
+        "forwardOrigin" to (obj(mapOf(
+            "kind" to values("user", "chat", "channel", "hidden_user"),
+            "date" to mapOf("type" to listOf("string", "number")),
+            "userId" to nullableId, "chatId" to nullableId, "messageId" to nullableId,
+            "senderName" to nullableText, "authorSignature" to nullableText,
+        ), listOf("kind", "date")) + ("type" to listOf("object", "null"))),
+        "replyQuote" to (obj(mapOf(
+            "text" to text, "position" to count, "isManual" to boolean,
+        )) + ("type" to listOf("object", "null"))),
     ), listOf("messageId", "chatId", "chatTitle", "senderName", "text", "date"))
 
     private fun receiptVariant(status: Map<String, Any>, messageId: Map<String, Any>) = obj(mapOf(

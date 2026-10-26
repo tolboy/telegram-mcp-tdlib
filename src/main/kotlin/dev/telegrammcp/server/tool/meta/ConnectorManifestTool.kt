@@ -59,6 +59,7 @@ class ConnectorManifestTool(
             "reply_to_message",
             "forward_message",
             "get_history",
+            "wait_for_changes",
             "export_chat_history",
             "get_messages",
             "search_messages",
