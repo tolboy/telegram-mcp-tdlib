@@ -125,7 +125,7 @@ class TdLibClientService(
             this.replyMarkup = replyMarkup?.toTdLib()
         }
 
-        val message = awaitFinalMessage(withResilience("sendMessage") { send<TdApi.Message>(request) })
+        val message = awaitFinalMessage(withResilience("sendMessage") { send<TdApi.Message>(request) }, request)
         return message.toTelegramMessage(getChatTitleSafe(chatId))
     }
 
@@ -174,7 +174,7 @@ class TdLibClientService(
             this.inputMessageContent = content
         }
 
-        val message = awaitFinalMessage(withResilience("sendMessage") { send<TdApi.Message>(request) })
+        val message = awaitFinalMessage(withResilience("sendMessage") { send<TdApi.Message>(request) }, request)
         val sent = message.toTelegramMessage(getChatTitleSafe(chatId))
         if (sent.replyToMessageId != replyToMessageId) {
             runCatching {
@@ -473,7 +473,7 @@ class TdLibClientService(
             this.inputMessageContent = content
         }
 
-        val message = awaitFinalMessage(withResilience("sendMessage") { send<TdApi.Message>(request) })
+        val message = awaitFinalMessage(withResilience("sendMessage") { send<TdApi.Message>(request) }, request)
         return message.toTelegramMessage(getChatTitleSafe(chatId))
     }
 
@@ -501,7 +501,7 @@ class TdLibClientService(
             send<TdApi.Messages>(request)
         }
         val chatTitle = getChatTitleSafe(toChatId)
-        return result.messages?.map { awaitFinalMessage(it).toTelegramMessage(chatTitle) } ?: emptyList()
+        return result.messages?.map { awaitFinalMessage(it, request).toTelegramMessage(chatTitle) } ?: emptyList()
     }
 
     override fun pinMessage(chatId: Long, messageId: Long, disableNotification: Boolean): Boolean {
@@ -601,7 +601,7 @@ class TdLibClientService(
             }
             this.inputMessageContent = content
         }
-        val message = awaitFinalMessage(withResilience("sendMessage") { send<TdApi.Message>(request) })
+        val message = awaitFinalMessage(withResilience("sendMessage") { send<TdApi.Message>(request) }, request)
         return message.toScheduledMessage(getChatTitleSafe(chatId))
     }
 
@@ -1113,7 +1113,7 @@ class TdLibClientService(
             this.inputMessageContent = pollContent
         }
 
-        val message = awaitFinalMessage(withResilience("sendMessage") { send<TdApi.Message>(request) })
+        val message = awaitFinalMessage(withResilience("sendMessage") { send<TdApi.Message>(request) }, request)
         return message.toTelegramMessage(getChatTitleSafe(chatId))
     }
 
@@ -1577,7 +1577,7 @@ class TdLibClientService(
             this.chatId = chatId
             this.inputMessageContent = content
         }
-        val message = awaitFinalMessage(withResilience("sendMessage") { send<TdApi.Message>(request) })
+        val message = awaitFinalMessage(withResilience("sendMessage") { send<TdApi.Message>(request) }, request)
         return message.toTelegramMessage(getChatTitleSafe(chatId))
     }
 
@@ -1589,7 +1589,7 @@ class TdLibClientService(
             this.chatId = chatId
             this.inputMessageContent = content
         }
-        val message = awaitFinalMessage(withResilience("sendMessage") { send<TdApi.Message>(request) })
+        val message = awaitFinalMessage(withResilience("sendMessage") { send<TdApi.Message>(request) }, request)
         return message.toTelegramMessage(getChatTitleSafe(chatId))
     }
 
@@ -2040,11 +2040,18 @@ class TdLibClientService(
     /**
      * Sends a TDLib request synchronously by bridging the async callback API
      * with a [CompletableFuture].
+     *
+     * Order of checks: circuit breaker (in [withResilience]) -> flood gate ->
+     * rate limiter -> TDLib. The gate runs before a rate-limiter permit is
+     * taken, so calls rejected locally during a flood wait do not use up the
+     * shared permits. A gate rejection is ignored by the breaker
+     * (TelegramBreakerExclusionPredicate), so it never affects breaker state.
      */
     @Suppress("UNCHECKED_CAST")
     private fun <T : TdApi.Object> send(function: TdApi.Function<*>): T {
         val scope = TelegramFloodGate.scopeOf(function)
         floodGate.check(scope)
+        acquirePermitIfPending()
         return try {
             sendUngated(function)
         } catch (error: TelegramApiException) {
@@ -2070,29 +2077,47 @@ class TdLibClientService(
         return TdLibRequestAwaiter.await(future, function, TIMEOUT_SECONDS) as T
     }
 
-    private fun awaitFinalMessage(message: TdApi.Message): TdApi.Message = try {
+    /** Waits for the final state of a sent message; [request] is the TDLib function that created it. */
+    private fun awaitFinalMessage(message: TdApi.Message, request: TdApi.Function<*>): TdApi.Message = try {
         messageSendTracker?.awaitFinal(message, MESSAGE_SEND_TIMEOUT_SECONDS) ?: message
     } catch (error: TelegramApiException) {
-        // updateMessageSendFailed with a flood wait gates the chat like a direct 429.
-        floodGate.record(TelegramFloodGate.chatScope(message.chatId), error)
+        // updateMessageSendFailed with a flood wait gates the same scope as a direct 429.
+        floodGate.record(TelegramFloodGate.scopeOf(request), error)
         throw error
     }
 
     /**
-     * Wraps a block with Resilience4j rate limiter + circuit breaker.
+     * One rate-limiter permit per [withResilience] operation, taken lazily by
+     * the first [send] inside it after the flood-gate check. Holds `true` once
+     * the permit has been taken.
+     */
+    private val pendingPermit = ThreadLocal<BooleanArray?>()
+
+    private fun acquirePermitIfPending() {
+        val permit = pendingPermit.get() ?: return
+        if (permit[0]) return
+        RateLimiter.waitForPermission(rateLimiter)
+        permit[0] = true
+    }
+
+    /**
+     * Wraps a block with the Resilience4j circuit breaker and the rate limiter.
+     * The rate-limiter permit is taken by the first TDLib request in [block],
+     * after its flood-gate check (see [send]).
      */
     private fun <T> withResilience(operation: String, block: () -> T): T {
+        val outer = pendingPermit.get()
+        pendingPermit.set(BooleanArray(1))
         return try {
-            val decorated = CircuitBreaker.decorateSupplier(circuitBreaker) {
-                RateLimiter.decorateSupplier(rateLimiter, block).get()
-            }
-            decorated.get()
+            CircuitBreaker.decorateSupplier(circuitBreaker, block).get()
         } catch (ex: RequestNotPermitted) {
             meterRegistry.counter("telegram.api.rate_limited", "operation", operation).increment()
             throw TelegramUnavailableException(ex)
         } catch (ex: io.github.resilience4j.circuitbreaker.CallNotPermittedException) {
             meterRegistry.counter("telegram.api.circuit_open", "operation", operation).increment()
             throw TelegramUnavailableException(ex)
+        } finally {
+            if (outer == null) pendingPermit.remove() else pendingPermit.set(outer)
         }
     }
 

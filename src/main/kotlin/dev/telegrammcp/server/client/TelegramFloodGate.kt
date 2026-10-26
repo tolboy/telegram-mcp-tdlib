@@ -12,10 +12,20 @@ import java.util.concurrent.TimeUnit
  * Fails fast while a Telegram flood wait is active, instead of letting TDLib
  * queue (and Telegram extend) the wait.
  *
- * One instance exists per account (one per [TdLibClientService]). Waits are
- * scoped to the target chat when the TDLib function has a `chatId` field, and
- * to the TDLib function otherwise, because Telegram's 429s are typically per
- * chat or per method: a flood wait in one chat must not block other chats.
+ * One instance exists per account (one per [TdLibClientService]), so every
+ * scope is implicitly per account. Scopes (see [scopeOf]):
+ * - writes are keyed by TDLib method plus target chat ("method SendMessage
+ *   chat 42"): a flood on one kind of write in one chat blocks neither other
+ *   chats nor other operations in the same chat;
+ * - reads on the [TelegramReadRequests] allowlist are keyed by method across
+ *   the account ("method GetChatHistory"): read limits are account-wide, and a
+ *   write's flood must never block reads such as GetChatHistory or GetMessage;
+ * - writes without a chat are keyed by method.
+ *
+ * A wait of "retry after 0" is gated (and reported) as [MIN_WAIT_SECONDS], see
+ * [dev.telegrammcp.server.exception.TelegramErrorClassifier.parseRetryAfterSeconds].
+ * All operations are safe for concurrent use: entries are merged by maximum and
+ * expired entries are removed only if unchanged.
  */
 class TelegramFloodGate(
     private val nanoTime: () -> Long = System::nanoTime,
@@ -39,7 +49,7 @@ class TelegramFloodGate(
     fun record(scope: String, error: Throwable) {
         val flood = error as? TelegramApiException ?: return
         if (!flood.isFloodWait) return
-        val seconds = flood.retryAfterSeconds?.takeIf { it > 0 } ?: return
+        val seconds = flood.retryAfterSeconds?.coerceAtLeast(MIN_WAIT_SECONDS) ?: return
         val now = nanoTime()
         blockedUntil.entries.removeIf { it.value - now <= 0 }
         val until = now + TimeUnit.SECONDS.toNanos(seconds.coerceAtMost(MAX_WAIT_SECONDS))
@@ -55,15 +65,23 @@ class TelegramFloodGate(
         /** TDLib clamps waits to 14 days (NetQueryDelayer). */
         private const val MAX_WAIT_SECONDS = 14L * 24 * 60 * 60
 
-        private val chatIdFields = ConcurrentHashMap<Class<*>, java.util.Optional<Field>>()
+        /** Shortest gate; matches the minimum delay TDLib itself applies (NetQueryDelayer clamps to 1 s). */
+        const val MIN_WAIT_SECONDS = 1L
 
-        fun chatScope(chatId: Long): String = "chat $chatId"
+        private val chatIdFields = ConcurrentHashMap<Class<*>, java.util.Optional<Field>>()
 
         fun methodScope(function: TdApi.Function<*>): String = "method ${function.javaClass.simpleName}"
 
-        /** The gate scope for a TDLib request: its target chat if it has one, otherwise the method. */
-        fun scopeOf(function: TdApi.Function<*>): String =
-            chatIdOf(function)?.let(::chatScope) ?: methodScope(function)
+        /**
+         * The gate scope for a TDLib request: the method for allow-listed reads,
+         * method plus target chat for writes that have a chat, the method otherwise.
+         */
+        fun scopeOf(function: TdApi.Function<*>): String {
+            val method = methodScope(function)
+            if (TelegramReadRequests.isSafeRead(function)) return method
+            val chatId = chatIdOf(function) ?: return method
+            return "$method chat $chatId"
+        }
 
         private fun chatIdOf(function: TdApi.Function<*>): Long? {
             val field = chatIdFields.computeIfAbsent(function.javaClass) { type ->
