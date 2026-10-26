@@ -121,7 +121,10 @@ from TDLib's local cache for known IDs; a failed lookup is logged and counted
 
 MCP clients give up on a tool call after about 60 seconds (the TypeScript MCP
 SDK default; Claude Desktop). Every tool call therefore runs under one overall
-deadline, and every Telegram wait in the call (rate-limiter permit, each TDLib
+deadline. The MCP tool dispatch opens it exactly once, around the whole
+handler, for every registered tool (whether or not the handler uses the
+shared `ToolSupport.execute` helper); the server exposes no other path that
+runs a tool. Every Telegram wait in the call (rate-limiter permit, each TDLib
 request, the final state of a sent message, best-effort lookups, the account
 authentication wait, speech-recognition polling) waits for at most
 min(its own timeout, the time left in the deadline). Waiting for a human
