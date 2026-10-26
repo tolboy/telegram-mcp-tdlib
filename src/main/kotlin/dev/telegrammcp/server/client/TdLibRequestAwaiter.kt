@@ -36,21 +36,11 @@ internal object TdLibRequestAwaiter {
     }
 
     /**
-     * TDLib functions without server-side effects. Unknown functions are
-     * treated as writes, so a transient failure is never advertised as safe to
-     * retry for them.
+     * True only for functions on the explicit [TelegramReadRequests] allowlist.
+     * Unknown functions are treated as writes, so a transient failure is never
+     * advertised as safe to retry for them.
      */
-    fun isReadOnly(request: TdApi.Function<*>): Boolean {
-        val name = request.javaClass.simpleName
-        if (name in NOT_READ_ONLY) return false
-        return READ_ONLY_PREFIXES.any { name.startsWith(it) } || name in READ_ONLY_NAMES
-    }
-
-    private val READ_ONLY_PREFIXES = listOf("Get", "Search", "Load")
-    private val READ_ONLY_NAMES = setOf("ParseTextEntities", "DownloadFile", "RecognizeSpeech")
-
-    /** Get* functions that act on behalf of the user (press a bot button, authorize a login, query a bot). */
-    private val NOT_READ_ONLY = setOf("GetCallbackQueryAnswer", "GetLoginUrl", "GetExternalLink", "GetInlineQueryResults")
+    fun isReadOnly(request: TdApi.Function<*>): Boolean = TelegramReadRequests.isSafeRead(request)
 
     private fun waitFailure(request: TdApi.Function<*>, error: Exception): Exception = when (request) {
         is TdApi.SendMessage -> SendOutcomeUnknownException(request.chatId, cause = error)

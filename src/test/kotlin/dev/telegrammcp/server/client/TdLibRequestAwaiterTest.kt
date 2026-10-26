@@ -88,4 +88,35 @@ class TdLibRequestAwaiterTest {
         assertFalse(translated(TdApi.CheckAuthenticationCode()).isRetryable, "check* functions can be mutations")
         assertFalse(translated(TdApi.GetCallbackQueryAnswer()).isRetryable, "pressing a bot button is a write")
     }
+
+    @Test
+    fun `retryability comes from the explicit allowlist, not from the function name`() {
+        fun translated(request: TdApi.Function<*>) = TdLibRequestAwaiter.translate(
+            TelegramError(TdApi.Error(500, "Timeout expired")), request,
+        ) as TelegramApiException
+
+        assertTrue(translated(TdApi.GetMessage()).isRetryable)
+        assertTrue(translated(TdApi.DownloadFile()).isRetryable)
+        assertFalse(translated(TdApi.RecognizeSpeech()).isRetryable, "speech recognition consumes a server-side quota")
+        assertFalse(translated(TdApi.GetLoginUrl()).isRetryable, "authorizes a login on a website")
+        assertFalse(translated(TdApi.GetInlineQueryResults()).isRetryable, "queries a bot on the user's behalf")
+        assertFalse(translated(TdApi.GetStory()).isRetryable, "functions not on the allowlist are writes")
+        assertFalse(TdLibRequestAwaiter.isReadOnly(TdApi.SearchStickers()), "a Search prefix alone is not enough")
+    }
+
+    @Test
+    fun `every Get, Search and Load request the client sends is classified deliberately`() {
+        val source = java.nio.file.Files.readString(
+            java.nio.file.Path.of("src/main/kotlin/dev/telegrammcp/server/client/TdLibClientService.kt"),
+        )
+        val used = Regex("""TdApi\.((?:Get|Search|Load)[A-Za-z]+)\(""").findAll(source).map { it.groupValues[1] }
+            .filter { TdApi.Function::class.java.isAssignableFrom(Class.forName("it.tdlight.jni.TdApi\$$it")) }
+            .toSet()
+        assertTrue("GetChatHistory" in used && "SearchMessagesFilterPinned" !in used)
+        val knownWrites = setOf("GetCallbackQueryAnswer")
+        val unclassified = used - knownWrites - TelegramReadRequests.names
+        assertTrue(unclassified.isEmpty(), "add these to TelegramReadRequests or to knownWrites: $unclassified")
+        assertFalse("RecognizeSpeech" in TelegramReadRequests.names)
+        assertFalse("GetCallbackQueryAnswer" in TelegramReadRequests.names)
+    }
 }
