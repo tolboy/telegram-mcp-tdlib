@@ -138,7 +138,7 @@ class TdLibClientService(
             this.replyMarkup = replyMarkup?.toTdLib()
         }
 
-        val message = awaitFinalMessage(withResilience("sendMessage") { send<TdApi.Message>(request) }, request)
+        val message = sendAndAwaitFinal("sendMessage", request)
         return message.toTelegramMessage(getChatTitleSafe(chatId))
     }
 
@@ -187,7 +187,7 @@ class TdLibClientService(
             this.inputMessageContent = content
         }
 
-        val message = awaitFinalMessage(withResilience("sendMessage") { send<TdApi.Message>(request) }, request)
+        val message = sendAndAwaitFinal("sendMessage", request)
         val sent = message.toTelegramMessage(getChatTitleSafe(chatId))
         if (sent.replyToMessageId != replyToMessageId) {
             runCatching {
@@ -492,7 +492,7 @@ class TdLibClientService(
             this.inputMessageContent = content
         }
 
-        val message = awaitFinalMessage(withResilience("sendMessage") { send<TdApi.Message>(request) }, request)
+        val message = sendAndAwaitFinal("sendMessage", request)
         return message.toTelegramMessage(getChatTitleSafe(chatId))
     }
 
@@ -516,6 +516,17 @@ class TdLibClientService(
             this.messageIds = messageIds.toLongArray()
         }
 
+        // The bulkhead permit covers the final-state waits too (see holdingBulkhead).
+        val delivered = holdingBulkhead("forwardMessages") { forwardAndAwait(request, toChatId, messageIds) }
+        val chatTitle = getChatTitleSafe(toChatId)
+        return delivered.map { it.toTelegramMessage(chatTitle) }
+    }
+
+    private fun forwardAndAwait(
+        request: TdApi.ForwardMessages,
+        toChatId: Long,
+        messageIds: List<Long>,
+    ): List<TdApi.Message> {
         val result = withResilience("forwardMessages") {
             send<TdApi.Messages>(request)
         }
@@ -543,8 +554,7 @@ class TdLibClientService(
             delivered += final
             messageIds.getOrNull(index)?.let(deliveredSourceIds::add)
         }
-        val chatTitle = getChatTitleSafe(toChatId)
-        return delivered.map { it.toTelegramMessage(chatTitle) }
+        return delivered
     }
 
     override fun pinMessage(chatId: Long, messageId: Long, disableNotification: Boolean): Boolean {
@@ -644,7 +654,7 @@ class TdLibClientService(
             }
             this.inputMessageContent = content
         }
-        val message = awaitFinalMessage(withResilience("sendMessage") { send<TdApi.Message>(request) }, request)
+        val message = sendAndAwaitFinal("sendMessage", request)
         return message.toScheduledMessage(getChatTitleSafe(chatId))
     }
 
@@ -1156,7 +1166,7 @@ class TdLibClientService(
             this.inputMessageContent = pollContent
         }
 
-        val message = awaitFinalMessage(withResilience("sendMessage") { send<TdApi.Message>(request) }, request)
+        val message = sendAndAwaitFinal("sendMessage", request)
         return message.toTelegramMessage(getChatTitleSafe(chatId))
     }
 
@@ -1620,7 +1630,7 @@ class TdLibClientService(
             this.chatId = chatId
             this.inputMessageContent = content
         }
-        val message = awaitFinalMessage(withResilience("sendMessage") { send<TdApi.Message>(request) }, request)
+        val message = sendAndAwaitFinal("sendMessage", request)
         return message.toTelegramMessage(getChatTitleSafe(chatId))
     }
 
@@ -1632,7 +1642,7 @@ class TdLibClientService(
             this.chatId = chatId
             this.inputMessageContent = content
         }
-        val message = awaitFinalMessage(withResilience("sendMessage") { send<TdApi.Message>(request) }, request)
+        val message = sendAndAwaitFinal("sendMessage", request)
         return message.toTelegramMessage(getChatTitleSafe(chatId))
     }
 
@@ -2148,6 +2158,16 @@ class TdLibClientService(
 
     private fun scopeOf(function: TdApi.Function<*>): String = TelegramFloodGate.scopeOf(function)
 
+    /**
+     * Sends [request] and waits for the message's final state while holding
+     * one bulkhead permit for both, so concurrent sends parked in the
+     * final-state wait still count toward the account's limit.
+     */
+    private fun sendAndAwaitFinal(operation: String, request: TdApi.Function<*>): TdApi.Message =
+        holdingBulkhead(operation) {
+            awaitFinalMessage(withResilience(operation) { send<TdApi.Message>(request) }, request)
+        }
+
     /** Waits for the final state of a sent message; [request] is the TDLib function that created it. */
     private fun awaitFinalMessage(message: TdApi.Message, request: TdApi.Function<*>): TdApi.Message {
         val tracker = messageSendTracker ?: return message
@@ -2210,17 +2230,10 @@ class TdLibClientService(
      * rate-limiter permit is taken by the first TDLib request in [block], after
      * its flood-gate check (see [send]).
      */
-    private fun <T> withResilience(operation: String, block: () -> T): T {
+    private fun <T> withResilience(operation: String, block: () -> T): T = holdingBulkhead(operation) {
         val outer = pendingPermit.get()
-        if (outer == null && !bulkhead.tryAcquirePermission()) {
-            meterRegistry.counter("telegram.api.bulkhead_full", "operation", operation).increment()
-            throw TelegramBusyException(
-                bulkhead.name, bulkhead.bulkheadConfig.maxConcurrentCalls,
-                retryable = !ToolCallDeadline.writeDispatched(),
-            )
-        }
         pendingPermit.set(BooleanArray(1))
-        return try {
+        try {
             CircuitBreaker.decorateSupplier(circuitBreaker, block).get()
         } catch (ex: RequestNotPermitted) {
             meterRegistry.counter("telegram.api.rate_limited", "operation", operation).increment()
@@ -2229,12 +2242,34 @@ class TdLibClientService(
             meterRegistry.counter("telegram.api.circuit_open", "operation", operation).increment()
             throw TelegramUnavailableException(ex)
         } finally {
-            if (outer == null) {
-                pendingPermit.remove()
-                bulkhead.onComplete()
-            } else {
-                pendingPermit.set(outer)
-            }
+            if (outer == null) pendingPermit.remove() else pendingPermit.set(outer)
+        }
+    }
+
+    /** True while this thread holds the account's bulkhead permit. */
+    private val bulkheadHeld = ThreadLocal<Boolean>()
+
+    /**
+     * Runs [block] holding one permit of the per-account bulkhead. Only the
+     * outermost call on a thread takes it, so nested operations share it and
+     * cannot deadlock. A send holds it through the wait for the message's
+     * final state ([sendAndAwaitFinal]), not just through the TDLib request.
+     */
+    private fun <T> holdingBulkhead(operation: String, block: () -> T): T {
+        if (bulkheadHeld.get() == true) return block()
+        if (!bulkhead.tryAcquirePermission()) {
+            meterRegistry.counter("telegram.api.bulkhead_full", "operation", operation).increment()
+            throw TelegramBusyException(
+                bulkhead.name, bulkhead.bulkheadConfig.maxConcurrentCalls,
+                retryable = !ToolCallDeadline.writeDispatched(),
+            )
+        }
+        bulkheadHeld.set(true)
+        try {
+            return block()
+        } finally {
+            bulkheadHeld.remove()
+            bulkhead.onComplete()
         }
     }
 

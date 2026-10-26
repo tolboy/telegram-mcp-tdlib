@@ -171,7 +171,10 @@ operations. It fails fast instead of queueing: an extra call returns
 call was already sent) without reaching Telegram. One account's backlog (for
 example a long flood wait) therefore cannot occupy every server thread, and
 other accounts are not affected. Nested operations inside one call share the
-outer permit.
+outer permit. A message send (including each message of a forward) holds its
+permit until the message's final state arrives or `message-send-timeout` runs
+out, not only while the TDLib request is in flight, so sends parked in the
+final-state wait still count toward the limit.
 
 ### Circuit breaker
 

@@ -209,4 +209,31 @@ class TdLibDeadlineTest {
             pool.shutdownNow()
         }
     }
+    @Test
+    fun `a send holds its bulkhead permit while it waits for the final message state`() {
+        val accepted = CountDownLatch(1)
+        answer { request ->
+            when (request) {
+                is TdApi.SendMessage -> { accepted.countDown(); pending(9, 101) }
+                is TdApi.LeaveChat -> TdApi.Ok()
+                else -> null
+            }
+        }
+        val service = service(TdLibProperties.Requests(maxConcurrentCalls = 1, messageSendTimeout = Duration.ofMillis(800)))
+        val pool = Executors.newSingleThreadExecutor()
+        try {
+            // TDLib accepted the send; its final state never arrives.
+            val sending = pool.submit<Result<*>> { runCatching { service.sendMessage(9, "hi", ParseMode.PLAIN, null, null) } }
+            assertTrue(accepted.await(5, TimeUnit.SECONDS))
+            Thread.sleep(100)
+
+            val busy = assertFailsWith<TelegramBusyException> { service.leaveChat(1) }
+            assertTrue(busy.retryable)
+
+            assertTrue(sending.get(5, TimeUnit.SECONDS).exceptionOrNull() is SendOutcomeUnknownException)
+            assertTrue(service.leaveChat(1), "the permit is released once the final-state wait ends")
+        } finally {
+            pool.shutdownNow()
+        }
+    }
 }
