@@ -11,8 +11,10 @@ import java.time.Duration
  * fine. Counting those would let one busy chat open the breaker and block
  * every other operation of the account. A timeout therefore counts only when
  * one of these holds:
- * - the connection is not Ready ([connectionReady] is false): TDLib cannot
- *   reach Telegram;
+ * - the connection is not reachable ([connectionReachable] is false): TDLib
+ *   is not connected to Telegram. Ready and Updating (connected, catching up
+ *   on missed updates) are reachable; Connecting, ConnectingToProxy,
+ *   WaitingForNetwork and an unknown state are not;
  * - the timeouts since TDLib last answered any request came from at least
  *   [distinctScopes] different flood-gate scopes: flood waits are per scope,
  *   so timeouts across scopes point at TDLib itself;
@@ -21,11 +23,11 @@ import java.time.Duration
  *   answer, so an idle account does not count as silent).
  *
  * The last two are the backstop for a TDLib that hangs but still reports
- * `ConnectionStateReady`. Any answer from TDLib, including an error, resets
+ * `ConnectionStateReady` (or Updating). Any answer from TDLib, including an error, resets
  * the streak.
  */
 class TdLibTimeoutHealth(
-    private val connectionReady: () -> Boolean,
+    private val connectionReachable: () -> Boolean,
     private val distinctScopes: Int,
     private val noAnswerWindow: Duration,
     private val nanoTime: () -> Long = System::nanoTime,
@@ -55,7 +57,7 @@ class TdLibTimeoutHealth(
     @Synchronized
     fun countsTowardBreaker(scope: String): Boolean {
         if (timedOutScopes.size < distinctScopes) timedOutScopes += scope
-        if (!connectionReady()) return true
+        if (!connectionReachable()) return true
         if (timedOutScopes.size >= distinctScopes) return true
         val since = silentSinceNanos ?: return false
         return nanoTime() - since >= noAnswerWindow.toNanos()

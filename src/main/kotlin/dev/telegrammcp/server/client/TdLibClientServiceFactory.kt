@@ -55,7 +55,7 @@ class TdLibClientServiceFactory(
 
     /** The breaker health of [account], read from its last reported connection state. */
     fun timeoutHealth(account: String, requests: TdLibProperties.Requests): TdLibTimeoutHealth = TdLibTimeoutHealth(
-        connectionReady = { connectionStates.isReady(account) },
+        connectionReachable = { connectionStates.isReachable(account) },
         distinctScopes = requests.breakerTimeoutScopes,
         noAnswerWindow = requests.breakerNoAnswerWindow,
     )

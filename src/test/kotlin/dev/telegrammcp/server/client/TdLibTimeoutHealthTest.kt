@@ -51,10 +51,9 @@ class TdLibTimeoutHealthTest {
         floodGate = TelegramFloodGate(),
         requestSettings = settings,
         bulkhead = TdLibClientService.accountBulkhead("health-test", settings),
-        timeoutHealth = TdLibTimeoutHealth(
-            connectionReady = { connection.isReady("default") },
-            distinctScopes = 3,
-            noAnswerWindow = noAnswerWindow,
+        timeoutHealth = TdLibClientServiceFactory(connection, SimpleMeterRegistry()).timeoutHealth(
+            "default",
+            settings.copy(breakerTimeoutScopes = 3, breakerNoAnswerWindow = noAnswerWindow),
         ),
     )
 
@@ -176,5 +175,27 @@ class TdLibTimeoutHealthTest {
         ready()
         assertTrue(connection.isReady("default"))
         assertEquals("ConnectionStateReady", connection.stateName("default"))
+    }
+
+    @Test
+    fun `Updating counts as reachable and the connecting states do not`() {
+        val health = TdLibClientServiceFactory(connection, SimpleMeterRegistry()).timeoutHealth("default", settings)
+        health.onDispatch()
+
+        connection.update("default", TdApi.ConnectionStateUpdating())
+        assertTrue(connection.isReachable("default"))
+        assertFalse(connection.isReady("default"))
+        // Catching up on missed updates after a reconnect: a flooded scope still does not count.
+        assertFalse(health.countsTowardBreaker("send chat 1"))
+
+        for (state in listOf(
+            TdApi.ConnectionStateConnecting(),
+            TdApi.ConnectionStateConnectingToProxy(),
+            TdApi.ConnectionStateWaitingForNetwork(),
+        )) {
+            connection.update("default", state)
+            assertFalse(connection.isReachable("default"), state.javaClass.simpleName)
+            assertTrue(health.countsTowardBreaker("send chat 1"), state.javaClass.simpleName)
+        }
     }
 }

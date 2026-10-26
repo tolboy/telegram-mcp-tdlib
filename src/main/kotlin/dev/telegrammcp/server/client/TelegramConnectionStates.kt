@@ -10,7 +10,10 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * The circuit breaker uses it to tell a flood-waited request (TDLib is
  * connected and simply holds the request) from a TDLib that cannot reach
- * Telegram. An account with no state reported yet counts as not Ready.
+ * Telegram. `ConnectionStateReady` and `ConnectionStateUpdating` (connected,
+ * catching up on updates missed while offline) count as reachable;
+ * `WaitingForNetwork`, `ConnectingToProxy` and `Connecting` do not. An
+ * account with no state reported yet counts as not reachable.
  */
 @Component
 class TelegramConnectionStates {
@@ -26,6 +29,12 @@ class TelegramConnectionStates {
     }
 
     fun isReady(account: String): Boolean = states[account] is TdApi.ConnectionStateReady
+
+    /** True while TDLib is connected to Telegram: Ready, or Updating after a reconnect. */
+    fun isReachable(account: String): Boolean = when (states[account]) {
+        is TdApi.ConnectionStateReady, is TdApi.ConnectionStateUpdating -> true
+        else -> false
+    }
 
     /** The state name (for example `ConnectionStateReady`), or null if none was reported. */
     fun stateName(account: String): String? = states[account]?.javaClass?.simpleName

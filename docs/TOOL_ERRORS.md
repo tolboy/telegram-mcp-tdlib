@@ -200,9 +200,11 @@ sign of an unhealthy connection) are ignored, so they never open it and are
 not recorded as slow calls.
 
 A full request timeout is often a flood wait that TDLib holds internally for
-one scope, not a sick TDLib. While TDLib reports `ConnectionStateReady` for
-the account, a full timeout therefore counts only as a backstop for a TDLib
-that hangs while still reporting Ready:
+one scope, not a sick TDLib. While TDLib reports the account as connected
+(`ConnectionStateReady`, or `ConnectionStateUpdating`, which TDLib reports
+right after a reconnect while it catches up on missed updates), a full
+timeout therefore counts only as a backstop for a TDLib that hangs while
+still reporting a connected state:
 
 - the timeouts since TDLib last answered any request came from at least
   `breaker-timeout-scopes` (`TDLIB_BREAKER_TIMEOUT_SCOPES`, default 3)
@@ -211,8 +213,9 @@ that hangs while still reporting Ready:
   (`TDLIB_BREAKER_NO_ANSWER_WINDOW`, default 180s), measured from the first
   request sent after its last answer (an idle account is not "silent").
 
-Any TDLib answer, including an error, resets this. When the connection is not
-Ready (or no state was reported yet), every full timeout counts. One flooded
+Any TDLib answer, including an error, resets this. When the connection is
+`Connecting`, `ConnectingToProxy` or `WaitingForNetwork` (or no state was
+reported yet), every full timeout counts. One flooded
 chat therefore cannot open the breaker for the whole account, but a scope
 that stays flooded with no other traffic for longer than the window can.
 
