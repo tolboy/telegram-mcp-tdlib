@@ -5,6 +5,19 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- Add `wait_for_changes`: bounded long polling of the durable change journal,
+  with account isolation, optional authorized chat filter, resumable cursors,
+  explicit coverage gaps and normal timeout responses. Reader, inbox,
+  community-admin and research profiles expose it, including in read-only mode.
+- Preserve outgoing status, edit time, album ID, forward origin and quoted-reply
+  context in full message results. Add readable summaries for checklists, dice,
+  venues, stories, paid media and common service messages; retain a content kind
+  for unsupported message types. Hidden forward senders remain name-only.
+- **Behaviour change:** invalid HTML/Markdown formatting fails before a text
+  send, reply, edit or scheduled send instead of silently posting raw markup.
+  Invalid markup before any write leaves a keyed send `REJECTED`, rather than
+  an ambiguous `UNKNOWN` receipt. Parser timeouts and flood waits retain their
+  structured errors.
 - Fix retry safety across multi-step tool calls: a Telegram flood, local flood
   gate or transient read failure after an earlier write no longer advertises an
   unchanged retry. Such flood failures omit REST retry headers and keep keyed

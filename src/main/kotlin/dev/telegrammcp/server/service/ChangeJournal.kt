@@ -3,6 +3,9 @@ package dev.telegrammcp.server.service
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.SerializationFeature
 import dev.telegrammcp.server.client.TelegramAccountRegistry
+import dev.telegrammcp.server.client.ToolCallDeadline
+import dev.telegrammcp.server.exception.TelegramApiException
+import dev.telegrammcp.server.exception.TelegramBusyException
 import dev.telegrammcp.server.util.StructuredLogger
 import it.tdlight.client.SimpleTelegramClientBuilder
 import it.tdlight.jni.TdApi
@@ -11,10 +14,12 @@ import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
+import java.time.Duration
 import java.util.UUID
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.Semaphore
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantLock
@@ -23,6 +28,8 @@ import kotlin.concurrent.withLock
 data class ChangeEntry(val sequence: Long, val kind: String, val chatId: Long?, val messageId: Long?, val observedAt: String)
 data class ChangePage(val entries: List<ChangeEntry>, val nextCursor: String, val hasMore: Boolean,
     val gap: Boolean, val scope: String = "locally_observed_updates_only")
+data class ChangeWaitResult(val entries: List<ChangeEntry>, val nextCursor: String, val hasMore: Boolean,
+    val gap: Boolean, val timedOut: Boolean, val scope: String = "locally_observed_updates_only")
 internal data class ChangeJournalHeader(val format: Int, val epoch: String)
 
 /**
@@ -36,11 +43,13 @@ internal data class ChangeJournalHeader(val format: Int, val epoch: String)
  */
 @Service
 class ChangeJournal(private val paths: PlatformPaths, private val mapper: ObjectMapper,
-    queueCapacity: Int = QUEUE_CAPACITY) : AutoCloseable {
+    queueCapacity: Int = QUEUE_CAPACITY,
+    private val maxWaitersPerAccount: Int = MAX_WAITERS_PER_ACCOUNT) : AutoCloseable {
     companion object {
         const val FORMAT = 1
         const val RETAINED = 10_000
         const val QUEUE_CAPACITY = 20_000
+        const val MAX_WAITERS_PER_ACCOUNT = 25
         private const val MAX_BATCH = 4_096
         private const val GAP = "coverage_gap"
     }
@@ -63,6 +72,7 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
     private val lock = ReentrantLock()
     private val progress = lock.newCondition()
     private val logs = HashMap<String, AccountLog>()
+    private val waiters = ConcurrentHashMap<String, Semaphore>()
     private val failed = HashSet<String>()
     private var handled = 0L
     private var prepared = false
@@ -83,21 +93,69 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
         val label = TelegramAccountRegistry.normalizeLabel(account)
         awaitWriter()
         return lock.withLock {
-            // Even an empty journal is created here: its returned cursor needs a persistent epoch.
-            withLog(label) { journal ->
-                val parts = cursor?.split(":")
-                require(parts == null || (parts.size == 2 && parts[0] == journal.epoch)) { "Cursor belongs to a different journal; restart without cursor" }
-                val after = if (parts == null) 0L else requireNotNull(parts[1].toLongOrNull()) { "Invalid change cursor" }
-                require(after in 0..journal.sequence) { "Invalid change cursor" }
-                val scanned = journal.entries.asSequence().filter { it.sequence > after }.take(limit).toList()
-                ChangePage(scanned.filter { it.chatId == null || allowed(it.chatId) },
-                    "${journal.epoch}:${scanned.lastOrNull()?.sequence ?: journal.sequence}",
-                    scanned.lastOrNull()?.sequence?.let { it < journal.sequence } ?: false,
-                    label in failed || label in overflowed || after < (journal.entries.firstOrNull()?.sequence ?: 1) - 1 ||
-                        scanned.any { it.kind == GAP })
-            }
+            readPage(label, cursor, limit, allowed)
         }
     }
+
+    /**
+     * Waits for visible changes without polling Telegram or changing read receipts.
+     * An omitted cursor starts at the current tail; a supplied cursor resumes exactly
+     * like [page]. Filtered entries advance the cursor without resetting the deadline.
+     * The condition and page scan share one lock, so a concurrent append cannot be
+     * lost between checking the page and registering the wait.
+     */
+    fun waitForChanges(account: String, cursor: String?, limit: Int, timeout: Duration,
+        allowed: (Long) -> Boolean): ChangeWaitResult {
+        require(limit in 1..200)
+        require(!timeout.isNegative && timeout <= Duration.ofSeconds(30)) { "timeout must be in 0..30 seconds" }
+        val label = TelegramAccountRegistry.normalizeLabel(account)
+        val permits = waiters.computeIfAbsent(label) { Semaphore(maxWaitersPerAccount) }
+        if (!permits.tryAcquire()) throw TelegramBusyException(label, maxWaitersPerAccount, retryable = true)
+        val started = System.nanoTime()
+        val budget = timeout.toNanos()
+        fun remaining() = minOf(budget - (System.nanoTime() - started),
+            ToolCallDeadline.remainingNanos()?.minus(TimeUnit.MILLISECONDS.toNanos(50)) ?: Long.MAX_VALUE)
+        try {
+            awaitWriter(remaining().coerceIn(0L, TimeUnit.SECONDS.toNanos(2)))
+            lock.lockInterruptibly()
+            try {
+                var next = cursor ?: withLog(label) { "${it.epoch}:${it.sequence}" }
+                while (true) {
+                    if (closed) throw TelegramApiException(406, "Canceled change wait: journal closed", readOnlyRequest = true)
+                    val page = readPage(label, next, limit, allowed)
+                    next = page.nextCursor
+                    if (page.entries.isNotEmpty() || page.gap) return page.waitResult(false)
+                    val left = remaining()
+                    if (left <= 0) return page.waitResult(true)
+                    if (page.hasMore) continue
+                    // A different process can append to this durable journal too.
+                    // Recheck its file at most once per second even without a local signal.
+                    progress.awaitNanos(minOf(left, TimeUnit.SECONDS.toNanos(1)))
+                }
+            } finally { lock.unlock() }
+        } catch (interrupted: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw TelegramApiException(406, "Canceled change wait: interrupted", interrupted, readOnlyRequest = true)
+        } finally { permits.release() }
+    }
+
+    private fun ChangePage.waitResult(timedOut: Boolean) =
+        ChangeWaitResult(entries, nextCursor, hasMore, gap, timedOut, scope)
+
+    /** Caller holds [lock]; file and cursor rules are shared by immediate and waiting reads. */
+    private fun readPage(label: String, cursor: String?, limit: Int, allowed: (Long) -> Boolean): ChangePage =
+        withLog(label) { journal ->
+            val parts = cursor?.split(":")
+            require(parts == null || (parts.size == 2 && parts[0] == journal.epoch)) { "Cursor belongs to a different journal; restart without cursor" }
+            val after = if (parts == null) 0L else requireNotNull(parts[1].toLongOrNull()) { "Invalid change cursor" }
+            require(after in 0..journal.sequence) { "Invalid change cursor" }
+            val scanned = journal.entries.asSequence().filter { it.sequence > after }.take(limit).toList()
+            ChangePage(scanned.filter { it.chatId == null || allowed(it.chatId) },
+                "${journal.epoch}:${scanned.lastOrNull()?.sequence ?: journal.sequence}",
+                scanned.lastOrNull()?.sequence?.let { it < journal.sequence } ?: false,
+                label in failed || label in overflowed || after < (journal.entries.firstOrNull()?.sequence ?: 1) - 1 ||
+                    scanned.any { it.kind == GAP })
+        }
 
     fun attach(builder: SimpleTelegramClientBuilder, account: String) {
         append(account, GAP)
@@ -122,13 +180,14 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
     /** Flushes queued updates; later ones are dropped and covered by the next start's restart marker. */
     override fun close() {
         closed = true
+        lock.withLock { progress.signalAll() }
         writer?.join(TimeUnit.SECONDS.toMillis(5))
     }
 
     /** Makes updates observed before this call readable, unless the writer is stalled. */
-    private fun awaitWriter() {
+    private fun awaitWriter(timeoutNanos: Long = TimeUnit.SECONDS.toNanos(2)) {
         val target = enqueued.get()
-        var remaining = TimeUnit.SECONDS.toNanos(2)
+        var remaining = timeoutNanos
         lock.withLock { while (handled < target && remaining > 0) remaining = progress.awaitNanos(remaining) }
     }
 

@@ -1,6 +1,6 @@
 # Typed MCP output contracts
 
-All 115 tools advertise explicit JSON Schemas for `structuredContent`. The
+All 116 tools advertise explicit JSON Schemas for `structuredContent`. The
 catalog in `ToolContractCatalog.kt` binds each tool to its wire DTO or named
 response shape. DTO fields, nullability, collections and enums are expanded
 from their declared Kotlin types; map-shaped responses are registered explicitly.
@@ -17,6 +17,33 @@ choices. SENT and SCHEDULED receipts require positive message IDs; UNKNOWN and
 NOT_FOUND require a null ID. Dates accept the existing Jackson ISO and numeric
 representations. Objects reject undeclared properties, except explicitly typed
 maps such as manifest tool groups. Schema changes must accompany wire changes.
+
+## Message context and formatting
+
+Full message results include `isOutgoing`, `editDate`, `mediaAlbumId`,
+`forwardOrigin`, `replyInChatId`, `replyQuote` and `contentType`. Missing edit,
+album, forward and reply metadata is null. Album IDs group related messages
+and use decimal strings to preserve the full int64 value in JavaScript clients;
+they are not message IDs. `contentType` describes the TDLib content kind, even
+when a type only has a generic text summary. Compact conversation snippets
+continue to use their smaller representation.
+
+`forwardOrigin` contains the original timestamp and Telegram's disclosed origin
+kind (`user`, `chat`, `channel` or `hidden_user`). Hidden-user origins retain only
+the disclosed name; no identity lookup is attempted. `forwardFrom` remains a
+display label. Reply quotes include text, a UTF-16 offset and `isManual`; quote
+text is untrusted content like the message body. These fields do not fetch the
+original message or imply access to its chat.
+
+Checklist, dice, venue, story, paid-media and common service messages have
+readable summaries and media types. Paid media is not purchased or downloaded.
+Unsupported content still has a generic summary and an explicit `contentType`.
+
+Text sends, replies, edits and scheduled sends parse HTML/Markdown before
+dispatching their write. Invalid formatting returns `INVALID_INPUT` without
+silently sending plain text. Parser flood waits, cancellations and timeouts keep
+their normal structured errors. Correct the markup, or explicitly choose
+`parse_mode=plain` when literal markup is intended.
 
 ## List and pagination contract
 

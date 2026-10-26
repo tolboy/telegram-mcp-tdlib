@@ -197,6 +197,7 @@ class SendOperationJournal(private val root: Path, private val mapper: ObjectMap
         fun wasNotExecuted(error: Throwable): Boolean =
             (error is TelegramFloodGateException && error.isRetryable) ||
                 (error is TelegramApiException && error.wasNotExecuted && error.isRetryable) ||
+                (error is TelegramApiException && error.preWriteValidationFailed && !error.priorWriteDispatched) ||
                 (error is dev.telegrammcp.server.exception.TelegramTimeoutException && !error.requestSent && error.retryable) ||
                 (error is dev.telegrammcp.server.exception.TelegramBusyException && error.retryable)
 

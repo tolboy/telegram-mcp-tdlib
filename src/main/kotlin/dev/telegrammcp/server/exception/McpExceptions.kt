@@ -48,6 +48,10 @@ class TelegramApiException(
     var priorWriteDispatched: Boolean = false
         internal set
 
+    /** Explicitly marked by the local formatter when invalid markup prevented a write. */
+    var preWriteValidationFailed: Boolean = false
+        internal set
+
     /** Retrying the unchanged call may succeed and cannot duplicate a side effect. */
     val isRetryable: Boolean
         get() = !priorWriteDispatched && (isFloodWait || (kind == TelegramErrorKind.TRANSIENT_SERVER && readOnlyRequest))

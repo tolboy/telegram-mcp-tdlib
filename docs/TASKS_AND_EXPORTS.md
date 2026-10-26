@@ -1,9 +1,9 @@
 # Compact tasks, persistent exports and changes
 
-All four tools use the usual account selection, read permission, chat restrictions,
+All five tools use the usual account selection, read permission, chat restrictions,
 typed result envelope and untrusted-content normalization. None sends messages,
-marks them read or downloads media. `reader` exposes all four; `inbox` exposes
-the three compact tools; `research` exposes conversation, changes and export.
+marks them read or downloads media. `reader` exposes all five; `inbox` exposes
+the four compact tools; `research` exposes conversation, changes, waiting and export.
 
 ## Compact reads
 
@@ -23,6 +23,54 @@ the three compact tools; `research` exposes conversation, changes and export.
 including escaping and its data-level metadata. It is not a token estimate or
 a bound on the entire MCP transport frame, which also contains the envelope
 and a text representation. Counts bound Telegram work independently of this budget.
+
+## Wait for changes
+
+`wait_for_changes` long-polls the same persistent journal as `changes_since`.
+It does not poll Telegram history or mark messages read. For example:
+
+```json
+{"chat_id":"@example","timeout_seconds":20,"limit":100}
+{"chat_id":"@example","cursor":"<nextCursor from previous result>","timeout_seconds":20,"limit":100}
+```
+
+Omitting `cursor` starts at the current journal tail, skipping earlier entries.
+To process an existing backlog, first call `changes_since` and then pass its
+`nextCursor`. The wait returns the existing change-page fields plus `timedOut`.
+Always retain the returned `nextCursor`, including after a timeout or an empty
+page. A normal timeout is a successful response with `timedOut=true`; the wait
+can end earlier to leave time inside the overall tool-call deadline.
+
+`timeout_seconds` is an integer from 0 to 30 (default 20); zero checks immediately.
+`limit` is 1–200 (default 100) and bounds scanned metadata entries, not message
+bodies. Optional `chat_id` is resolved and authorized before waiting. Without it,
+the tool returns only chats permitted by the account's and caller's policies.
+Filtered entries still advance the cursor, and unrelated activity does not
+extend the timeout. Keep the same account and filters when resuming; changing
+filters cannot recover entries already skipped by that cursor.
+
+A coverage gap returns immediately with `gap=true`, even with a chat filter.
+Reconcile history before continuing; this tool cannot guarantee that every new
+Telegram message was observed. New messages, edits, content changes and permanent
+deletions are included; events may repeat. Use `get_messages` to hydrate a returned
+ID. Up to 25 waits can run concurrently per account; excess calls fail fast with
+`TELEGRAM_BUSY`. Waiting consumes no Telegram request or send permits. Server
+shutdown and interruption cancel waits and release their permits.
+
+For a live regression against an authorized account, install
+`scripts/requirements-mcp-client.txt` and `jsonschema`, then run:
+
+```sh
+python scripts/mcp-agent-features-smoke.py --url http://127.0.0.1:8080/mcp \
+  --api-key-file /private/client-key --account personal --chat-id 123456 \
+  --expected-user-id 654321
+```
+
+The default only reads metadata and waits. Add `--allow-send` only for a test
+chat you control; it posts one tagged message, checks final-ID event delivery
+and keyed replay, and attempts malformed HTML that must be rejected before
+sending. `--voice-message-id` separately opts into Telegram's transcription
+quota for an existing voice message. Reports omit keys and message bodies.
 
 ## Persistent history export
 

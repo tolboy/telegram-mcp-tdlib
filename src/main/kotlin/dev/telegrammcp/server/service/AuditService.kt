@@ -78,6 +78,7 @@ class AuditService(
             "inbox_snapshot" to AuditCategory.READ_CHAT,
             "conversation_bundle" to AuditCategory.READ_MESSAGE,
             "changes_since" to AuditCategory.READ_MESSAGE,
+            "wait_for_changes" to AuditCategory.READ_MESSAGE,
             "export_job" to AuditCategory.READ_MESSAGE,
             "get_history" to AuditCategory.READ_MESSAGE,
             "get_messages" to AuditCategory.READ_MESSAGE,
