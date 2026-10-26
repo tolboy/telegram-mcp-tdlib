@@ -27,12 +27,30 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   stays `retryable=false`.
 - **Behaviour change:** after a flood wait, calls in the same scope fail fast
   with `TELEGRAM_FLOOD_WAIT` and the remaining seconds, without reaching
-  Telegram, until the delay elapses. The scope is account + target chat, or
-  account + TDLib method for requests without a chat; other chats are not
-  blocked. The gate is in memory.
+  Telegram, until the delay elapses. Writes are scoped by account + TDLib
+  method + target chat (account + method without a chat); reads by account +
+  method. A write's flood never blocks reads. The gate is checked before the
+  rate-limiter permit, so gated calls do not consume it. A reported delay of 0
+  is treated as 1 second. The gate is in memory.
+- **Behaviour change:** the TDLib request timeout (also for the final message
+  ID of sends) is raised from 30 to 75 seconds and the circuit breaker's
+  slow-call threshold from 10 to 65 seconds, because TDLib waits out flood
+  waits internally for up to 60 seconds before returning 429. A tool call can
+  now take up to about 75 seconds.
+- **Behaviour change:** `PEER_FLOOD` (spam restriction) maps to
+  `PERMISSION_DENIED`, is not retryable and does not set the flood gate.
+- **Behaviour change:** a multi-message forward that hits flood control after a
+  partial delivery fails with the new code
+  `TELEGRAM_FLOOD_WAIT_PARTIAL_DELIVERY` (`retryable=false`), listing the
+  delivered and unconfirmed source message IDs.
+- Read-only (retryable) requests are an explicit allowlist of TDLib functions;
+  `recognizeSpeech` and `getCallbackQueryAnswer` are treated as writes.
 - **Behaviour change:** 4xx permission messages (`Can't access the chat`,
-  `Not enough rights…`, `CHAT_ADMIN_REQUIRED`, `CHAT_SEND_*_FORBIDDEN`, …) map
-  to `PERMISSION_DENIED`, checked before not-found. 403 maps to
+  `Not enough rights…`, `Have no access to the chat`, `Have no write access to
+  the chat`, `Have no access to the user`, `Chat is not accessible`,
+  `User is inaccessible`, `CHAT_ADMIN_REQUIRED`, `CHAT_SEND_*_FORBIDDEN`, …)
+  map to `PERMISSION_DENIED`, checked before not-found. `Invalid user
+  identifier` maps to `ENTITY_NOT_FOUND`. 403 maps to
   `PERMISSION_DENIED`, 401 to `AUTH_REQUIRED`.
 - **Behaviour change:** `ENTITY_NOT_FOUND` is used only for 404 and an explicit
   table of not-found messages. `File not found` and `Chat list not found` are

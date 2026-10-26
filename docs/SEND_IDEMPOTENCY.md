@@ -56,7 +56,10 @@ An error after reservation conservatively leaves `UNKNOWN`, even when it may
 have occurred before actual delivery. The only exception is a flood-wait
 rejection of a single-message send, which TDLib reports only for requests it
 did not execute; it is saved as `REJECTED`. Batches (albums, multi-message
-forwards) stay `UNKNOWN` because part of them may have been delivered. This favors avoiding duplicate messages.
+forwards) stay `UNKNOWN` because part of them may have been delivered; a
+forward that hits flood control after a partial delivery fails with
+`TELEGRAM_FLOOD_WAIT_PARTIAL_DELIVERY` (`retryable=false`) and lists the
+delivered and unconfirmed source message IDs. This favors avoiding duplicate messages.
 Late successful Telegram responses and send updates observed by the running
 process are saved independently of the original caller's timeout. Status lookup
 and replay reconcile these saved receipts, including after a later restart.
