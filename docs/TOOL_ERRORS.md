@@ -127,9 +127,15 @@ shared `ToolSupport.execute` helper); the server exposes no other path that
 runs a tool. Every Telegram wait in the call (rate-limiter permit, each TDLib
 request, the final state of a sent message, best-effort lookups, the account
 authentication wait, speech-recognition polling) waits for at most
-min(its own timeout, the time left in the deadline). Waiting for a human
-approval of a destructive tool does not count toward the deadline. All limits
-are configurable (`tdlib.requests` in `application.yml`):
+min(its own timeout, the time left in the deadline).
+
+The wait for a human approval of a destructive tool is **not** covered by the
+deadline: it is excluded from the budget. A loopback approval is bounded by
+`server-mode.confirmation.approval-timeout` (`MCP_DESTRUCTIVE_APPROVAL_TIMEOUT`,
+default 120s), an elicitation by the MCP request deadline of the client. Such
+a call can therefore take up to the approval wait plus `tool-deadline`, which
+can exceed the client limit above; clients that use approval must allow for
+it. All limits are configurable (`tdlib.requests` in `application.yml`):
 
 | Setting | Env variable | Default | Meaning |
 |---|---|---|---|

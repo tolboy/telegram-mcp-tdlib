@@ -15,7 +15,9 @@ import java.time.Duration
  * structured error before the client drops the call.
  *
  * Time spent waiting for an operator in [excluding] (destructive-tool
- * approval, which has its own timeout) is not charged to the budget.
+ * approval, which has its own timeout) is not charged to the budget, so the
+ * deadline does not cover it: a call with an approval can take up to the
+ * approval timeout plus [budget].
  *
  * The budget is per thread. Work without an open budget (background jobs,
  * fan-out threads that have their own budget) uses the per-request timeouts.
