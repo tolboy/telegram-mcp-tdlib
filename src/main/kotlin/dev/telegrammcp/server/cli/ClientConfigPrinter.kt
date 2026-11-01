@@ -206,10 +206,11 @@ ${environmentEntries(options).joinToString(",\n") { (key, value) ->
     private fun dockerArgs(options: Options, image: String): List<String> = buildList {
         addAll(listOf("run", "-i", "--rm"))
         addAll(listOf("-v", "/absolute/path/to/session:/data/tdlib-data"))
+        // The hash stays in the host file. The mount is read-only and the
+        // container env value is that path, never the hash itself.
+        addAll(listOf("-v", "${options.apiHashFile}:/data/telegram-api-hash:ro"))
         environmentEntries(options).forEach { (key, value) ->
-            // The hash is a file path outside a container; inside, it is a value
-            // the caller still has to supply.
-            val inline = if (key == "TDLIB_API_HASH_FILE") "TDLIB_API_HASH=<your-api-hash>" else "$key=$value"
+            val inline = if (key == "TDLIB_API_HASH_FILE") "TDLIB_API_HASH_FILE=/data/telegram-api-hash" else "$key=$value"
             addAll(listOf("-e", inline))
         }
         add(image)
@@ -262,8 +263,9 @@ ${environmentEntries(options).joinToString(",\n") { (key, value) ->
                     "already has, so a floating tag keeps starting the build it first cached.",
             )
             add(
-                "Replace the `TDLIB_API_HASH=<your-api-hash>` placeholder in the generated entry. " +
-                    "The generator never copies the host hash file into the container config.",
+                "The API hash file is mounted read-only at /data/telegram-api-hash. " +
+                    "The generated entry contains that container path, not the hash value. " +
+                    "Replace the host side of the mount if it is still a placeholder.",
             )
             if (!options.readOnly) {
                 add(
