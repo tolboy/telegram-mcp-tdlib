@@ -72,6 +72,9 @@ jobs:
           REQUIRED_TOOLS: ${{ matrix.required }}
           FORBIDDEN_TOOLS: ${{ matrix.forbidden }}
           MCP_READ_ONLY: 'false'
+          # Inventory checks expose writes without calling them. Keep the
+          # production startup guard enabled and require host approval.
+          MCP_DESTRUCTIVE_APPROVAL: elicitation
         run: |
           $ErrorActionPreference = 'Stop'
           $jar = Join-Path $PWD 'build/libs/telegram-mcp-server.jar'
@@ -84,7 +87,9 @@ jobs:
           # HTTP mutations require explicit credentials even on loopback.
           # Use a per-run key inherited by the server and the Bash smoke client.
           $env:MCP_API_KEY = [Guid]::NewGuid().ToString('N')
-          $process = Start-Process -FilePath java -ArgumentList @('--enable-preview', '-jar', $jar, "--server.port=$port") -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          $launchOptions = @{ FilePath = 'java'; ArgumentList = @('--enable-preview', '-jar', $jar, "--server.port=$port"); PassThru = $true; RedirectStandardOutput = $stdout; RedirectStandardError = $stderr }
+          if ($env:RUNNER_OS -eq 'Windows') { $launchOptions.WindowStyle = 'Hidden' }
+          $process = Start-Process @launchOptions
 
           try {
             $ready = $false
