@@ -183,7 +183,9 @@ kotlin {
 
 tasks.withType<Test> {
     useJUnitPlatform()
-    jvmArgs("--enable-preview")
+    // Native access mirrors the Docker image and daemon launcher; the Windows
+    // ACL checks resolve SIDs through the FFM API.
+    jvmArgs("--enable-preview", "--enable-native-access=ALL-UNNAMED")
     // Keep the suite hermetic: a developer shell that exports real Telegram
     // credentials (TDLIB_PHONE_NUMBER, TELEGRAM_*) must not change how the
     // Spring contexts under test bind or which login path they take.
@@ -194,6 +196,11 @@ tasks.withType<Test> {
 
 tasks.bootJar {
     archiveFileName.set("telegram-mcp-server.jar")
+    // `java -jar` gets the same native access as the Docker image and daemon
+    // launcher (TDLight JNI, Windows SID lookup) without a restricted-method warning.
+    manifest {
+        attributes("Enable-Native-Access" to "ALL-UNNAMED")
+    }
 }
 
 // Keep the MCP server version, Spring Boot build-info, and release artifact in
