@@ -64,12 +64,35 @@ Claude Code and VS Code / Copilot have configuration templates and
 generator-format coverage, but were not exercised end to end. Cursor's desktop
 attempt connected at the transport level but its Agent run was blocked by a
 model usage limit. Agensi delivery,
-review and marketplace installation have not been tested or published.
+review and marketplace installation had not been tested or published at the
+time of that 2026-10-15 walkthrough. A public 0.1.1 listing was subsequently
+confirmed on 2026-11-01 (see the follow-up below); delivery remains untested.
 The Codex test used the local Java/Python launcher and an existing named-account
 session; a fresh runtime-package installation and the public default-account
 templates were not tested against a new account.
 See the [prepublication assessment](../docs/PREPUBLICATION_AUDIT.md) for remaining
 release, independent-parser, native-client and clean-install gates.
+
+## Follow-up review, 2026-11-01
+
+The [public Agensi page](https://www.agensi.io/skills/telegram-inbox-assistant)
+was inspected and advertises skill 0.1.1 with the bounded read-only scope.
+Publication is therefore confirmed; acquisition through Agensi and automatic
+skill loading from its delivery surface were not exercised.
+
+Local skill **0.1.2** clarifies two source-verified result contracts:
+successful text content can be the data object without the structured envelope,
+whereas error text can be plain `Error: ...`; and only `conversation_bundle`
+returns `nextMessageId`, while `get_history` returns a message list. The reading
+budget applies across all pages. This update does not change Telegram access.
+
+On Python 3.14.3, skill-creator `quick_validate.py` passed, the package regression
+test passed, and both default and versioned archives were rebuilt with eight
+public files. The test checks deterministic LF/CRLF packaging and excludes a
+synthetic private credential file. The 0.1.2 archive SHA-256 is
+`28b1ba24ee0f08d497001e02d12043a94fb37a388405217b9fed31ff689fe62d`.
+No live client walkthrough was repeated for this instruction-only update, and
+the new archive was not uploaded to Agensi.
 
 ## Manual instruction review
 

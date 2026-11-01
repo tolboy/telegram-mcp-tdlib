@@ -7,8 +7,10 @@ see [setup](telegram-inbox-assistant/SETUP.md).
 
 Source and configuration examples live in `telegram-inbox-assistant/`.
 [Validation](VALIDATION.md) records the tested scope and client limitations.
-[Agensi listing copy](AGENSI_LISTING.md) is a submission draft, not an installed
-skill instruction or an indication that the listing has been published.
+[Agensi listing copy](AGENSI_LISTING.md) is maintained separately from installed
+skill instructions. The [public listing](https://www.agensi.io/skills/telegram-inbox-assistant)
+was checked on 2026-11-01 and advertises version 0.1.1. The local 0.1.2 update
+must be uploaded separately; rebuilding a ZIP does not update Agensi.
 
 Build the ZIP with Python 3.11 or newer:
 
