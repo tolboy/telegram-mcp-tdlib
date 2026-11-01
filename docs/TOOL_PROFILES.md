@@ -35,6 +35,8 @@ and anti-spam checks still run when an advertised tool is invoked.
 destructive calls must include `"confirmed": true`. It does not prove that a
 human supplied that value — the flag is an argument of the call, so the model
 can set it on its own, including when a message it just read told it to.
+Startup refuses `MCP_READ_ONLY=false` together with `MCP_DESTRUCTIVE_APPROVAL=off`
+unless `MCP_ALLOW_MODEL_CONFIRMED_WRITES=true`.
 
 `MCP_DESTRUCTIVE_APPROVAL=auto` obtains the answer from a person instead. The
 server asks the MCP host when it advertised elicitation; otherwise it opens a

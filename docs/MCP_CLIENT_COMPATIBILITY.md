@@ -112,8 +112,9 @@ handshake, session propagation, `tools/list`, and the portable input-schema
 profile. It also requires complete behavior annotations on every advertised
 tool. The JSON result includes the negotiated protocol version and tool count.
 Run it once with `MCP_READ_ONLY=true` and, before enabling production writes,
-once with `MCP_READ_ONLY=false`. `-RequiredTool` and `-ForbiddenTool` make it
-suitable for profile or policy smoke checks.
+once with `MCP_READ_ONLY=false` and `MCP_DESTRUCTIVE_APPROVAL=auto` (startup
+refuses writes while approval stays `off`). `-RequiredTool` and `-ForbiddenTool`
+make it suitable for profile or policy smoke checks.
 
 Every registered tool also publishes MCP behavior annotations. Read operations
 set `readOnlyHint=true`; known destructive operations set

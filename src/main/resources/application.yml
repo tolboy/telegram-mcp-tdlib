@@ -200,6 +200,8 @@ server-mode:
     #                 every client, including those without elicitation.
     #   auto        - elicitation when the client offers it, loopback otherwise.
     approval: ${MCP_DESTRUCTIVE_APPROVAL:off}
+    # Writes plus approval=off refuse to start unless this explicit exception is set.
+    allow-model-confirmed-writes: ${MCP_ALLOW_MODEL_CONFIRMED_WRITES:false}
     # Loopback-page answer deadline. Host elicitation uses the MCP request
     # deadline negotiated by the SDK/client instead.
     approval-timeout: ${MCP_DESTRUCTIVE_APPROVAL_TIMEOUT:120s}

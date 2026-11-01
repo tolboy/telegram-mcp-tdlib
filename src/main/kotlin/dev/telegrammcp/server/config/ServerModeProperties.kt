@@ -46,6 +46,13 @@ data class ServerModeProperties(
         val approval: ApprovalMode = ApprovalMode.OFF,
 
         /**
+         * Allows [ApprovalMode.OFF] together with writes. The model can then
+         * satisfy destructive confirmation by sending `"confirmed": true`.
+         * Startup refuses that combination unless this flag is set on purpose.
+         */
+        val allowModelConfirmedWrites: Boolean = false,
+
+        /**
          * How long the loopback approval page waits before refusing the
          * operation. Host elicitation uses the MCP request deadline negotiated
          * by the SDK/host instead of this local-page timeout.
