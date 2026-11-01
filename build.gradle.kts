@@ -184,6 +184,12 @@ kotlin {
 tasks.withType<Test> {
     useJUnitPlatform()
     jvmArgs("--enable-preview")
+    // Keep the suite hermetic: a developer shell that exports real Telegram
+    // credentials (TDLIB_PHONE_NUMBER, TELEGRAM_*) must not change how the
+    // Spring contexts under test bind or which login path they take.
+    environment.keys
+        .filter { it.startsWith("TDLIB_") || it.startsWith("TELEGRAM_") }
+        .forEach { environment.remove(it) }
 }
 
 tasks.bootJar {
