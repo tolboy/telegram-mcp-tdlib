@@ -675,4 +675,51 @@ interface TelegramClientService {
 
     /** Returns groups and channels the current account shares with the given user. */
     fun getGroupsInCommon(userId: Long, limit: Int = 50): List<ChatInfo>
+
+    // ── Albums, rich sends and moderation ──────────────────────────────────
+    // Defaults keep older or partial implementations (test fakes) compiling;
+    // TdLibClientService overrides every one of them.
+
+    /** Sends 2-10 local files as one media album and returns the delivered messages in order. */
+    fun sendAlbum(chatId: Long, items: List<AlbumItem>): List<TelegramMessage> =
+        throw UnsupportedOperationException("sendAlbum is not supported by this client")
+
+    /** Shows a short-lived chat action (for example "typing") to the other members of a chat. */
+    fun sendChatAction(chatId: Long, action: ChatActionType): Boolean =
+        throw UnsupportedOperationException("sendChatAction is not supported by this client")
+
+    /** Sends a static location. */
+    fun sendLocation(chatId: Long, latitude: Double, longitude: Double, horizontalAccuracy: Double = 0.0): TelegramMessage =
+        throw UnsupportedOperationException("sendLocation is not supported by this client")
+
+    /** Sends a venue. */
+    fun sendVenue(chatId: Long, venue: VenueSpec): TelegramMessage =
+        throw UnsupportedOperationException("sendVenue is not supported by this client")
+
+    /** Sends a contact card. */
+    fun sendContact(chatId: Long, contact: ContactSpec): TelegramMessage =
+        throw UnsupportedOperationException("sendContact is not supported by this client")
+
+    /** Lists pending join requests; requires the can_invite_users administrator right. */
+    fun getChatJoinRequests(chatId: Long, query: String = "", inviteLink: String = "", limit: Int = 50): ChatJoinRequestList =
+        throw UnsupportedOperationException("getChatJoinRequests is not supported by this client")
+
+    /** Approves or declines one pending join request. */
+    fun processChatJoinRequest(chatId: Long, userId: Long, approve: Boolean): Boolean =
+        throw UnsupportedOperationException("processChatJoinRequest is not supported by this client")
+
+    /** Unpins every pinned message in a chat. */
+    fun unpinAllMessages(chatId: Long): Boolean =
+        throw UnsupportedOperationException("unpinAllMessages is not supported by this client")
+
+    /**
+     * Deletes every message in a supergroup sent by one user (positive ID) or
+     * chat (negative ID); requires the can_delete_messages administrator right.
+     */
+    fun deleteMessagesBySender(chatId: Long, senderId: Long): Boolean =
+        throw UnsupportedOperationException("deleteMessagesBySender is not supported by this client")
+
+    /** Returns headline statistics for a supergroup or channel the account administers. */
+    fun getChatStatistics(chatId: Long): ChatStatisticsSummary =
+        throw UnsupportedOperationException("getChatStatistics is not supported by this client")
 }
