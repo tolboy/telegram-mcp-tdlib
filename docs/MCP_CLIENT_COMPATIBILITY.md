@@ -7,7 +7,9 @@ after `initialize`. API-key deployments accept `Authorization: Bearer <key>`;
 `X-MCP-API-Key` and the configured `MCP_AUTH_HEADER` remain available too.
 
 Recipe prompts are advertised. They are fixed instructions and do not add
-tools.
+tools. A tool call that includes `_meta.progressToken` gets a start progress
+notification and a finish notification. `notifications/cancelled` is not
+delivered to tool code by MCP Java SDK 2.1.0.
 
 ## Compatibility Matrix
 

@@ -12,6 +12,7 @@ import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.service.ToolSurfacePolicy
 import dev.telegrammcp.server.tool.AccountAgnosticMcpToolHandler
+import dev.telegrammcp.server.tool.McpProgress
 import dev.telegrammcp.server.tool.McpToolHandler
 import dev.telegrammcp.server.tool.ToolSupport
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification
@@ -74,6 +75,9 @@ class McpConfig {
             )
             log.info("Registering MCP tool: {} — {}", tool.name(), tool.description())
             SyncToolSpecification(tool) { exchange, request ->
+                val progressToken = McpProgress.token(request.meta())
+                McpProgress.report(exchange, progressToken, 0.0, "${tool.name()} started")
+                try {
                 try {
                     clientConcurrencyGate.run {
                 val mutationScope = guardrails?.mutationScope(tool.name())
@@ -151,6 +155,9 @@ class McpConfig {
                     }
                 } catch (error: Exception) {
                     dev.telegrammcp.server.tool.ToolSupport.errorResult(error)
+                }
+                } finally {
+                    McpProgress.report(exchange, progressToken, 1.0, "${tool.name()} finished")
                 }
             }
         }.also {

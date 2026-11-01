@@ -31,6 +31,8 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 - `TELEGRAM_MUTATION_CHAT_IDS` narrows chats that write tools may change.
   Empty keeps the read allow-list. File operations cannot read or write a
   path that overlaps a TDLib session directory.
+- Advertise the five recipe prompts. A prompt does not grant tools. A tool
+  call with `_meta.progressToken` reports start and finish progress.
 
 ## 1.18.0 - 2026-10-26
 
