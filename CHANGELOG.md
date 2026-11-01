@@ -38,6 +38,9 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   catalog.
 - If `Mcp-Method` or `Mcp-Name` is present on `POST /mcp`, it must match the
   JSON-RPC body. Missing headers stay valid for current clients.
+- Docker client config mounts the API hash file read-only instead of putting
+  a hash placeholder in the environment. The auth wizard sends
+  `Referrer-Policy: no-referrer` and a CSP nonce that is not the login nonce.
 
 ## 1.18.0 - 2026-10-26
 
