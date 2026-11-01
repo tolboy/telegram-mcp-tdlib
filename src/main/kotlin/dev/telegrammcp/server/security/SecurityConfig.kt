@@ -97,6 +97,7 @@ class SecurityConfig(
                     }
                 }
         }
+        configured.addFilterAfter(McpRoutingHeaderFilter(), McpOriginFilter::class.java)
         return configured.build()
     }
 

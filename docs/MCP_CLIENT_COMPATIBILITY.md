@@ -9,7 +9,10 @@ after `initialize`. API-key deployments accept `Authorization: Bearer <key>`;
 Recipe prompts are advertised. They are fixed instructions and do not add
 tools. A tool call that includes `_meta.progressToken` gets a start progress
 notification and a finish notification. `notifications/cancelled` is not
-delivered to tool code by MCP Java SDK 2.1.0.
+delivered to tool code by MCP Java SDK 2.1.0. Clients that omit `Mcp-Method`
+and `Mcp-Name` are unchanged. If either header is present, it must match the
+JSON-RPC body; a mismatch is HTTP 400 and JSON-RPC code `-32020`. Those
+headers are not required.
 
 ## Compatibility Matrix
 

@@ -33,6 +33,8 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   path that overlaps a TDLib session directory.
 - Advertise the five recipe prompts. A prompt does not grant tools. A tool
   call with `_meta.progressToken` reports start and finish progress.
+- If `Mcp-Method` or `Mcp-Name` is present on `POST /mcp`, it must match the
+  JSON-RPC body. Missing headers stay valid for current clients.
 
 ## 1.18.0 - 2026-10-26
 
