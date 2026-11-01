@@ -38,9 +38,41 @@ class CsrfSecurityFilterChainTest {
             assertEquals(204, request(chain, path, "X-MCP-API-Key" to "secret-key"))
             assertEquals(401, request(chain, path, "Authorization" to "Bearer wrong"))
             assertEquals(401, request(chain, path, "X-MCP-API-Key" to "wrong"))
+            assertEquals(
+                if (path == "/mcp") 403 else 204,
+                request(chain, path, "Authorization" to "Bearer secret-key", origin = "https://attacker.example"),
+            )
+            assertEquals(
+                204,
+                request(chain, path, "Authorization" to "Bearer secret-key", origin = "http://127.0.0.1:6274"),
+            )
+            assertEquals(
+                if (path == "/mcp") 403 else 204,
+                request(chain, path, "Authorization" to "Bearer secret-key", host = "attacker.example"),
+            )
+            assertEquals(
+                204,
+                request(chain, path, "Authorization" to "Bearer secret-key", host = "127.0.0.1:8080"),
+            )
             assertEquals(if (path == "/mcp") 401 else 403, request(chain, path, "X-Auth-Wizard-Nonce" to "forged"),
                 "A forged wizard nonce must not exempt an unauthenticated auth request")
         }
+    }
+
+    @Test
+    fun `an MCP session id cannot move to another authenticated client`() = withChain(
+        apiKey = "",
+        clients = listOf(
+            McpSecurityProperties.ClientKeyProps(id = "client-a", apiKey = "key-a"),
+            McpSecurityProperties.ClientKeyProps(id = "client-b", apiKey = "key-b"),
+        ),
+    ) { chain ->
+        assertEquals(204, request(chain, "/mcp", "Authorization" to "Bearer key-a", issuedSessionId = "sess-1"))
+        assertEquals(403, request(chain, "/mcp", "Authorization" to "Bearer key-b", sessionId = "sess-1"))
+        assertEquals(403, request(chain, "/mcp", "Authorization" to "Bearer key-b", method = "DELETE", sessionId = "sess-1"))
+        assertEquals(204, request(chain, "/mcp", "Authorization" to "Bearer key-a", sessionId = "sess-1"))
+        assertEquals(204, request(chain, "/mcp", "Authorization" to "Bearer key-a", method = "DELETE", sessionId = "sess-1"))
+        assertEquals(404, request(chain, "/mcp", "Authorization" to "Bearer key-b", sessionId = "sess-1"))
     }
 
     @Test
@@ -64,12 +96,13 @@ class CsrfSecurityFilterChainTest {
         apiKey: String = "secret-key",
         mode: McpAuthMode = McpAuthMode.API_KEY,
         wizard: AuthWizardProperties = AuthWizardProperties(),
+        clients: List<McpSecurityProperties.ClientKeyProps> = emptyList(),
         test: (Filter) -> Unit,
     ) {
         AnnotationConfigWebApplicationContext().use { context ->
             context.servletContext = MockServletContext()
             val props = McpSecurityProperties(security = McpSecurityProperties.SecurityProps(
-                apiKey = apiKey, mode = mode,
+                apiKey = apiKey, mode = mode, clients = clients,
                 oauth = McpSecurityProperties.OAuthProps(resourceUri = "https://mcp.example/mcp"),
             ))
             context.addBeanFactoryPostProcessor { factory ->
@@ -92,6 +125,9 @@ class CsrfSecurityFilterChainTest {
         header: Pair<String, String>? = null,
         method: String = "POST",
         origin: String? = null,
+        host: String? = null,
+        sessionId: String? = null,
+        issuedSessionId: String? = null,
         csrfToken: Boolean = false,
     ): Int {
         val request = MockHttpServletRequest(method, path).also {
@@ -100,6 +136,8 @@ class CsrfSecurityFilterChainTest {
             it.contentType = "application/x-www-form-urlencoded"
             header?.let { (name, value) -> it.addHeader(name, value) }
             origin?.let { value -> it.addHeader("Origin", value) }
+            host?.let { value -> it.addHeader("Host", value) }
+            sessionId?.let { value -> it.addHeader(McpSessionPrincipalBinder.HEADER, value) }
         }
         val response = MockHttpServletResponse()
         if (csrfToken) {
@@ -110,7 +148,10 @@ class CsrfSecurityFilterChainTest {
             val maskedToken = request.getAttribute(CsrfToken::class.java.name) as CsrfToken
             request.addHeader(token.headerName, maskedToken.token)
         }
-        chain.doFilter(request, response) { _, _ -> response.status = 204 }
+        chain.doFilter(request, response) { _, downstream ->
+            (downstream as jakarta.servlet.http.HttpServletResponse).status = 204
+            issuedSessionId?.let { downstream.setHeader(McpSessionPrincipalBinder.HEADER, it) }
+        }
         return response.status
     }
 }

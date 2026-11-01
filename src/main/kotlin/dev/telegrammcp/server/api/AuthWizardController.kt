@@ -17,6 +17,8 @@ import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.server.ResponseStatusException
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import java.security.SecureRandom
+import java.util.Base64
 
 /** Loopback-only browser UI used by the explicit `telegram-mcp auth` command. */
 @RestController
@@ -25,18 +27,17 @@ class AuthWizardController(
     private val properties: AuthWizardProperties,
     private val stateHolder: TelegramAuthStateHolder,
 ) {
+    private val random = SecureRandom()
 
     @GetMapping("/setup", produces = [MediaType.TEXT_HTML_VALUE])
     fun setup(@RequestParam nonce: String): ResponseEntity<String> {
         validateNonce(nonce)
+        val cspNonce = newCspNonce()
         return ResponseEntity.ok()
             .cacheControl(CacheControl.noStore())
-            .header(
-                "Content-Security-Policy",
-                "default-src 'self'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; " +
-                    "base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
-            )
-            .body(page(properties.nonce, properties.accountLabel, properties.method))
+            .header("Referrer-Policy", "no-referrer")
+            .header("Content-Security-Policy", contentSecurityPolicy(cspNonce))
+            .body(page(properties.nonce, properties.accountLabel, properties.method, cspNonce))
     }
 
     @GetMapping("/setup/qr.svg", produces = ["image/svg+xml"])
@@ -46,8 +47,23 @@ class AuthWizardController(
             ?: return ResponseEntity.notFound().build()
         return ResponseEntity.ok()
             .cacheControl(CacheControl.noStore())
+            .header("Referrer-Policy", "no-referrer")
+            .header(
+                "Content-Security-Policy",
+                "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+            )
             .body(renderQrSvg(link))
     }
+
+    private fun newCspNonce(): String {
+        val bytes = ByteArray(16)
+        random.nextBytes(bytes)
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+    }
+
+    private fun contentSecurityPolicy(nonce: String): String =
+        "default-src 'self'; img-src 'self'; style-src 'nonce-$nonce'; script-src 'nonce-$nonce'; " +
+            "base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
 
     private fun validateNonce(supplied: String) {
         val valid = properties.enabled &&
@@ -76,14 +92,15 @@ class AuthWizardController(
         }
     }
 
-    private fun page(nonce: String, account: String, method: String): String = """
+    private fun page(nonce: String, account: String, method: String, cspNonce: String): String = """
         <!doctype html>
         <html lang="en">
         <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width,initial-scale=1">
+          <meta name="referrer" content="no-referrer">
           <title>Telegram MCP authentication</title>
-          <style>
+          <style nonce="${html(cspNonce)}">
             :root{color-scheme:light dark;font:16px/1.45 system-ui,sans-serif}
             body{margin:0;background:#0f172a;color:#e2e8f0}
             main{max-width:520px;margin:7vh auto;padding:28px;background:#1e293b;border-radius:18px;box-shadow:0 20px 60px #0006}
@@ -114,7 +131,7 @@ class AuthWizardController(
           <img id="qr" alt="Telegram login QR code">
           <div id="status">Waiting for credentials.</div>
         </main>
-        <script>
+        <script nonce="${html(cspNonce)}">
           const nonce = ${js(nonce)};
           const method = ${js(method)};
           const headers = {'Content-Type':'application/json','X-Auth-Wizard-Nonce':nonce};

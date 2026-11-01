@@ -15,6 +15,7 @@ import org.springframework.security.config.http.SessionCreationPolicy
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter
 import org.springframework.security.web.SecurityFilterChain
+import org.springframework.security.web.access.intercept.AuthorizationFilter
 import org.springframework.security.web.csrf.CsrfFilter
 import org.springframework.security.web.util.matcher.RequestMatcher
 import java.net.InetAddress
@@ -46,6 +47,14 @@ class SecurityConfig(
                 })
             }
             .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
+            .addFilterBefore(
+                McpOriginFilter(
+                    properties.security.allowedOriginSet(),
+                    properties.security.allowedHostSet(),
+                ),
+                CsrfFilter::class.java,
+            )
+            .addFilterAfter(McpSessionPrincipalFilter(), AuthorizationFilter::class.java)
             .authorizeHttpRequests { auth ->
                 auth
                     .requestMatchers(
@@ -88,6 +97,7 @@ class SecurityConfig(
                     }
                 }
         }
+        configured.addFilterAfter(McpRoutingHeaderFilter(), McpOriginFilter::class.java)
         return configured.build()
     }
 

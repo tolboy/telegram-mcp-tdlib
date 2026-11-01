@@ -1,4 +1,9 @@
-# Agensi listing draft
+# Agensi listing copy
+
+Local skill version: **0.1.2**. The [public listing](https://www.agensi.io/skills/telegram-inbox-assistant)
+was checked on 2026-11-01 and still advertises 0.1.1. This copy and the rebuilt
+archive are ready for a separate marketplace update; no update was published
+as part of the local review.
 
 **Title:** Telegram Inbox Assistant
 

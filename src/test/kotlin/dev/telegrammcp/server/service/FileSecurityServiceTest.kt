@@ -1,6 +1,7 @@
 ﻿package dev.telegrammcp.server.service
 
 import dev.telegrammcp.server.config.ServerModeProperties
+import dev.telegrammcp.server.config.TdLibProperties
 import dev.telegrammcp.server.exception.FileSecurityException
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
@@ -169,6 +170,34 @@ class FileSecurityServiceTest {
         }
 
         assertTrue(ex.message.contains("regular file"))
+    }
+
+    @Test
+    fun `a file inside the TDLib database directory is rejected even under an allowed root`() {
+        val session = tempDir.resolve("tdlib-session")
+        val secret = session.resolve("td.binlog")
+        Files.createDirectories(session)
+        Files.writeString(secret, "session")
+        val upload = tempDir.resolve("uploads").resolve("note.txt")
+        Files.createDirectories(upload.parent)
+        Files.writeString(upload, "ok")
+        val props = ServerModeProperties(
+            fileSecurity = ServerModeProperties.FileSecurityProps(
+                allowedRoots = listOf(tempDir.toString()),
+            ),
+        )
+        val service = FileSecurityService(
+            props,
+            tdLibProperties = TdLibProperties(
+                database = TdLibProperties.Database(directory = session.toString()),
+            ),
+        )
+
+        val rejected = assertThrows<FileSecurityException> {
+            service.validatePath(secret.toString())
+        }
+        assertTrue(rejected.message.contains("TDLib session"))
+        assertEquals(upload.toRealPath(), service.validateForUpload(upload.toString()))
     }
 
     // ── Download validation ─────────────────────────────────────────────────

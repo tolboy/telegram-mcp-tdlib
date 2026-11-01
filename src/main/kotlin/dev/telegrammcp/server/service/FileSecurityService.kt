@@ -1,6 +1,9 @@
 ﻿package dev.telegrammcp.server.service
 
+import dev.telegrammcp.server.client.TelegramAccountRegistry
 import dev.telegrammcp.server.config.ServerModeProperties
+import dev.telegrammcp.server.config.TdLibProperties
+import dev.telegrammcp.server.config.TelegramProperties
 import dev.telegrammcp.server.exception.FileSecurityException
 import dev.telegrammcp.server.util.StructuredLogger
 import org.springframework.stereotype.Service
@@ -24,6 +27,8 @@ import java.nio.file.Path
 class FileSecurityService(
     private val props: ServerModeProperties,
     private val platformPaths: PlatformPaths = PlatformPaths(),
+    tdLibProperties: TdLibProperties? = null,
+    telegramProperties: TelegramProperties? = null,
 ) {
 
     private val log = StructuredLogger.forClass<FileSecurityService>()
@@ -39,6 +44,14 @@ class FileSecurityService(
             .asSequence()
             .map(::normalizeExtension)
             .toSet()
+
+    /**
+     * TDLib session directories stay out of file operations even when an
+     * operator points [allowedRoots] at a parent of those directories.
+     * Upload and download must not read `td.binlog` or the media cache.
+     */
+    private val protectedDirectories: List<Path> =
+        sessionDirectories(tdLibProperties, telegramProperties)
 
     companion object {
         /** Characters forbidden in file paths. */
@@ -249,5 +262,39 @@ class FileSecurityService(
                 "Path is outside allowed file system roots",
             )
         }
+        val overlapsSession = protectedDirectories.any { protected ->
+            canonicalPath.startsWith(protected) || protected.startsWith(canonicalPath)
+        }
+        if (overlapsSession) {
+            log.warn("Path '{}' overlaps a TDLib session directory", canonicalPath)
+            throw FileSecurityException(
+                "Path overlaps a TDLib session directory and is not available for file operations",
+            )
+        }
+    }
+
+    private fun sessionDirectories(
+        tdLibProperties: TdLibProperties?,
+        telegramProperties: TelegramProperties?,
+    ): List<Path> {
+        if (tdLibProperties == null && telegramProperties == null) return emptyList()
+        val directories = mutableListOf<Path>()
+        fun include(raw: String?, fallback: Path) {
+            val path = if (raw.isNullOrBlank()) {
+                fallback
+            } else {
+                platformPaths.resolveApplicationPath(raw, "TDLib session directory")
+            }
+            directories.add(canonicalizeForComparison(path))
+        }
+        val database = tdLibProperties?.database
+        include(database?.directory, platformPaths.tdLibDatabaseDirectory("default"))
+        include(database?.downloadsDirectory, platformPaths.tdLibDownloadsDirectory("default"))
+        telegramProperties?.accounts.orEmpty().forEach { (rawLabel, account) ->
+            val label = TelegramAccountRegistry.normalizeLabel(rawLabel)
+            include(account.database.directory, platformPaths.tdLibDatabaseDirectory(label))
+            include(account.database.downloadsDirectory, platformPaths.tdLibDownloadsDirectory(label))
+        }
+        return directories.distinct()
     }
 }

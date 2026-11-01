@@ -1,6 +1,9 @@
 # Recipes
 
-Copy-paste configurations and prompts for common tasks. Every recipe states the
+Copy-paste configurations and prompts for common tasks. The same five recipes
+are also MCP prompts (`summarize-inbox`, `find-lost-message`,
+`research-public-groups`, `community-review-readonly`, `safe-draft-reply`).
+A prompt does not grant tools or change the server's profile. Every recipe states the
 smallest tool profile that can do the job and whether write access is needed —
 start read-only and widen only when a recipe requires it.
 

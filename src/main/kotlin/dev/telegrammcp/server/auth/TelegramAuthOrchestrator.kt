@@ -7,6 +7,7 @@ import dev.telegrammcp.server.client.TdLibClientServiceFactory
 import dev.telegrammcp.server.client.TelegramConnectionStates
 import dev.telegrammcp.server.config.TdLibProperties
 import dev.telegrammcp.server.config.TelegramProperties
+import dev.telegrammcp.server.security.LocalAccessChecks
 import dev.telegrammcp.server.service.PlatformPaths
 import dev.telegrammcp.server.util.StructuredLogger
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
@@ -551,6 +552,12 @@ class TelegramAuthOrchestrator(
         } ?: run {
             settings.downloadedFilesDirectoryPath = platformPaths.tdLibDownloadsDirectory(label)
         }
+        LocalAccessChecks.prepareOwnerDirectory(settings.databaseDirectoryPath)
+        LocalAccessChecks.prepareOwnerDirectory(settings.downloadedFilesDirectoryPath)
+        log.warn(
+            "TDLib session directory {} is not encrypted by TDLib; protect it with volume encryption",
+            settings.databaseDirectoryPath,
+        )
         settings.setFileDatabaseEnabled(database.useFileDatabase)
         settings.setChatInfoDatabaseEnabled(database.useChatInfoDatabase)
         settings.setMessageDatabaseEnabled(database.useMessageDatabase)

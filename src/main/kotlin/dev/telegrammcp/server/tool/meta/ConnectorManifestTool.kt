@@ -8,6 +8,8 @@ import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.util.StructuredLogger
 import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.ToolSurfacePolicy
+import dev.telegrammcp.server.security.AccessPermissionService
+import dev.telegrammcp.server.security.AccountAccessPolicy
 import io.micrometer.core.instrument.MeterRegistry
 import io.modelcontextprotocol.server.McpSyncServerExchange
 import io.modelcontextprotocol.spec.McpSchema
@@ -31,6 +33,8 @@ class ConnectorManifestTool(
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
     private val buildProperties: BuildProperties? = null,
+    private val permissions: AccessPermissionService? = null,
+    private val accountAccessPolicy: AccountAccessPolicy? = null,
 ) : AccountAgnosticMcpToolHandler {
 
     private val log = StructuredLogger.forClass<ConnectorManifestTool>()
@@ -200,9 +204,11 @@ class ConnectorManifestTool(
     }
 
     private fun buildManifest(): Map<String, Any> {
+        val visibleAccounts = accountAccessPolicy?.visibleAccounts()?.toSet()
         val discoveredTools = handlersProvider.orderedStream()
             .map { handler -> handler.definition() }
             .filter { tool -> toolSurfacePolicy.isVisible(tool.name(), serverMode.readOnly, serverMode.readOnlyAllowDownloads) }
+            .filter { tool -> permissions?.allowsListedTool(tool.name(), visibleAccounts) != false }
             .map { tool ->
                 ToolManifestEntry(
                     name = tool.name(),

@@ -17,6 +17,8 @@ data class McpSecurityProperties(
     val toolDeny: List<String> = emptyList(),
     /** Optional reviewed JSON grants; an empty path retains existing access policy. */
     val permissionsFile: String = "",
+    /** How many tool calls one authenticated client may hold in flight. */
+    val maxConcurrentCallsPerClient: Int = 8,
 ) {
     val authenticationConfigured: Boolean
         get() = security.apiKey.isNotBlank() ||
@@ -33,12 +35,34 @@ data class McpSecurityProperties(
         /** Header carrying the key: `Authorization` (Bearer) or `X-MCP-API-Key`. */
         val headerName: String = "Authorization",
         /**
+         * Extra browser origins allowed to call `/mcp`, comma-separated.
+         * Loopback origins are always allowed. A missing Origin header is allowed
+         * because non-browser MCP clients do not send one.
+         */
+        val allowedOrigins: String = "",
+        /**
+         * Extra `Host` values allowed to call `/mcp`, comma-separated.
+         * Loopback hosts are always allowed. A missing Host header is allowed.
+         * A present Host that is neither loopback nor listed here is rejected.
+         */
+        val allowedHosts: String = "",
+        /**
          * Optional named keys with account scopes. Use one key per MCP client
          * when several Telegram accounts are configured.
          */
         val clients: List<ClientKeyProps> = emptyList(),
         val oauth: OAuthProps = OAuthProps(),
-    )
+    ) {
+        fun allowedOriginSet(): Set<String> = splitList(allowedOrigins)
+
+        fun allowedHostSet(): Set<String> = splitList(allowedHosts)
+
+        private fun splitList(raw: String): Set<String> = raw
+            .split(',')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toSet()
+    }
 
     data class OAuthProps(
         /** External OAuth/OIDC issuer. This server never issues tokens. */

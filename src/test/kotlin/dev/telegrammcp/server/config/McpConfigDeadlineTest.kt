@@ -12,7 +12,9 @@ import dev.telegrammcp.server.service.ToolSurfacePolicy
 import dev.telegrammcp.server.tool.AccountAgnosticMcpToolHandler
 import dev.telegrammcp.server.tool.McpToolHandler
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
+import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import io.modelcontextprotocol.server.McpSyncServerExchange
 import io.modelcontextprotocol.spec.McpSchema
 import org.junit.jupiter.api.Test
@@ -76,6 +78,26 @@ class McpConfigDeadlineTest {
         assertTrue(result.isError == true)
         assertTrue(requireNotNull(failing.remaining) > 0)
         assertFalse(ToolCallDeadline.isActive)
+    }
+
+    @Test
+    fun `a progress token is reported before and after the handler`() {
+        val handler = object : AccountAgnosticMcpToolHandler {
+            override fun definition() = tool("progress_probe")
+            override fun execute(exchange: McpSyncServerExchange, arguments: Map<String, Any>) =
+                McpSchema.CallToolResult.builder().addTextContent("{}").build()
+        }
+        val exchange = mockk<McpSyncServerExchange>(relaxed = true)
+        val seen = mutableListOf<McpSchema.ProgressNotification>()
+        val captured = slot<McpSchema.ProgressNotification>()
+        every { exchange.progressNotification(capture(captured)) } answers { seen += captured.captured }
+        specificationsFor(listOf(handler)).single().callHandler().apply(
+            exchange,
+            McpSchema.CallToolRequest("progress_probe", emptyMap(), mapOf<String, Any>("progressToken" to "tok-1")),
+        )
+        assertEquals(listOf(0.0, 1.0), seen.map { it.progress() })
+        assertEquals(listOf("tok-1", "tok-1"), seen.map { it.progressToken() })
+        assertEquals(1.0, seen.first().total())
     }
 
     private class Call(val active: Boolean, val budgetNanos: Long?)

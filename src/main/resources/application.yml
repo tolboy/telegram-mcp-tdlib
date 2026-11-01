@@ -18,6 +18,9 @@ spring:
         # Streamable HTTP is the current MCP transport. The same endpoint
         # accepts client requests and may stream server responses as SSE.
         protocol: STREAMABLE
+        # Recipe prompts are static instructions. They do not add tools.
+        capabilities:
+          prompt: true
         streamable-http:
           mcp-endpoint: /mcp
           # This server does not need clients to delete sessions explicitly.
@@ -135,6 +138,9 @@ telegram:
   security:
     # Comma-separated list of allowed chat IDs (empty = all allowed)
     allowed-chat-ids: ${TELEGRAM_ALLOWED_CHAT_IDS:}
+    # Chats write tools may change. Empty follows the read allow-list.
+    # A non-empty list narrows writes and does not grant extra chats.
+    mutation-allowed-chat-ids: ${TELEGRAM_MUTATION_CHAT_IDS:}
 # Optional isolated TDLib accounts are omitted by default. Environment variables
 # bind naturally as TELEGRAM_ACCOUNTS_WORK_API_ID, _API_HASH_FILE,
 # _PHONE_NUMBER, etc. Each account gets its own TDLib database directory.
@@ -148,12 +154,20 @@ mcp:
   tool-allow: ${MCP_TOOL_ALLOW:}
   tool-deny: ${MCP_TOOL_DENY:}
   permissions-file: ${MCP_PERMISSIONS_FILE:}
+  # One client's in-flight tool calls. The TDLib bulkhead stays per account.
+  max-concurrent-calls-per-client: ${MCP_MAX_CONCURRENT_CALLS_PER_CLIENT:8}
   security:
     mode: ${MCP_AUTH_MODE:api-key}
     api-key: ${MCP_API_KEY:}
     api-key-file: ${MCP_API_KEY_FILE:}
     # Header name: "Authorization: Bearer <key>" or "X-MCP-API-Key: <key>"
     header-name: ${MCP_AUTH_HEADER:Authorization}
+    # Extra browser origins for /mcp. Loopback origins are always allowed.
+    # A missing Origin is allowed: desktop MCP clients do not send one.
+    allowed-origins: ${MCP_ALLOWED_ORIGINS:}
+    # Extra Host values for /mcp. Loopback hosts are always allowed.
+    # A missing Host is allowed. Any other present Host gets HTTP 403.
+    allowed-hosts: ${MCP_ALLOWED_HOSTS:}
     oauth:
       issuer-uri: ${MCP_OAUTH_ISSUER_URI:}
       jwk-set-uri: ${MCP_OAUTH_JWK_SET_URI:}
@@ -200,6 +214,8 @@ server-mode:
     #                 every client, including those without elicitation.
     #   auto        - elicitation when the client offers it, loopback otherwise.
     approval: ${MCP_DESTRUCTIVE_APPROVAL:off}
+    # Writes plus approval=off refuse to start unless this explicit exception is set.
+    allow-model-confirmed-writes: ${MCP_ALLOW_MODEL_CONFIRMED_WRITES:false}
     # Loopback-page answer deadline. Host elicitation uses the MCP request
     # deadline negotiated by the SDK/client instead.
     approval-timeout: ${MCP_DESTRUCTIVE_APPROVAL_TIMEOUT:120s}
@@ -231,9 +247,10 @@ management:
         enabled: true
   info:
     env:
-      enabled: true
+      # Disabled: an unauthenticated /actuator/info must not grow an environment dump.
+      enabled: false
     git:
-      mode: full
+      mode: simple
   metrics:
     tags:
       application: telegram-mcp-server
@@ -259,7 +276,9 @@ anti-spam:
     window-ms: 60000
   # Runtime overrides persisted by AntiSpamPolicyService. Blank disables persistence.
   overrides-file: ${ANTI_SPAM_OVERRIDES_FILE:anti-spam-overrides.json}
-  # Hard ceilings — runtime overrides clamp to these. Empty map = no clamp.
+  # Hard ceilings. A tool without an entry still clamps runtime overrides to
+  # max-ops 60, daily-max 500, and a 1s window floor. Yaml rules are not
+  # clamped unless the tool is listed here.
   # Per-tool entries can set: max-ops-ceiling, daily-max-ceiling,
   # window-ms-floor, dedup-window-ms-floor.
   ceilings:

@@ -126,8 +126,13 @@ class ClientConfigPrinterTest {
         val rendered = ClientConfigPrinter.render(
             ClientConfigPrinter.Options(docker = "ghcr.io/tolboy/telegram-mcp-tdlib:1.12.0-stdio", readOnly = false),
         )
-        assertTrue("<your-api-hash>" in rendered, "the hash must stay a placeholder")
-        assertFalse("TDLIB_API_HASH_FILE=" in rendered, "a file path is meaningless inside the container")
+        assertFalse("<your-api-hash>" in rendered, "the hash value must not be embedded")
+        assertFalse("TDLIB_API_HASH=" in rendered, "the hash value must not be an environment assignment")
+        assertTrue(
+            "/absolute/path/to/telegram-api-hash:/data/telegram-api-hash:ro" in rendered,
+            "the hash file must be mounted read-only",
+        )
+        assertTrue("TDLIB_API_HASH_FILE=/data/telegram-api-hash" in rendered)
     }
 
     @Test
@@ -221,8 +226,8 @@ class ClientConfigPrinterTest {
         val notes = ClientConfigPrinter.notes(ClientConfigPrinter.Options(docker = "example:1.0-stdio"))
         assertTrue(notes.any { "re-pull" in it }, "the staleness trap must be called out: $notes")
         assertTrue(
-            notes.any { "TDLIB_API_HASH=<your-api-hash>" in it },
-            "the caller must know that Docker still needs an explicitly supplied API hash: $notes",
+            notes.any { "/data/telegram-api-hash" in it && "not the hash value" in it },
+            "the caller must see that Docker mounts the hash file and does not inline it: $notes",
         )
     }
 

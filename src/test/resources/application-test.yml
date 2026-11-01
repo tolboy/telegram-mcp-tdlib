@@ -28,6 +28,9 @@ server-mode:
   read-only: false
   confirmation:
     enabled: false
+    # The test profile enables writes so tool tests can call them. Production
+    # refuses this combination unless the operator sets the same flag.
+    allow-model-confirmed-writes: true
   file-security:
     allowed-roots: []
   audit:

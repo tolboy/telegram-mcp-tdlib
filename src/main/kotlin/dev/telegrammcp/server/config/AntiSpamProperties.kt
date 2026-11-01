@@ -43,7 +43,8 @@ data class AntiSpamProperties(
      * Hard ceilings per tool — runtime overrides written via the admin policy
      * commands cannot exceed these. Floors (e.g. `windowMsFloor`) work in
      * the opposite direction: they cap how *loose* a runtime override may make
-     * a rule. Empty map = no enforcement (current behavior).
+     * a rule. Missing runtime dimensions use the default safety envelope;
+     * configured yaml rules are only clamped by explicitly configured ceilings.
      */
     val ceilings: Map<String, RuleCeilings> = emptyMap(),
 
@@ -88,8 +89,8 @@ data class AntiSpamProperties(
 
     /**
      * Per-tool ceiling/floor envelope for runtime overrides. `null` fields mean
-     * "no ceiling for this dimension" — the override may use any value the
-     * built-in rule or yaml override already permits.
+     * the default runtime ceiling/floor. For trusted yaml rules a null field
+     * imposes no additional constraint.
      */
     data class RuleCeilings(
         /** Max value a runtime override may set for `maxOps` / `maxOpsExternal`. */

@@ -6,10 +6,12 @@ import com.fasterxml.jackson.module.kotlin.readValue
 import dev.telegrammcp.server.config.AntiSpamProperties
 import dev.telegrammcp.server.config.AntiSpamProperties.RuleCeilings
 import dev.telegrammcp.server.config.AntiSpamProperties.RuleProps
+import dev.telegrammcp.server.security.LocalAccessChecks
 import dev.telegrammcp.server.util.StructuredLogger
 import jakarta.annotation.PostConstruct
 import org.springframework.stereotype.Service
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.util.concurrent.ConcurrentHashMap
@@ -22,11 +24,11 @@ import java.util.concurrent.ConcurrentHashMap
  *  3. Runtime override persisted in the local JSON file
  *     ([AntiSpamProperties.overridesFile]), set via admin tooling.
  *
- * Hard ceilings from [AntiSpamProperties.ceilings] are then applied on top —
- * a runtime or yaml override cannot raise a limit above its ceiling, nor
- * shorten a window below its floor. This keeps the orchestrator from ever
- * exceeding operator-defined safety bounds even if anti-spam state is
- * tampered with.
+ * Hard ceilings from [AntiSpamProperties.ceilings] are then applied on top.
+ * A tool without an explicit ceiling still clamps a runtime override to
+ * [DEFAULT_RUNTIME_CEILING], so a planted overrides file cannot disable the
+ * guard or raise a limit without bound. Operator yaml is left alone unless
+ * that tool has an explicit ceiling.
  *
  * The JSON file is written atomically (temp + ATOMIC_MOVE) to avoid partial
  * reads at startup. `null` / blank `overridesFile` disables persistence and
@@ -50,20 +52,30 @@ class AntiSpamPolicyService(
     @PostConstruct
     fun loadOverrides() {
         val path = overridesPath ?: return
-        if (!Files.exists(path)) {
+        if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
             log.info("AntiSpamPolicyService: no overrides file at {}, starting clean", path)
             return
         }
-        runCatching {
-            val raw = Files.readString(path)
-            if (raw.isBlank()) return@runCatching
-            val parsed: Map<String, RuleProps> = mapper.readValue(raw)
-            runtimeOverrides.clear()
-            runtimeOverrides.putAll(parsed)
-            log.info("AntiSpamPolicyService: loaded {} runtime override(s) from {}", parsed.size, path)
-        }.onFailure {
-            log.warn("AntiSpamPolicyService: failed to load overrides from {} — {}", path, it.message)
+        require(!Files.isSymbolicLink(path) && Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
+            "anti-spam overrides file must be a regular file, not a symbolic link"
         }
+        LocalAccessChecks.rejectSharedWrite(path, "anti-spam.overrides-file")
+        val raw = try {
+            Files.readString(path)
+        } catch (error: Exception) {
+            throw IllegalStateException("anti-spam overrides file $path cannot be read", error)
+        }
+        val parsed = try {
+            mapper.readValue<Map<String, RuleProps>>(raw)
+        } catch (error: Exception) {
+            throw IllegalStateException(
+                "anti-spam overrides file $path is not valid JSON. Fix or remove it before startup.",
+                error,
+            )
+        }
+        runtimeOverrides.clear()
+        runtimeOverrides.putAll(parsed)
+        log.info("AntiSpamPolicyService: loaded {} runtime override(s) from {}", parsed.size, path)
     }
 
     /**
@@ -73,9 +85,16 @@ class AntiSpamPolicyService(
     fun effectiveRule(toolName: String, base: RuleProps): RuleProps {
         var rule = base
         props.rules[toolName]?.let { rule = it }
-        runtimeOverrides[toolName]?.let { rule = it }
-        val ceil = props.ceilings[toolName] ?: return rule
-        return clamp(rule, ceil)
+        val explicit = props.ceilings[toolName]
+        runtimeOverrides[toolName]?.let { runtime ->
+            // Runtime policy may adjust rates, but cannot redirect the counter
+            // to a caller-controlled argument or remove duplicate detection.
+            rule = clamp(
+                runtime.copy(exempt = false, keyField = rule.keyField, dedupTextField = rule.dedupTextField),
+                runtimeCeiling(toolName),
+            )
+        }
+        return if (explicit != null) clamp(rule, explicit) else rule
     }
 
     /**
@@ -84,8 +103,7 @@ class AntiSpamPolicyService(
      */
     fun listOverrides(): Map<String, RuleProps> =
         runtimeOverrides.mapValues { (tool, rule) ->
-            val ceil = props.ceilings[tool]
-            if (ceil == null) rule else clamp(rule, ceil)
+            clamp(rule.copy(exempt = false), runtimeCeiling(tool))
         }
 
     /**
@@ -96,8 +114,8 @@ class AntiSpamPolicyService(
      * Returns the clamped, effective rule.
      */
     fun setOverride(toolName: String, override: RuleProps): RuleProps {
-        val ceil = props.ceilings[toolName]
-        val clamped = if (ceil == null) override else clamp(override, ceil)
+        val ceil = runtimeCeiling(toolName)
+        val clamped = clamp(override.copy(exempt = false), ceil)
         runtimeOverrides[toolName] = clamped
         persist()
         log.info("AntiSpamPolicyService: override set tool='{}' rule={}", toolName, clamped)
@@ -112,6 +130,17 @@ class AntiSpamPolicyService(
             log.info("AntiSpamPolicyService: override reset tool='{}'", toolName)
         }
         return removed
+    }
+
+    /** A partial operator ceiling replaces only the dimensions it specifies. */
+    private fun runtimeCeiling(toolName: String): RuleCeilings {
+        val explicit = props.ceilings[toolName]
+        return RuleCeilings(
+            maxOpsCeiling = explicit?.maxOpsCeiling ?: DEFAULT_RUNTIME_CEILING.maxOpsCeiling,
+            dailyMaxCeiling = explicit?.dailyMaxCeiling ?: DEFAULT_RUNTIME_CEILING.dailyMaxCeiling,
+            windowMsFloor = explicit?.windowMsFloor ?: DEFAULT_RUNTIME_CEILING.windowMsFloor,
+            dedupWindowMsFloor = explicit?.dedupWindowMsFloor ?: DEFAULT_RUNTIME_CEILING.dedupWindowMsFloor,
+        )
     }
 
     private fun clamp(rule: RuleProps, ceil: RuleCeilings): RuleProps = rule.copy(
@@ -133,23 +162,43 @@ class AntiSpamPolicyService(
         } ?: rule.dedupWindowMs,
     )
 
+    @Synchronized
     private fun persist() {
         val path = overridesPath ?: return
         runCatching {
             val parent = path.parent
             if (parent != null) Files.createDirectories(parent)
-            val tmp = path.resolveSibling(path.fileName.toString() + ".tmp")
+            // A fixed .tmp path could be planted as a link and would follow it
+            // during writeString. createTempFile creates a new entry atomically.
+            val tmp = Files.createTempFile(parent, path.fileName.toString(), ".tmp")
             val json = mapper.writerWithDefaultPrettyPrinter()
                 .writeValueAsString(runtimeOverrides.toMap())
-            Files.writeString(tmp, json)
-            Files.move(
-                tmp,
-                path,
-                StandardCopyOption.ATOMIC_MOVE,
-                StandardCopyOption.REPLACE_EXISTING,
-            )
+            try {
+                Files.writeString(tmp, json)
+                Files.move(
+                    tmp,
+                    path,
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            } finally {
+                Files.deleteIfExists(tmp)
+            }
         }.onFailure {
             log.warn("AntiSpamPolicyService: failed to persist overrides to {} — {}", path, it.message)
         }
+    }
+
+    companion object {
+        /**
+         * Applies only to runtime overrides. Operator yaml can still set a
+         * looser rule; an explicit per-tool ceiling then clamps both layers.
+         */
+        val DEFAULT_RUNTIME_CEILING = RuleCeilings(
+            maxOpsCeiling = 60,
+            dailyMaxCeiling = 500,
+            windowMsFloor = 1_000,
+            dedupWindowMsFloor = 1_000,
+        )
     }
 }

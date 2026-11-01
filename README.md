@@ -78,9 +78,12 @@ Then try a first prompt that cannot change anything:
 
 In this mode write and quota-consuming tools are absent from the tool list entirely, so the
 model has nothing destructive to call. Switch to `MCP_READ_ONLY=false` only after you have
-reviewed the surface. When you do, add `MCP_DESTRUCTIVE_APPROVAL=auto` so deletes, bans and
-leaves wait for your answer through host elicitation where available, or through the
-server's loopback page otherwise, rather than trusting the model's own `"confirmed": true`.
+reviewed the surface. When you do, set `MCP_DESTRUCTIVE_APPROVAL=auto` (or `elicitation` /
+`loopback`). The server refuses to start if writes are on and approval is left `off`,
+because `"confirmed": true` is an argument the model can set itself. `auto` asks through
+host elicitation where available, or through the server's loopback page otherwise.
+`MCP_ALLOW_MODEL_CONFIRMED_WRITES=true` is the explicit exception that restores the old
+combination.
 
 ## Connect your client
 
@@ -166,7 +169,8 @@ tool surface that can do the job:
 [research public groups](docs/recipes/research-public-groups.md),
 [read-only community health check](docs/recipes/community-review-readonly.md),
 and [draft replies without sending](docs/recipes/safe-draft-reply.md) —
-index in [docs/recipes](docs/recipes/README.md).
+index in [docs/recipes](docs/recipes/README.md). Those recipes are also MCP
+prompts. Selecting one does not grant tools beyond the configured profile.
 
 ## How it compares
 
@@ -319,8 +323,10 @@ The server starts on `http://localhost:8080`. Its MCP Streamable HTTP endpoint i
    - **Community:** “Show recent admin actions and default permissions in this group; propose changes, but do not apply them.”
    - **Research:** “Find public chats matching these English and Russian query variants, and report evidence from descriptions and recent messages.”
 
-Switch to `MCP_READ_ONLY=false` only after reviewing the discovered surface;
-confirmation remains enabled by default for destructive actions.
+Switch to `MCP_READ_ONLY=false` only after reviewing the discovered surface,
+and set `MCP_DESTRUCTIVE_APPROVAL=auto` in the same change. Confirmation via
+`"confirmed": true` stays on by default and is not human approval. The server
+refuses to start when writes are enabled and approval is `off`.
 
 On Windows, Gradle outputs default to the system temp directory to avoid file-lock issues in synchronized folders. Set `KTM_BUILD_DIR` or pass `-Pktm.buildDir=...` to override.
 
@@ -471,6 +477,7 @@ Docker, mount the secret file into the container and set the container path.
 | `TELEGRAM_BOT_TOKEN`       | No       | —               | Legacy Bot API token (fallback only)     |
 | `TELEGRAM_BOT_USERNAME`    | No       | —               | Bot username (for logging)               |
 | `TELEGRAM_ALLOWED_CHAT_IDS`| No       | (all allowed)   | Comma-separated chat IDs to allow        |
+| `TELEGRAM_MUTATION_CHAT_IDS` | No    | (same as reads) | Targets for chat-scoped writes. Empty follows the read allow-list. Account-wide operations require tool/action restrictions |
 | `MCP_API_KEY`              | Remote API-key mode* | —       | API key for MCP endpoint auth            |
 | `MCP_API_KEY_FILE`         | No       | —               | Secret-file alternative to `MCP_API_KEY` |
 | `MCP_AUTH_HEADER`          | No       | `Authorization` | Header name for API key                  |
@@ -482,7 +489,11 @@ Docker, mount the secret file into the container and set the container path.
 | `MCP_TOOL_DENY`            | No       | —               | Exact comma-separated names to hide after the allow-list |
 | `MCP_TRANSPORT`            | No       | `streamable-http` | `streamable-http` or `stdio`; CLI `--transport` wins |
 | `MCP_CONFIRMATION_REQUIRED`| No       | `true`          | Require caller acknowledgement (`"confirmed": true`) for destructive tools; not proof of human approval |
-| `MCP_DESTRUCTIVE_APPROVAL`| No       | `off`           | `auto` asks a human before each destructive tool — through the MCP host where supported, otherwise on a loopback page. Also `elicitation`, `loopback` |
+| `MCP_DESTRUCTIVE_APPROVAL`| No       | `off`           | Human approval before destructive tools: `auto`, `elicitation`, or `loopback`. With writes enabled, `off` refuses startup unless `MCP_ALLOW_MODEL_CONFIRMED_WRITES=true` |
+| `MCP_ALLOW_MODEL_CONFIRMED_WRITES` | No | `false` | Allow writes while approval is `off`. The model can then send `"confirmed": true` |
+| `MCP_ALLOWED_ORIGINS` | No | (loopback only) | Extra browser `Origin` values for `/mcp`. A missing Origin is allowed. Any other present Origin gets HTTP 403 |
+| `MCP_ALLOWED_HOSTS` | No | (loopback only) | Extra `Host` values for `/mcp`. A missing Host is allowed. Any other present Host gets HTTP 403 |
+| `MCP_MAX_CONCURRENT_CALLS_PER_CLIENT` | No | `8` | In-flight tool calls per authenticated client |
 | `MCP_DESTRUCTIVE_APPROVAL_TIMEOUT`| No | `120s`        | Loopback-page answer deadline; elicitation uses the MCP host/request deadline |
 | `MCP_FILE_ROOTS`           | No       | (deny all)      | Allowed root dirs for file operations    |
 | `MCP_AUDIT_ENABLED`        | No       | `true`          | Enable audit logging                     |

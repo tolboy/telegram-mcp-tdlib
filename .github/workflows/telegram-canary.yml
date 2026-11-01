@@ -1,0 +1,68 @@
+name: Telegram canary
+
+# Live get_me. Without the canary secrets the job does not call Telegram.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+# Never open concurrent clones of the same canary authorization session.
+concurrency:
+  group: telegram-canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Require canary secrets
+        id: gate
+        env:
+          TELEGRAM_CANARY_API_ID: ${{ secrets.TELEGRAM_CANARY_API_ID }}
+          TELEGRAM_CANARY_API_HASH: ${{ secrets.TELEGRAM_CANARY_API_HASH }}
+          TELEGRAM_CANARY_USER_ID: ${{ secrets.TELEGRAM_CANARY_USER_ID }}
+          TELEGRAM_CANARY_SESSION_B64: ${{ secrets.TELEGRAM_CANARY_SESSION_B64 }}
+        run: |
+          if [ -z "$TELEGRAM_CANARY_API_ID" ] || [ -z "$TELEGRAM_CANARY_API_HASH" ] || [ -z "$TELEGRAM_CANARY_USER_ID" ] || [ -z "$TELEGRAM_CANARY_SESSION_B64" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Canary secrets are absent. Live Telegram was not called."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Java 25
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Gradle cache
+        if: steps.gate.outputs.run == 'true'
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+
+      - name: Build runnable JAR
+        if: steps.gate.outputs.run == 'true'
+        run: ./gradlew bootJar --no-daemon
+
+      - name: Install MCP client
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          python3 -m venv build/mcp-client-venv
+          build/mcp-client-venv/bin/python -m pip install -r scripts/requirements-mcp-client.txt
+
+      - name: Call get_me
+        if: steps.gate.outputs.run == 'true'
+        env:
+          TELEGRAM_CANARY_API_ID: ${{ secrets.TELEGRAM_CANARY_API_ID }}
+          TELEGRAM_CANARY_API_HASH: ${{ secrets.TELEGRAM_CANARY_API_HASH }}
+          TELEGRAM_CANARY_USER_ID: ${{ secrets.TELEGRAM_CANARY_USER_ID }}
+          TELEGRAM_CANARY_SESSION_B64: ${{ secrets.TELEGRAM_CANARY_SESSION_B64 }}
+        run: build/mcp-client-venv/bin/python scripts/telegram-canary.py --jar build/libs/telegram-mcp-server.jar

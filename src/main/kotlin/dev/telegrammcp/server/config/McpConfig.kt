@@ -2,17 +2,24 @@ package dev.telegrammcp.server.config
 
 import dev.telegrammcp.server.client.TelegramAccountContext
 import dev.telegrammcp.server.client.TelegramAccountRegistry
+import dev.telegrammcp.server.client.ToolCallDeadline
 import dev.telegrammcp.server.exception.ReadOnlyModeException
 import dev.telegrammcp.server.model.AuditOutcome
 import dev.telegrammcp.server.security.AccountAccessPolicy
+import dev.telegrammcp.server.security.McpRequestIdentity
 import dev.telegrammcp.server.service.AuditService
+import dev.telegrammcp.server.service.ClientConcurrencyGate
 import dev.telegrammcp.server.service.DestructiveApprovalService
+import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.service.ToolSurfacePolicy
 import dev.telegrammcp.server.tool.AccountAgnosticMcpToolHandler
+import dev.telegrammcp.server.tool.McpProgress
 import dev.telegrammcp.server.tool.McpToolHandler
 import dev.telegrammcp.server.tool.ToolSupport
+import dev.telegrammcp.server.tool.ToolPagination
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification
+import io.modelcontextprotocol.server.McpSyncServerExchange
 import io.modelcontextprotocol.spec.McpSchema
 import org.slf4j.LoggerFactory
 import org.springframework.context.annotation.Bean
@@ -46,6 +53,8 @@ class McpConfig {
         auditService: AuditService,
         approvalService: DestructiveApprovalService,
         permissions: dev.telegrammcp.server.security.AccessPermissionService? = null,
+        clientConcurrencyGate: ClientConcurrencyGate = ClientConcurrencyGate(8),
+        guardrails: GuardrailService? = null,
     ): List<SyncToolSpecification> {
         val definitions = handlers.map { handler -> handler to handler.definition() }
         val duplicateNames = definitions
@@ -71,11 +80,7 @@ class McpConfig {
             log.info("Registering MCP tool: {} — {}", tool.name(), tool.description())
             SyncToolSpecification(tool) { exchange, request ->
                 val arguments = request.arguments() ?: emptyMap()
-                // The single place a tool call's deadline is opened: every
-                // registered handler runs under it, whether or not it goes
-                // through ToolSupport.execute. The operator's approval wait is
-                // excluded from it (DestructiveApprovalService).
-                val result = dev.telegrammcp.server.client.ToolCallDeadline.run { try {
+                withToolCall(exchange, request, tool, clientConcurrencyGate, guardrails) {
                     // Once per session, and on any tool: an operator should learn
                     // that approval cannot be requested before a destructive call
                     // fails, not from the failure itself.
@@ -104,39 +109,31 @@ class McpConfig {
                             val selectionStarted = System.nanoTime()
                             val account = try {
                                 accountAccessPolicy.selectAccount(arguments)
-                        } catch (error: Exception) {
-                            auditService.record(
-                                toolName = tool.name(),
-                                arguments = routedArguments,
-                                outcome = AuditService.outcomeFor(error),
-                                error = error.message,
-                                durationMs = (System.nanoTime() - selectionStarted) / 1_000_000,
-                                accountOverride = requestedKnownAccount(arguments, registry),
-                            )
-                            throw error
-                        }
-                        accountContext.withAccount(account) {
-                            auditService.executeWithFallbackAudit(tool.name(), routedArguments) {
-                                // Ahead of the handler, so no Telegram call can
-                                // precede the operator's answer. Central rather
-                                // than per-tool: a new destructive tool inherits
-                                // the gate instead of having to remember it. The
-                                // approval prompt sees the original selector so
-                                // the operator knows which account is affected;
-                                // handlers and audit still receive routed args.
-                                val invoke = {
-                                    approvalService.requireApproval(exchange, tool.name(), arguments)
-                                    handler.execute(exchange, routedArguments)
+                            } catch (error: Exception) {
+                                auditService.record(
+                                    toolName = tool.name(),
+                                    arguments = routedArguments,
+                                    outcome = AuditService.outcomeFor(error),
+                                    error = error.message,
+                                    durationMs = (System.nanoTime() - selectionStarted) / 1_000_000,
+                                    accountOverride = requestedKnownAccount(arguments, registry),
+                                )
+                                throw error
+                            }
+                            accountContext.withAccount(account) {
+                                auditService.executeWithFallbackAudit(tool.name(), routedArguments) {
+                                    // Approval sees the account selector; handlers
+                                    // and audit receive only routed arguments.
+                                    val invoke = {
+                                        approvalService.requireApproval(exchange, tool.name(), arguments)
+                                        handler.execute(exchange, routedArguments)
+                                    }
+                                    if (permissions == null) invoke() else permissions.withPermission(tool.name(), account, invoke)
                                 }
-                                if (permissions == null) invoke() else permissions.withPermission(tool.name(), account, invoke)
                             }
                         }
                     }
                 }
-                } catch (error: Exception) {
-                    ToolSupport.errorResult(error)
-                } }
-                dev.telegrammcp.server.tool.ToolPagination.decorate(tool, result)
             }
         }.also {
             if (!serverMode.readOnly && toolSurfacePolicy.profile == McpToolProfile.ALL) {
@@ -157,6 +154,41 @@ class McpConfig {
                 toolSurfacePolicy.profile.name.lowercase(),
                 hiddenCount,
             )
+        }
+    }
+
+    @Bean
+    fun clientConcurrencyGate(properties: McpSecurityProperties): ClientConcurrencyGate =
+        ClientConcurrencyGate(properties.maxConcurrentCallsPerClient)
+
+    /** Every handler shares this lifecycle, including tools outside ToolSupport.execute. */
+    private fun withToolCall(
+        exchange: McpSyncServerExchange,
+        request: McpSchema.CallToolRequest,
+        tool: McpSchema.Tool,
+        gate: ClientConcurrencyGate,
+        guardrails: GuardrailService?,
+        action: () -> McpSchema.CallToolResult,
+    ): McpSchema.CallToolResult = McpRequestIdentity.withIdentity(exchange) {
+        val progressToken = McpProgress.token(request.meta())
+        McpProgress.report(exchange, progressToken, 0.0, "${tool.name()} started")
+        try {
+            gate.run {
+                val mutationScope = guardrails?.mutationScope(tool.name())
+                try {
+                    // Approval waits explicitly suspend this deadline.
+                    val result = ToolCallDeadline.run {
+                        try { action() } catch (error: Exception) { ToolSupport.errorResult(error) }
+                    }
+                    ToolPagination.decorate(tool, result)
+                } finally {
+                    mutationScope?.close()
+                }
+            }
+        } catch (error: Exception) {
+            ToolSupport.errorResult(error)
+        } finally {
+            McpProgress.report(exchange, progressToken, 1.0, "${tool.name()} finished")
         }
     }
 

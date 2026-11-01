@@ -4,6 +4,8 @@ import dev.telegrammcp.server.tool.executeChecked
 
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
+import dev.telegrammcp.server.config.McpSecurityProperties
+import dev.telegrammcp.server.config.TelegramProperties
 import dev.telegrammcp.server.model.ChatFolderDefinition
 import dev.telegrammcp.server.model.ChatFolderDetails
 import dev.telegrammcp.server.model.ChatFolderInfo
@@ -123,6 +125,20 @@ class ChatFolderToolsTest {
             ),
         )
 
+        assertTrue(result.isError)
+        verify(exactly = 0) { telegramClient.createChatFolder(any()) }
+    }
+
+    @Test
+    fun `a mutation-only chat list blocks folder rules with unknown target chats`() {
+        val scoped = GuardrailService(
+            McpSecurityProperties(),
+            TelegramProperties(security = TelegramProperties.SecurityProperties(mutationAllowedChatIds = listOf(11L))),
+        )
+        val tool = ConfigureChatFolderTool(telegramClient, entityResolver, scoped, operationGuard, audit, mapper, SimpleMeterRegistry())
+        val result = scoped.mutationScope("configure_chat_folder").use {
+            tool.executeChecked(exchange, mapOf("title" to "All groups", "include_groups" to true))
+        }
         assertTrue(result.isError)
         verify(exactly = 0) { telegramClient.createChatFolder(any()) }
     }

@@ -6,6 +6,14 @@ It implements the MCP `2025-06-18` lifecycle and requires `Mcp-Session-Id`
 after `initialize`. API-key deployments accept `Authorization: Bearer <key>`;
 `X-MCP-API-Key` and the configured `MCP_AUTH_HEADER` remain available too.
 
+Recipe prompts are advertised. They are fixed instructions and do not add
+tools. A tool call that includes `_meta.progressToken` gets a start progress
+notification and a finish notification. `notifications/cancelled` is not
+delivered to tool code by MCP Java SDK 2.1.0. Clients that omit `Mcp-Method`
+and `Mcp-Name` are unchanged. If either header is present, it must match the
+JSON-RPC body; a mismatch is HTTP 400 and JSON-RPC code `-32020`. Those
+headers are not required.
+
 ## Compatibility Matrix
 
 | Client | Connection data | Verification | Status |
@@ -112,8 +120,9 @@ handshake, session propagation, `tools/list`, and the portable input-schema
 profile. It also requires complete behavior annotations on every advertised
 tool. The JSON result includes the negotiated protocol version and tool count.
 Run it once with `MCP_READ_ONLY=true` and, before enabling production writes,
-once with `MCP_READ_ONLY=false`. `-RequiredTool` and `-ForbiddenTool` make it
-suitable for profile or policy smoke checks.
+once with `MCP_READ_ONLY=false` and `MCP_DESTRUCTIVE_APPROVAL=auto` (startup
+refuses writes while approval stays `off`). `-RequiredTool` and `-ForbiddenTool`
+make it suitable for profile or policy smoke checks.
 
 Every registered tool also publishes MCP behavior annotations. Read operations
 set `readOnlyHint=true`; known destructive operations set

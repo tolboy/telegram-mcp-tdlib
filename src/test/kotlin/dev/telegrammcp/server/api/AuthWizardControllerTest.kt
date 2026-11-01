@@ -5,6 +5,7 @@ import dev.telegrammcp.server.auth.AuthWizardProperties
 import dev.telegrammcp.server.auth.TelegramAuthStateHolder
 import org.junit.jupiter.api.Test
 import org.springframework.web.server.ResponseStatusException
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
@@ -25,6 +26,15 @@ class AuthWizardControllerTest {
 
         assertTrue(response.body!!.contains("Account label: <strong>work</strong>"))
         assertTrue(response.headers.cacheControl.orEmpty().contains("no-store"))
+        assertEquals("no-referrer", response.headers.getFirst("Referrer-Policy"))
+        val policy = response.headers.getFirst("Content-Security-Policy").orEmpty()
+        assertTrue("unsafe-inline" !in policy)
+        val nonce = Regex("""'nonce-([^']+)'""").find(policy)?.groupValues?.get(1)
+        assertTrue(!nonce.isNullOrBlank())
+        assertTrue(nonce != "test-nonce")
+        assertTrue(response.body!!.contains("""<script nonce="$nonce">"""))
+        assertTrue(response.body!!.contains("""<style nonce="$nonce">"""))
+        assertTrue(response.body!!.contains("""<meta name="referrer" content="no-referrer">"""))
     }
 
     @Test
@@ -35,6 +45,7 @@ class AuthWizardControllerTest {
 
         assertTrue(response.body!!.startsWith("<svg"))
         assertTrue(!response.body!!.contains("sensitive"))
+        assertEquals("no-referrer", response.headers.getFirst("Referrer-Policy"))
     }
 
     @Test
