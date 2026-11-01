@@ -91,7 +91,7 @@ val tdlightNativeTargets = listOf(
 
 // ─── Dependency versions not managed by Spring Boot BOM ─────────────────────
 val mcpSdkVersion = "2.1.0"
-val springAiMcpVersion = "2.0.1"
+val springAiMcpVersion = "2.0.2"
 // tdlight-java BOM version: it pins tdlight-java, tdlight-api and the matching
 // tdlight-natives build, so the JNI natives never drift from the Java API.
 val tdlightVersion = "3.5.9+td.1.8.68"
