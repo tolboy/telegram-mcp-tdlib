@@ -92,7 +92,27 @@ public files. The test checks deterministic LF/CRLF packaging and excludes a
 synthetic private credential file. The 0.1.2 archive SHA-256 is
 `28b1ba24ee0f08d497001e02d12043a94fb37a388405217b9fed31ff689fe62d`.
 No live client walkthrough was repeated for this instruction-only update, and
-the new archive was not uploaded to Agensi.
+the new archive was not uploaded to Agensi during that local-review stage.
+
+### Publication follow-up, 2026-11-01
+
+Server 1.18.1 was published after PR #47 and the full tag workflow passed.
+Downloaded JAR and Windows runtime checksums and GitHub SLSA provenance verified;
+independent SDK checks passed on the published artifacts (JAR STDIO/HTTP/bridge
+and restart; Windows runtime STDIO), each reporting server 1.18.1.
+
+The canonical skill ZIP from that GitHub Release has SHA-256
+`8263aa81e5f2bc4855846e133c77d490f77a1920c7b47613a55e7a28b1273edd`.
+Its eight extracted files match the reviewed local 0.1.2 ZIP byte for byte.
+The compressed archive digest differs across zlib implementations, as documented
+in the packager; use the release artifact and its published checksum together.
+
+That release ZIP was submitted through the existing Edge session to Agensi.
+The final receipt said: "Changes saved" and that listing changes are live,
+while the new file goes live after security scan and review. The UI states
+review normally takes 24–48 hours. Approval and actual marketplace-delivered
+package contents have not been verified. Fresh-account authorization remains
+unverified. See [release evidence](../docs/RELEASE_READINESS_1.18.1.md).
 
 ## Manual instruction review
 

@@ -162,9 +162,9 @@ especially strict formatting validation and the new Telegram error codes.
 - Read-only (retryable) requests are an explicit allowlist of TDLib functions;
   `recognizeSpeech` and `getCallbackQueryAnswer` are treated as writes.
 - **Behaviour change:** 4xx permission messages (`Can't access the chat`,
-  `Not enough rightsâ€¦`, `Have no access to the chat`, `Have no write access to
+  `Not enough rights…`, `Have no access to the chat`, `Have no write access to
   the chat`, `Have no access to the user`, `Chat is not accessible`,
-  `User is inaccessible`, `CHAT_ADMIN_REQUIRED`, `CHAT_SEND_*_FORBIDDEN`, â€¦)
+  `User is inaccessible`, `CHAT_ADMIN_REQUIRED`, `CHAT_SEND_*_FORBIDDEN`, …)
   map to `PERMISSION_DENIED`, checked before not-found. `Invalid user
   identifier` maps to `ENTITY_NOT_FOUND`. 403 maps to
   `PERMISSION_DENIED`, 401 to `AUTH_REQUIRED`.
@@ -172,14 +172,14 @@ especially strict formatting validation and the new Telegram error codes.
   table of not-found messages. `File not found` and `Chat list not found` are
   `INVALID_INPUT`. Other 4xx map to `INVALID_INPUT`.
 - **Behaviour change:** 5xx errors are no longer retryable as a class. Only
-  allow-listed transient failures (502, 503, `WORKER_BUSYâ€¦`, `Timeout expired`)
+  allow-listed transient failures (502, 503, `WORKER_BUSY…`, `Timeout expired`)
   of read-only requests are retryable `TELEGRAM_UNAVAILABLE`; the same failures
   of writes are `TELEGRAM_UNAVAILABLE` with `retryable=false`. Fixed 500
-  outcomes (`Topic not found`, `Sticker set not found`, `Unknown parse mode`, â€¦)
+  outcomes (`Topic not found`, `Sticker set not found`, `Unknown parse mode`, …)
   map to `ENTITY_NOT_FOUND` or `INVALID_INPUT`, and other 5xx (for example
   `Receive invalid response`, which may follow a successful write) map to
   `TELEGRAM_API_ERROR` with `retryable=false`.
-- **Behaviour change:** cancelled or aborted requests (`Canceledâ€¦`,
+- **Behaviour change:** cancelled or aborted requests (`Canceled…`,
   `406 Request canceled`, `500 Request aborted`) map to the new code
   `TELEGRAM_REQUEST_CANCELLED` (`retryable=false`).
 - **Behaviour change:** a single-message keyed send rejected by flood control or
@@ -371,7 +371,7 @@ updates those clients to authenticate with a per-run API key.
 
 - `POST /auth/resend-code` asks Telegram to send the login code again. Until
   now the only way out of "the code never arrived" was to resubmit the phone
-  number, which returns the same suppressed code â€” Telegram issues a new one
+  number, which returns the same suppressed code — Telegram issues a new one
   only for an explicit resend. The call waits for Telegram's verdict and
   returns the refusal it gives (for example `400: Authentication code can't be
   resend`), because a 200 that quietly did nothing is worse than an error.
@@ -379,15 +379,15 @@ updates those clients to authenticate with a per-run API key.
   `nextCodeChannel` and `resendTimeoutSeconds` on `AuthStateDto`. TDLib hands
   the delivery channel to `ClientInteraction` and it was being dropped, leaving
   every wizard able to say only "enter the code" while its user searched the
-  wrong inbox â€” an in-app message, an SMS, or a flash call whose *caller's
+  wrong inbox — an in-app message, an SMS, or a flash call whose *caller's
   number is the code* and which delivers no message at all.
 
 ### Fixed
 
 - A second TDLib client in one process no longer kills the server. Rebuilding
   the client while the previous factory was still closing tripped TDLib's own
-  guard â€” "Receive must not be called simultaneously from two different
-  threads" â€” after which tdlight lost the client id and the JVM exited with
+  guard — "Receive must not be called simultaneously from two different
+  threads" — after which tdlight lost the client id and the JVM exited with
   139. Factory creation and teardown now share a single thread, so a close
   always completes before the next build; both still run off the HTTP threads.
   Reached by any host that offers a retry after a mistyped phone number.
@@ -409,7 +409,7 @@ updates those clients to authenticate with a per-run API key.
   described the tool surface but not the build behind it, so two releases were
   indistinguishable from the server's own answer. The value comes from the
   jar's Spring Boot build metadata rather than `spring.ai.mcp.server.version`,
-  which `MCP_SERVER_VERSION` can override â€” a version the deployment can
+  which `MCP_SERVER_VERSION` can override — a version the deployment can
   rewrite proves nothing about what is running.
 
 ## 1.14.0 - 2026-07-28
@@ -462,18 +462,18 @@ updates those clients to authenticate with a per-run API key.
   daemon entry. The differences it handles are the ones that fail silently:
   Codex reads TOML tables rather than JSON, VS Code reads `servers` and ignores
   an `mcpServers` block, and Claude Code states the transport `type` the others
-  omit. Only shapes checked against a real configuration file are generated â€”
+  omit. Only shapes checked against a real configuration file are generated —
   clients that read a standard `mcpServers` object take the `cursor` output
   unchanged, and that is now stated instead of guessed at.
 - `--http` emits the entry for the shared-daemon topology used by Claude Code,
   Cursor, VS Code, and Codex when several clients need the same TDLib session.
-  Claude Desktop remote connectors are configured through Settings â†’
+  Claude Desktop remote connectors are configured through Settings →
   Connectors, not `claude_desktop_config.json`.
 - `MCP_DESTRUCTIVE_APPROVAL` gains `loopback` and `auto`. Elicitation is the
   tidier route but depends on the client implementing it, and the major host
   does not: Claude Desktop advertises `elicitation=null`, so the `elicitation`
   mode shipped in 1.11.0 refuses every destructive tool there. `loopback` asks
-  on a page the server hosts on `127.0.0.1` â€” the link goes to stderr, where the
+  on a page the server hosts on `127.0.0.1` — the link goes to stderr, where the
   host shows server output to its operator, and the decision arrives on a
   separate connection, so nothing passes through the model. `auto` uses
   elicitation where the client offers it and loopback otherwise; that is not a
@@ -487,7 +487,7 @@ updates those clients to authenticate with a per-run API key.
 ### Changed
 
 - `scripts/verify-published-image.sh` checks the container lifecycle contract
-  against a pulled image â€” initialize, stdin close, a signal while running, and
+  against a pulled image — initialize, stdin close, a signal while running, and
   a signal during startup. Signals go through `docker stop` rather than by
   killing the `docker run` client, which only detaches. The post-1.13 release
   workflow now runs this against immutable candidates before promoting public
@@ -506,7 +506,7 @@ updates those clients to authenticate with a per-run API key.
 - A termination signal that arrived while the server was still starting left the
   process with no bounded exit. Hook registration happens after startup so a
   failed startup keeps its own exit code, but startup loads TDLib's native
-  libraries and is not instant, so the signal could land first â€” and the JVM then
+  libraries and is not instant, so the signal could land first — and the JVM then
   refuses a new shutdown hook. 1.11.0 threw `IllegalStateException: Shutdown in
   progress` out of `main` and left Spring's deadline-free hook to close TDLib
   alone, so `docker stop` ran out its full grace period and escalated to SIGKILL.
@@ -544,8 +544,8 @@ updates those clients to authenticate with a per-run API key.
   than silently downgraded to the caller-asserted flag. Default is `off`, which
   keeps the previous behavior exactly.
 - `telegram-mcp config` prints a ready-to-paste client entry. It emits the key
-  the target client actually reads â€” VS Code names it `servers`, and an
-  `mcpServers` block there is ignored in a way that looks like a broken server â€”
+  the target client actually reads — VS Code names it `servers`, and an
+  `mcpServers` block there is ignored in a way that looks like a broken server —
   and `--docker default` pins the running version rather than a floating tag.
 - `MCP_AUDIT_FILE` optionally appends forced JSONL records to a persistent local
   audit trail. Arguments remain absent unless explicitly enabled and recognized
@@ -586,7 +586,7 @@ updates those clients to authenticate with a per-run API key.
   volume.
 - A termination signal now ends the process under the same deadline as stdin
   EOF. Spring's shutdown hook has none, and closing the context runs TDLib's
-  `@PreDestroy`, which can block â€” so `docker stop`, `compose down`, systemd and
+  `@PreDestroy`, which can block — so `docker stop`, `compose down`, systemd and
   Kubernetes all waited out their grace period and escalated to SIGKILL,
   stopping TDLib mid-write. Measured against 1.10.0: `docker stop` took the full
   timeout and exited 137.
@@ -597,7 +597,7 @@ updates those clients to authenticate with a per-run API key.
 - Running the server as a STDIO container is now documented with a pinned
   `-stdio` tag. `docker run` never re-pulls an image the machine already has, so
   a client configured against a floating tag keeps starting the build it first
-  cached â€” including builds predating the 1.10.0 lifecycle fix, whose orphaned
+  cached — including builds predating the 1.10.0 lifecycle fix, whose orphaned
   containers hold `td.binlog` and make every later start fail to lock the
   session.
 
@@ -607,7 +607,7 @@ updates those clients to authenticate with a per-run API key.
 
 - The STDIO server now exits when its client closes stdin. A stdio client ends
   a session by closing the stream without sending a signal, and `docker run` is
-  only a CLI client to the daemon â€” its death does not stop the container. The
+  only a CLI client to the daemon — its death does not stop the container. The
   server kept running, held the TDLib session (`td.binlog`) locked, and every
   subsequent start failed to authenticate. Stdin is wrapped, never read by the
   server itself, so the MCP transport keeps exclusive ownership of the stream;
@@ -632,7 +632,7 @@ updates those clients to authenticate with a per-run API key.
   the Claude Desktop instructions note that Microsoft Store (MSIX) builds keep
   `claude_desktop_config.json` under
   `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\`
-  rather than `%APPDATA%\Claude`. Settings â†’ Developer â†’ Edit Config opens the
+  rather than `%APPDATA%\Claude`. Settings → Developer → Edit Config opens the
   right file for either build.
 
 ## 1.9.0 - 2026-07-08
@@ -766,9 +766,9 @@ ownership transfer seen in other servers were deliberately not adopted.
 
 ## 1.5.0 - 2026-06-30
 
-- Interim tag on the road to 1.7.0. Its changes â€” STDIO transport, CLI,
+- Interim tag on the road to 1.7.0. Its changes — STDIO transport, CLI,
   interactive auth wizard, OAuth resource-server mode, structured output, and
-  runtime-inclusive release images â€” are documented under 1.7.0, which is the
+  runtime-inclusive release images — are documented under 1.7.0, which is the
   supported release of that line.
 
 ## 1.4.1 - 2026-06-26
