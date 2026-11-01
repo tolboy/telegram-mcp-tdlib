@@ -20,6 +20,9 @@ import sys
 import tarfile
 import tempfile
 
+MAX_SESSION_BYTES = 200_000_000
+MAX_SESSION_ENTRIES = 10_000
+
 REQUIRED = (
     "TELEGRAM_CANARY_API_ID",
     "TELEGRAM_CANARY_API_HASH",
@@ -33,23 +36,41 @@ def missing():
 
 
 def extract_session(destination: Path) -> None:
-    raw = os.environ["TELEGRAM_CANARY_SESSION_B64"].encode("ascii")
     try:
+        raw = os.environ["TELEGRAM_CANARY_SESSION_B64"].encode("ascii")
+        if len(raw) > (MAX_SESSION_BYTES + 2) // 3 * 4:
+            raise SystemExit("Canary session archive is larger than 200 MB")
         payload = base64.b64decode(raw, validate=True)
-    except binascii.Error as error:
-        raise SystemExit(f"TELEGRAM_CANARY_SESSION_B64 is not valid base64: {error}") from error
-    if len(payload) > 200_000_000:
+    except (binascii.Error, UnicodeEncodeError) as error:
+        raise SystemExit("TELEGRAM_CANARY_SESSION_B64 is not valid base64") from error
+    if len(payload) > MAX_SESSION_BYTES:
         raise SystemExit("Canary session archive is larger than 200 MB")
     with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
-        destination.mkdir(parents=True, exist_ok=True)
+        destination.mkdir(parents=True, exist_ok=True, mode=0o700)
         root = destination.resolve()
-        for member in archive.getmembers():
+        members = []
+        expanded_size = 0
+        for member in archive:
+            expanded_size += member.size
+            if expanded_size > MAX_SESSION_BYTES or len(members) >= MAX_SESSION_ENTRIES:
+                raise SystemExit("Canary session archive exceeds the extraction budget")
             target = (destination / member.name).resolve()
             if target != root and root not in target.parents:
                 raise SystemExit("Canary session archive contains a path outside the destination")
-            if member.issym() or member.islnk():
-                raise SystemExit("Canary session archive contains a link")
-        archive.extractall(destination)
+            if not (member.isfile() or member.isdir()):
+                raise SystemExit("Canary session archive contains a link or special file")
+            members.append((member, target))
+        # Do not restore archive ownership or shared-write permission bits.
+        # Explicit extraction also avoids version-dependent tarfile defaults.
+        for member, target in members:
+            if member.isdir():
+                target.mkdir(parents=True, exist_ok=True, mode=0o700)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                with archive.extractfile(member) as source, target.open("xb") as output:
+                    os.chmod(target, 0o600)
+                    import shutil
+                    shutil.copyfileobj(source, output)
 
 
 async def check(jar: Path, data_dir: Path, hash_file: Path) -> None:
@@ -57,7 +78,7 @@ async def check(jar: Path, data_dir: Path, hash_file: Path) -> None:
     from mcp.client.stdio import stdio_client
 
     env = {key: value for key, value in os.environ.items()
-           if not key.startswith(("TELEGRAM_", "TDLIB_", "MCP_", "SPRING_", "SERVER_"))}
+           if not key.startswith(("TELEGRAM_", "TDLIB_", "MCP_", "SPRING_", "SERVER_", "AUTH_"))}
     env.update(
         TELEGRAM_MCP_DATA_DIR=str(data_dir),
         TDLIB_DATA_DIR=str(data_dir / "tdlib"),
@@ -80,7 +101,9 @@ async def check(jar: Path, data_dir: Path, hash_file: Path) -> None:
             result = await client.call_tool("get_me", {})
             if result.isError:
                 raise SystemExit("Canary get_me failed")
-            data = result.structuredContent.get("data") or {}
+            data = (result.structuredContent or {}).get("data") or {}
+            if not isinstance(data, dict) or data.get("error"):
+                raise SystemExit("Canary get_me did not return a successful structured profile")
             actual = str(data.get("userId", ""))
             if actual != expected:
                 raise SystemExit("Canary user id did not match TELEGRAM_CANARY_USER_ID")
@@ -93,7 +116,8 @@ def main() -> None:
     args = parser.parse_args()
     absent = missing()
     if absent:
-        raise SystemExit("Canary credentials are not set: " + ", ".join(absent))
+        print("Canary credentials are not set: " + ", ".join(absent), file=sys.stderr)
+        raise SystemExit(2)
     jar = Path(args.jar).resolve()
     if not jar.is_file():
         raise SystemExit(f"Jar was not found: {jar}")
@@ -103,8 +127,9 @@ def main() -> None:
         extract_session(session)
         hash_file = root / "api-hash"
         hash_file.write_text(os.environ["TELEGRAM_CANARY_API_HASH"], encoding="utf-8")
+        os.chmod(hash_file, 0o600)
         try:
-            asyncio.run(check(jar, root, hash_file))
+            asyncio.run(asyncio.wait_for(check(jar, root, hash_file), timeout=120))
         finally:
             hash_file.write_text("", encoding="utf-8")
 

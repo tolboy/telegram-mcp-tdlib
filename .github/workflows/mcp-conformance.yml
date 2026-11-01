@@ -2,7 +2,8 @@ name: MCP conformance
 
 # Manual only. conformance 0.1.16 cannot send Authorization, so the script
 # proxies the isolated daemon's generated key on loopback. This is not a
-# pull-request check and it does not call Telegram.
+# pull-request check and it does not call Telegram. Runs applicable generic
+# checks; the full upstream suite needs synthetic tools/resources/prompts.
 on:
   workflow_dispatch:
 
@@ -12,6 +13,7 @@ permissions:
 jobs:
   conformance:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -28,5 +30,14 @@ jobs:
       - name: Build runnable JAR
         run: ./gradlew bootJar --no-daemon
 
-      - name: Run conformance for protocol 2025-11-25
+      - name: Run focused conformance for protocol 2025-11-25
         run: python3 scripts/mcp-conformance.py --jar build/libs/telegram-mcp-server.jar --spec-version 2025-11-25
+
+      - name: Retain conformance reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mcp-conformance-reports
+          path: build/reports/mcp-conformance/
+          if-no-files-found: ignore
+          retention-days: 7
