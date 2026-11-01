@@ -29,6 +29,13 @@ class OperationGuardServiceTest {
     // ── Read-only mode ──────────────────────────────────────────────────────
 
     @Test
+    fun `properties built without application yml are read-only`() {
+        assertThrows<ReadOnlyModeException> {
+            guard(ServerModeProperties()).checkPermission("send_message", emptyMap())
+        }
+    }
+
+    @Test
     fun `read-only mode blocks write tools`() {
         val service = guard(ServerModeProperties(readOnly = true))
 
@@ -61,6 +68,7 @@ class OperationGuardServiceTest {
     fun `confirmation mode blocks destructive tool without confirmation`() {
         val service = guard(
             ServerModeProperties(
+                readOnly = false,
                 confirmation = ServerModeProperties.ConfirmationProps(enabled = true),
             ),
         )
@@ -74,6 +82,7 @@ class OperationGuardServiceTest {
     fun `confirmation mode allows destructive tool with confirmed=true`() {
         val service = guard(
             ServerModeProperties(
+                readOnly = false,
                 confirmation = ServerModeProperties.ConfirmationProps(enabled = true),
             ),
         )
@@ -87,6 +96,7 @@ class OperationGuardServiceTest {
     fun `confirmation mode allows destructive tool with confirmed=true string`() {
         val service = guard(
             ServerModeProperties(
+                readOnly = false,
                 confirmation = ServerModeProperties.ConfirmationProps(enabled = true),
             ),
         )
@@ -100,6 +110,7 @@ class OperationGuardServiceTest {
     fun `guardrail-loosening register_internal_chat requires confirmation`() {
         val service = guard(
             ServerModeProperties(
+                readOnly = false,
                 confirmation = ServerModeProperties.ConfirmationProps(enabled = true),
             ),
         )
@@ -116,6 +127,7 @@ class OperationGuardServiceTest {
     fun `confirmation mode allows non-destructive write tools without confirmation`() {
         val service = guard(
             ServerModeProperties(
+                readOnly = false,
                 confirmation = ServerModeProperties.ConfirmationProps(enabled = true),
             ),
         )
@@ -144,6 +156,7 @@ class OperationGuardServiceTest {
     fun `confirmation mode blocks delete_profile_photo without confirmation`() {
         val service = guard(
             ServerModeProperties(
+                readOnly = false,
                 confirmation = ServerModeProperties.ConfirmationProps(enabled = true),
             ),
         )
@@ -157,6 +170,7 @@ class OperationGuardServiceTest {
     fun `configured destructive tools add to the defaults instead of replacing them`() {
         val service = guard(
             ServerModeProperties(
+                readOnly = false,
                 confirmation = ServerModeProperties.ConfirmationProps(
                     enabled = true,
                     destructiveTools = listOf("send_message"),
@@ -180,6 +194,7 @@ class OperationGuardServiceTest {
         val error = assertThrows<IllegalArgumentException> {
             guard(
                 ServerModeProperties(
+                    readOnly = false,
                     confirmation = ServerModeProperties.ConfirmationProps(destructiveTools = listOf("delete_mesage")),
                 ),
             )
@@ -188,6 +203,7 @@ class OperationGuardServiceTest {
         assertThrows<IllegalArgumentException> {
             guard(
                 ServerModeProperties(
+                    readOnly = false,
                     confirmation = ServerModeProperties.ConfirmationProps(highRiskTools = listOf("get_history")),
                 ),
             )
@@ -198,6 +214,7 @@ class OperationGuardServiceTest {
     fun `approval scope decides which tools need a human`() {
         fun scoped(scope: ServerModeProperties.ApprovalScope, highRisk: List<String> = emptyList()) = guard(
             ServerModeProperties(
+                readOnly = false,
                 confirmation = ServerModeProperties.ConfirmationProps(approvalScope = scope, highRiskTools = highRisk),
             ),
         )
@@ -223,7 +240,7 @@ class OperationGuardServiceTest {
     @Test
     fun `high-risk tools do not demand the confirmed argument`() {
         val service = guard(
-            ServerModeProperties(confirmation = ServerModeProperties.ConfirmationProps(enabled = true)),
+            ServerModeProperties(readOnly = false, confirmation = ServerModeProperties.ConfirmationProps(enabled = true)),
         )
         // Approval is a separate, human gate; existing clients never sent
         // `confirmed` for these, so requiring it would break them.
@@ -253,7 +270,7 @@ class OperationGuardServiceTest {
 
     @Test
     fun `isWriteTool identifies write tools correctly`() {
-        val service = guard(ServerModeProperties())
+        val service = guard(ServerModeProperties(readOnly = false))
 
         assertTrue(service.isWriteTool("send_message"))
         assertTrue(service.isWriteTool("ban_user"))

@@ -12,7 +12,7 @@ import java.time.Duration
 @ConfigurationProperties(prefix = "server-mode")
 data class ServerModeProperties(
     /** When true, writes are blocked except explicitly permitted local downloads. */
-    val readOnly: Boolean = false,
+    val readOnly: Boolean = true,
 
     /** Configuration for destructive-operation caller acknowledgement. */
     val confirmation: ConfirmationProps = ConfirmationProps(),
