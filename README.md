@@ -230,6 +230,8 @@ See [TOOL_PROFILES.md](docs/TOOL_PROFILES.md) for the exact intent of each surfa
   a stable code with retry guidance, and exports and searches say when they are incomplete.
 - **Long-running work** — compact inbox and conversation tools with response budgets,
   exports that resume after a restart, and a change journal that reports its own gaps.
+- **Opt-in MCP resources** — chats, chat pages and single messages as `telegram://`
+  resources with permission-checked subscriptions; see [resources](docs/RESOURCES.md).
 - **Two transports** — STDIO for desktop clients and Streamable HTTP `/mcp`
   (Spring AI 2.0 / MCP SDK 2.0), with API-key auth; `telegram-mcp daemon` shares one
   local server between several clients.
@@ -526,6 +528,19 @@ workflows; `research` keeps bounded account/public discovery and reading.
 The active profile appears in `/.well-known/mcp-server.json` and `_manifest`.
 See [TOOL_PROFILES.md](docs/TOOL_PROFILES.md) for the exact intent of each
 surface.
+
+### MCP resources (opt-in)
+
+`MCP_RESOURCES_ENABLED=true` exposes `telegram://{account}/chats`,
+`telegram://{account}/chat/{chatId}` and
+`telegram://{account}/chat/{chatId}/message/{messageId}` as read-only MCP
+resources, with `resources/subscribe` and debounced
+`notifications/resources/updated` driven by the change journal
+(`MCP_RESOURCE_SUBSCRIPTIONS`, `MCP_RESOURCE_DEBOUNCE`,
+`MCP_RESOURCE_MAX_SUBSCRIPTIONS`). Reads run the backing read tool with every
+permission check, and denied URIs look the same as unknown ones. Off by default
+because hosts may attach or prefetch resources without a tool call. See
+[RESOURCES.md](docs/RESOURCES.md).
 
 ### Multi-account setup
 
