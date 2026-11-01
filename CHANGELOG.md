@@ -27,15 +27,25 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   after updating.
 - **Behaviour change:** a present non-loopback `Host` on `/mcp` is HTTP 403
   unless it is listed in `MCP_ALLOWED_HOSTS`. A missing Host stays allowed.
-  `Mcp-Session-Id` stays bound to the first authenticated client that uses it.
-- `TELEGRAM_MUTATION_CHAT_IDS` narrows chats that write tools may change.
+  `Mcp-Session-Id` is bound to its authenticated owner when issued at initialize;
+  another client's DELETE cannot remove ownership.
+- `TELEGRAM_MUTATION_CHAT_IDS` narrows targets of chat-scoped write tools.
   Empty keeps the read allow-list. File operations cannot read or write a
   path that overlaps a TDLib session directory.
 - Advertise the five recipe prompts. A prompt does not grant tools. A tool
   call with `_meta.progressToken` reports start and finish progress.
-- When `MCP_PERMISSIONS_FILE` is set, HTTP `tools/list` omits tools that the
-  client cannot call. The call is still checked, and STDIO keeps the full
-  catalog.
+- When `MCP_PERMISSIONS_FILE` is set, the SDK filters `tools/list` and manifest
+  entries by grants and accessible accounts, including asynchronous SSE and
+  STDIO's `stdio` identity. HTTP authentication is propagated to SDK workers
+  so execution, account scopes and client concurrency use the verified caller.
+- Fill missing dimensions of partial anti-spam ceilings; prevent runtime
+  overrides from redirecting counters or disabling deduplication. Reject empty
+  policy files and Windows shared-write ALLOW entries, including BUILTIN Users.
+- Apply POSIX TDLib directory protection during auth wizard login as well as
+  startup. Warn about API-key HTTP exposure even when server.address is unset.
+- Isolate conformance daemon cleanup from operator state and stream SSE without
+  buffering; bound canary archive extraction. Update Inbox Assistant to 0.1.2
+  locally with accurate error and pagination guidance.
 - If `Mcp-Method` or `Mcp-Name` is present on `POST /mcp`, it must match the
   JSON-RPC body. Missing headers stay valid for current clients.
 - Docker client config mounts the API hash file read-only instead of putting

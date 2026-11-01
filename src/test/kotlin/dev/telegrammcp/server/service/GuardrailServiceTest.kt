@@ -127,6 +127,16 @@ class GuardrailServiceTest {
         }
 
         @Test
+        fun `dynamic target checks see the mutation list only during a write`() {
+            val restricted = service(mutationChats = listOf(100L))
+            assertFalse(restricted.hasChatAllowList())
+            restricted.mutationScope("configure_chat_folder").use {
+                assertTrue(restricted.hasChatAllowList())
+            }
+            assertFalse(restricted.hasChatAllowList())
+        }
+
+        @Test
         fun `unknown-target side effects fail closed under a static allow-list`() {
             val restricted = service(allowedChats = listOf(100L))
 

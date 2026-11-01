@@ -20,13 +20,14 @@ class HttpExposureAdvisor(
     @PostConstruct
     fun advise() {
         val address = environment.getProperty("server.address").orEmpty().trim()
-        if (address.isEmpty() || isLoopbackBind(address)) return
+        // Spring's empty server.address binds all interfaces, rather than loopback.
+        if (isLoopbackBind(address)) return
         if (properties.security.mode != McpAuthMode.API_KEY) return
         log.warn(
             "HTTP is bound to {} with API-key authentication. The key protects the listener. " +
                 "It is not a per-user session. Use MCP_AUTH_MODE=oauth when this process is reachable " +
                 "beyond the host.",
-            address,
+            address.ifEmpty { "all interfaces (server.address unset)" },
         )
     }
 

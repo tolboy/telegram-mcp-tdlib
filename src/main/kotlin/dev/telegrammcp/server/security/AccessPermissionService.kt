@@ -54,9 +54,12 @@ class AccessPermissionService(props: McpSecurityProperties, paths: PlatformPaths
      * A chat-scoped grant does not reveal an account-wide tool. Call-time
      * [withPermission] remains the authority check.
      */
-    fun allowsListedTool(tool: String): Boolean {
+    fun allowsListedTool(tool: String, visibleAccounts: Set<String>? = null): Boolean {
         if (!enabled) return true
-        val grants = document?.grants.orEmpty().filter { it.client == clientIdentity() }
+        val grants = document?.grants.orEmpty().filter {
+            it.client == clientIdentity() && (visibleAccounts == null ||
+                (it.account == "*" && visibleAccounts.isNotEmpty()) || it.account in visibleAccounts)
+        }
         return grantAllows(tool, grants)
     }
 

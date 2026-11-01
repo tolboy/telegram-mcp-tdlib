@@ -59,6 +59,54 @@ class AntiSpamPolicyServiceTest {
     }
 
     @Test
+    fun `a partial explicit ceiling preserves safety floors and the daily ceiling`() {
+        val service = AntiSpamPolicyService(
+            AntiSpamProperties(
+                overridesFile = "",
+                ceilings = mapOf("send_message" to AntiSpamProperties.RuleCeilings(maxOpsCeiling = 30)),
+            ),
+        )
+        service.setOverride(
+            "send_message",
+            RuleProps(maxOps = 10_000, windowMs = -1, windowMsExternal = -1, dailyMax = -1, dedupWindowMs = -1),
+        )
+        val effective = service.effectiveRule("send_message", RuleProps())
+        assertEquals(30, effective.maxOps)
+        assertEquals(500, effective.dailyMax)
+        assertEquals(1_000, effective.windowMs)
+        assertEquals(1_000, effective.windowMsExternal)
+        assertEquals(1_000, effective.dedupWindowMs)
+    }
+
+    @Test
+    fun `runtime policy cannot redirect the rate counter or disable duplicate detection`() {
+        val service = AntiSpamPolicyService(AntiSpamProperties(overridesFile = ""))
+        service.setOverride("send_message", RuleProps(keyField = "text", dedupTextField = null))
+        val effective = service.effectiveRule("send_message", RuleProps(keyField = "chat_id", dedupTextField = "text"))
+        assertEquals("chat_id", effective.keyField)
+        assertEquals("text", effective.dedupTextField)
+    }
+
+    @Test
+    fun `blank overrides are invalid JSON rather than an empty policy`() {
+        val file = Files.writeString(tempDir.resolve("empty.json"), " ")
+        val service = AntiSpamPolicyService(AntiSpamProperties(overridesFile = file.toString()))
+        assertThrows<IllegalStateException> { service.loadOverrides() }
+    }
+
+    @Test
+    fun `persist does not overwrite a preexisting fixed temporary path`() {
+        val file = tempDir.resolve("overrides.json")
+        val planted = Files.writeString(tempDir.resolve("overrides.json.tmp"), "sentinel")
+        val service = AntiSpamPolicyService(AntiSpamProperties(overridesFile = file.toString()))
+        service.setOverride("send_message", RuleProps(maxOps = 10))
+        assertEquals("sentinel", Files.readString(planted))
+        val reloaded = AntiSpamPolicyService(AntiSpamProperties(overridesFile = file.toString()))
+        reloaded.loadOverrides()
+        assertEquals(10, reloaded.listOverrides().getValue("send_message").maxOps)
+    }
+
+    @Test
     fun `a corrupt overrides file refuses startup`() {
         val file = tempDir.resolve("anti-spam-overrides.json")
         Files.writeString(file, "{")

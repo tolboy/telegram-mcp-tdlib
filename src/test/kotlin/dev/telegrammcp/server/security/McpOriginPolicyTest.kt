@@ -9,7 +9,7 @@ class McpOriginPolicyTest {
     @Test
     fun `missing origin is allowed and a foreign origin is not`() {
         assertTrue(McpOriginPolicy.allows(null, emptySet()))
-        assertTrue(McpOriginPolicy.allows("  ", emptySet()))
+        assertFalse(McpOriginPolicy.allows("  ", emptySet()))
         assertFalse(McpOriginPolicy.allows("https://attacker.example", emptySet()))
         assertFalse(McpOriginPolicy.allows("null", emptySet()))
     }
@@ -32,5 +32,17 @@ class McpOriginPolicyTest {
         assertTrue(McpHostPolicy.allows("mcp.example:443", setOf("mcp.example")))
         assertFalse(McpHostPolicy.allows("attacker.example", emptySet()))
         assertFalse(McpHostPolicy.allows("attacker.example", setOf("mcp.example")))
+    }
+
+    @Test
+    fun `present malformed origins and hosts are rejected even when they contain loopback`() {
+        for (origin in listOf("http://localhost/path", "http://user@localhost", "http://localhost?x=1",
+            "http://localhost#fragment", "http://localhost:", "http://localhost:99999", "null", "")) {
+            assertFalse(McpOriginPolicy.allows(origin, setOf(origin)), origin)
+        }
+        for (host in listOf("[::1]attacker.example", "[::1]:bad", "[::1]:99999", "localhost:",
+            "localhost:99999", "localhost/path", "user@localhost", "localhost?x=1", "localhost#x", "")) {
+            assertFalse(McpHostPolicy.allows(host, setOf(host)), host)
+        }
     }
 }

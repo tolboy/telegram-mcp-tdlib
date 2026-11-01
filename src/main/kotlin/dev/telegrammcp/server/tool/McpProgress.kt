@@ -16,17 +16,22 @@ object McpProgress {
 
     fun token(meta: Map<*, *>?): Any? {
         val value = meta?.get("progressToken") ?: return null
-        if (value is String && value.isBlank()) return null
-        return value
+        return when (value) {
+            is String -> value
+            is Number -> value.takeIf { it.toDouble().isFinite() }
+            else -> null
+        }
     }
 
     fun report(exchange: McpSyncServerExchange, token: Any?, progress: Double, message: String) {
         if (token == null) return
-        val notification = McpSchema.ProgressNotification.builder(token, progress)
-            .total(1.0)
-            .message(message)
-            .build()
-        val sent = runCatching { exchange.progressNotification(notification) }
+        val sent = runCatching {
+            val notification = McpSchema.ProgressNotification.builder(token, progress)
+                .total(1.0)
+                .message(message)
+                .build()
+            exchange.progressNotification(notification)
+        }
         sent.exceptionOrNull()?.let { error ->
             log.debug("Progress notification was not delivered: {}", error.message)
         }

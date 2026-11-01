@@ -92,8 +92,10 @@ class GuardrailService(
         return (allowed.isEmpty() || chatId in allowed) && (scoped == null || chatId in scoped)
     }
 
-    /** True when the operator restricted the connector to explicit chat IDs. */
-    fun hasChatAllowList(): Boolean = telegramProps.security.allowedChatIds.isNotEmpty() || permissions?.requestChatIds() != null
+    /** Includes the active write scope so dynamic-target operations fail closed. */
+    fun hasChatAllowList(): Boolean = telegramProps.security.allowedChatIds.isNotEmpty() ||
+        permissions?.requestChatIds() != null ||
+        (mutationScope.get() == true && telegramProps.security.mutationAllowedChatIds.isNotEmpty())
 
     /**
      * Validates a chat ID learned from Telegram without echoing the rejected ID

@@ -14,14 +14,14 @@ import java.net.URI
 object McpOriginPolicy {
 
     fun allows(origin: String?, extraOrigins: Set<String>): Boolean {
-        if (origin.isNullOrBlank()) return true
+        if (origin == null) return true
         val trimmed = origin.trim()
-        if (trimmed.equals("null", ignoreCase = true)) return false
-        if (extraOrigins.any { it.equals(trimmed, ignoreCase = true) }) return true
         val uri = runCatching { URI(trimmed) }.getOrNull() ?: return false
         val scheme = uri.scheme?.lowercase()
         if (scheme != "http" && scheme != "https") return false
-        val host = uri.host?.trim()?.removePrefix("[")?.removeSuffix("]") ?: return false
+        if (!uri.rawPath.isNullOrEmpty() || uri.rawQuery != null || uri.rawFragment != null || uri.rawUserInfo != null) return false
+        val host = McpHostPolicy.hostOnly(uri.rawAuthority ?: return false) ?: return false
+        if (extraOrigins.any { it.equals(trimmed, ignoreCase = true) }) return true
         return host.equals("localhost", ignoreCase = true) || host == "127.0.0.1" || host == "::1"
     }
 }
@@ -34,7 +34,7 @@ object McpOriginPolicy {
 object McpHostPolicy {
 
     fun allows(hostHeader: String?, extraHosts: Set<String>): Boolean {
-        if (hostHeader.isNullOrBlank()) return true
+        if (hostHeader == null) return true
         val host = hostOnly(hostHeader.trim()) ?: return false
         if (isLoopback(host)) return true
         return extraHosts.any { candidate ->
@@ -45,17 +45,17 @@ object McpHostPolicy {
 
     internal fun hostOnly(value: String): String? {
         if (value.isEmpty()) return null
-        if (value.startsWith("[")) {
-            val end = value.indexOf(']')
-            if (end <= 1) return null
-            return value.substring(1, end)
+        val uri = runCatching { URI("http://$value") }.getOrNull() ?: return null
+        if (uri.rawAuthority != value || uri.rawUserInfo != null ||
+            !uri.rawPath.isNullOrEmpty() || uri.rawQuery != null || uri.rawFragment != null) return null
+        val host = uri.host ?: return null
+        val portSuffix = if (value.startsWith('[')) value.substringAfter(']') else value.removePrefix(host)
+        if (portSuffix.isNotEmpty()) {
+            if (!portSuffix.startsWith(':')) return null
+            val port = portSuffix.substring(1)
+            if (port.isEmpty() || port.any { it !in '0'..'9' } || port.toIntOrNull() !in 0..65535) return null
         }
-        val colon = value.lastIndexOf(':')
-        if (colon > 0 && value.substring(colon + 1).all(Char::isDigit) && ':' !in value.substring(0, colon)) {
-            val host = value.substring(0, colon)
-            return host.ifEmpty { null }
-        }
-        return value
+        return host.removePrefix("[").removeSuffix("]")
     }
 
     private fun isLoopback(host: String): Boolean =
@@ -77,11 +77,13 @@ class McpOriginFilter(
         response: HttpServletResponse,
         filterChain: FilterChain,
     ) {
-        if (!McpOriginPolicy.allows(request.getHeader("Origin"), extraOrigins)) {
+        if (request.getHeaders("Origin").toList().size > 1 ||
+            !McpOriginPolicy.allows(request.getHeader("Origin"), extraOrigins)) {
             response.sendError(HttpServletResponse.SC_FORBIDDEN, "Origin is not allowed")
             return
         }
-        if (!McpHostPolicy.allows(request.getHeader("Host"), extraHosts)) {
+        if (request.getHeaders("Host").toList().size > 1 ||
+            !McpHostPolicy.allows(request.getHeader("Host"), extraHosts)) {
             response.sendError(HttpServletResponse.SC_FORBIDDEN, "Host is not allowed")
             return
         }

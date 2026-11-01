@@ -8,6 +8,8 @@ import dev.telegrammcp.server.config.McpToolProfile
 import dev.telegrammcp.server.config.ServerModeProperties
 import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.ToolSurfacePolicy
+import dev.telegrammcp.server.security.AccessPermissionService
+import dev.telegrammcp.server.security.AccountAccessPolicy
 import dev.telegrammcp.server.tool.McpToolHandler
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.mockk.every
@@ -25,6 +27,30 @@ import kotlin.test.assertTrue
 class ConnectorManifestToolTest {
 
     private val objectMapper = jacksonObjectMapper().findAndRegisterModules()
+
+    @Test
+    fun `manifest hides tools not granted for a visible account`() {
+        val accounts = mockk<AccountAccessPolicy> { every { visibleAccounts() } returns listOf("work") }
+        val permissions = mockk<AccessPermissionService> {
+            every { allowsListedTool("get_history", setOf("work")) } returns true
+            every { allowsListedTool("send_message", setOf("work")) } returns false
+        }
+        val tool = ConnectorManifestTool(
+            handlersProvider = handlersProvider(listOf(fakeTool("get_history", "Read"), fakeTool("send_message", "Send"))),
+            serverMode = ServerModeProperties(readOnly = false),
+            toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.ALL)),
+            auditService = mockk(relaxed = true),
+            objectMapper = objectMapper,
+            meterRegistry = SimpleMeterRegistry(),
+            permissions = permissions,
+            accountAccessPolicy = accounts,
+        )
+        val result = tool.executeChecked(mockk(relaxed = true), emptyMap())
+        val payload = objectMapper.readTree((result.content.first() as McpSchema.TextContent).text())
+        assertEquals(listOf("_manifest", "get_history"), payload["tools"].map { it["name"].asText() })
+        assertEquals(2, payload["toolCount"].asInt())
+        assertFalse(payload["routingHints"].toString().contains("get_send_operation"))
+    }
 
     @Test
     fun `read-only manifest includes opted-in download and excludes Telegram writes`() {

@@ -70,7 +70,9 @@ class McpConfigMultiAccountTest {
         assertTrue("account" in required)
 
         specification.callHandler().apply(
-            mockk<McpSyncServerExchange>(),
+            mockk<McpSyncServerExchange> {
+                io.mockk.every { transportContext() } returns io.modelcontextprotocol.common.McpTransportContext.EMPTY
+            },
             McpSchema.CallToolRequest(
                 "test_tool",
                 mapOf("account" to "work", "value" to "kept"),
@@ -109,7 +111,9 @@ class McpConfigMultiAccountTest {
 
         assertToolError("ACCOUNT_FORBIDDEN") {
             specification.callHandler().apply(
-                mockk<McpSyncServerExchange>(),
+                mockk<McpSyncServerExchange> {
+                io.mockk.every { transportContext() } returns io.modelcontextprotocol.common.McpTransportContext.EMPTY
+            },
                 McpSchema.CallToolRequest(
                     "test_tool",
                     mapOf("account" to "personal", "value" to "not-delivered"),
@@ -151,7 +155,9 @@ class McpConfigMultiAccountTest {
         ).single()
 
         specification.callHandler().apply(
-            mockk<McpSyncServerExchange>(),
+            mockk<McpSyncServerExchange> {
+                io.mockk.every { transportContext() } returns io.modelcontextprotocol.common.McpTransportContext.EMPTY
+            },
             McpSchema.CallToolRequest(
                 "test_tool",
                 mapOf("account" to "work", "value" to "kept"),

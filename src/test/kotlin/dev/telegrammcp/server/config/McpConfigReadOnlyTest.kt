@@ -37,7 +37,9 @@ class McpConfigReadOnlyTest {
         )
         assertEquals(listOf("download_media"), specifications.map { it.tool().name() })
         val result = specifications.single().callHandler().apply(
-            mockk<McpSyncServerExchange>(),
+            mockk<McpSyncServerExchange> {
+                io.mockk.every { transportContext() } returns io.modelcontextprotocol.common.McpTransportContext.EMPTY
+            },
             McpSchema.CallToolRequest("download_media", emptyMap(), emptyMap()),
         )
         assertFalse(result.isError)
@@ -180,7 +182,9 @@ class McpConfigReadOnlyTest {
         ).single()
 
         val result = specification.callHandler().apply(
-            mockk<McpSyncServerExchange>(),
+            mockk<McpSyncServerExchange> {
+                io.mockk.every { transportContext() } returns io.modelcontextprotocol.common.McpTransportContext.EMPTY
+            },
             McpSchema.CallToolRequest("send_message", mapOf("chat_id" to 1, "text" to "hi"), emptyMap()),
         )
 

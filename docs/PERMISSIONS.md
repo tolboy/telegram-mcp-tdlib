@@ -21,10 +21,12 @@ legacy single API key. Never put API keys, tokens or phone numbers in this file.
 STDIO has one local identity; use separate server configurations if different
 STDIO processes need different grants.
 
-On HTTP, `tools/list` omits tools the authenticated client cannot call. A
-chat-scoped grant does not reveal an account-wide tool. The startup catalog
-stays global, and every call is still checked. STDIO has no per-request list
-filter, so it keeps the full catalog and denies the call instead.
+`tools/list` omits tools without a matching grant for an accessible account.
+A chat-scoped grant does not reveal an account-wide tool. The startup catalog
+stays global, and every call is still checked. The SDK filters each list before
+serialization, including SSE responses; STDIO uses its `stdio` identity.
+HTTP authentication is captured by the transport and restored on SDK workers,
+so named-key/OAuth account scopes apply during listing and execution.
 
 Account labels are exact normalized labels; `*` matches all configured accounts.
 Client wildcards are not supported. Rules for the same client/account/action
@@ -50,10 +52,10 @@ and anti-spam checks continue to apply. For read-only downloads, also enable
 `MCP_READ_ONLY_ALLOW_DOWNLOADS=true`. New write tools inherit the mutate action;
 new tools are denied for chat-scoped grants until reviewed.
 
-The MCP tool list remains the shared configured surface. Permissions are checked
+The MCP startup registry remains the shared configured surface. Permissions are checked
 on every invocation before approval and Telegram execution; the list does not
 constitute authorization. `_manifest` remains available as public connector
-metadata. `list_accounts` returns only the intersection of allowed account scopes
+metadata; its tool entries use the same grant/account filtering. `list_accounts` returns only the intersection of allowed account scopes
 and accounts with matching grants. Worker coroutines receive immutable request
 permissions and the selected account explicitly, and restore prior state afterward.
 
@@ -69,5 +71,6 @@ needed, must be authored directly in JSON. Server grants support signed 64-bit I
 
 Tests cover default deny, action/account/client isolation, global-policy
 intersection, direct-handler fail-closed behavior, dispatcher enforcement and
-parallel search context propagation. Live authenticated HTTP-client sessions
-and real Telegram requests are not exercised by these tests.
+parallel search context propagation. The HTTP transport regression uses real
+authenticated requests and SDK worker dispatch, with isolated offline Telegram
+accounts. It does not contact Telegram.

@@ -11,6 +11,7 @@ import dev.telegrammcp.server.util.StructuredLogger
 import jakarta.annotation.PostConstruct
 import org.springframework.stereotype.Service
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.util.concurrent.ConcurrentHashMap
@@ -51,9 +52,12 @@ class AntiSpamPolicyService(
     @PostConstruct
     fun loadOverrides() {
         val path = overridesPath ?: return
-        if (!Files.exists(path)) {
+        if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
             log.info("AntiSpamPolicyService: no overrides file at {}, starting clean", path)
             return
+        }
+        require(!Files.isSymbolicLink(path) && Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
+            "anti-spam overrides file must be a regular file, not a symbolic link"
         }
         LocalAccessChecks.rejectSharedWrite(path, "anti-spam.overrides-file")
         val raw = try {
@@ -61,7 +65,6 @@ class AntiSpamPolicyService(
         } catch (error: Exception) {
             throw IllegalStateException("anti-spam overrides file $path cannot be read", error)
         }
-        if (raw.isBlank()) return
         val parsed = try {
             mapper.readValue<Map<String, RuleProps>>(raw)
         } catch (error: Exception) {
@@ -84,7 +87,12 @@ class AntiSpamPolicyService(
         props.rules[toolName]?.let { rule = it }
         val explicit = props.ceilings[toolName]
         runtimeOverrides[toolName]?.let { runtime ->
-            rule = clamp(runtime.copy(exempt = false), explicit ?: DEFAULT_RUNTIME_CEILING)
+            // Runtime policy may adjust rates, but cannot redirect the counter
+            // to a caller-controlled argument or remove duplicate detection.
+            rule = clamp(
+                runtime.copy(exempt = false, keyField = rule.keyField, dedupTextField = rule.dedupTextField),
+                runtimeCeiling(toolName),
+            )
         }
         return if (explicit != null) clamp(rule, explicit) else rule
     }
@@ -95,7 +103,7 @@ class AntiSpamPolicyService(
      */
     fun listOverrides(): Map<String, RuleProps> =
         runtimeOverrides.mapValues { (tool, rule) ->
-            clamp(rule.copy(exempt = false), props.ceilings[tool] ?: DEFAULT_RUNTIME_CEILING)
+            clamp(rule.copy(exempt = false), runtimeCeiling(tool))
         }
 
     /**
@@ -106,7 +114,7 @@ class AntiSpamPolicyService(
      * Returns the clamped, effective rule.
      */
     fun setOverride(toolName: String, override: RuleProps): RuleProps {
-        val ceil = props.ceilings[toolName] ?: DEFAULT_RUNTIME_CEILING
+        val ceil = runtimeCeiling(toolName)
         val clamped = clamp(override.copy(exempt = false), ceil)
         runtimeOverrides[toolName] = clamped
         persist()
@@ -122,6 +130,17 @@ class AntiSpamPolicyService(
             log.info("AntiSpamPolicyService: override reset tool='{}'", toolName)
         }
         return removed
+    }
+
+    /** A partial operator ceiling replaces only the dimensions it specifies. */
+    private fun runtimeCeiling(toolName: String): RuleCeilings {
+        val explicit = props.ceilings[toolName]
+        return RuleCeilings(
+            maxOpsCeiling = explicit?.maxOpsCeiling ?: DEFAULT_RUNTIME_CEILING.maxOpsCeiling,
+            dailyMaxCeiling = explicit?.dailyMaxCeiling ?: DEFAULT_RUNTIME_CEILING.dailyMaxCeiling,
+            windowMsFloor = explicit?.windowMsFloor ?: DEFAULT_RUNTIME_CEILING.windowMsFloor,
+            dedupWindowMsFloor = explicit?.dedupWindowMsFloor ?: DEFAULT_RUNTIME_CEILING.dedupWindowMsFloor,
+        )
     }
 
     private fun clamp(rule: RuleProps, ceil: RuleCeilings): RuleProps = rule.copy(
@@ -143,21 +162,28 @@ class AntiSpamPolicyService(
         } ?: rule.dedupWindowMs,
     )
 
+    @Synchronized
     private fun persist() {
         val path = overridesPath ?: return
         runCatching {
             val parent = path.parent
             if (parent != null) Files.createDirectories(parent)
-            val tmp = path.resolveSibling(path.fileName.toString() + ".tmp")
+            // A fixed .tmp path could be planted as a link and would follow it
+            // during writeString. createTempFile creates a new entry atomically.
+            val tmp = Files.createTempFile(parent, path.fileName.toString(), ".tmp")
             val json = mapper.writerWithDefaultPrettyPrinter()
                 .writeValueAsString(runtimeOverrides.toMap())
-            Files.writeString(tmp, json)
-            Files.move(
-                tmp,
-                path,
-                StandardCopyOption.ATOMIC_MOVE,
-                StandardCopyOption.REPLACE_EXISTING,
-            )
+            try {
+                Files.writeString(tmp, json)
+                Files.move(
+                    tmp,
+                    path,
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            } finally {
+                Files.deleteIfExists(tmp)
+            }
         }.onFailure {
             log.warn("AntiSpamPolicyService: failed to persist overrides to {} — {}", path, it.message)
         }

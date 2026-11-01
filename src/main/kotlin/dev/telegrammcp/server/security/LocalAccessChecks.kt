@@ -4,6 +4,7 @@ import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.attribute.AclEntryPermission
+import java.nio.file.attribute.AclEntryType
 import java.nio.file.attribute.AclFileAttributeView
 import java.nio.file.attribute.PosixFilePermission
 
@@ -28,18 +29,19 @@ object LocalAccessChecks {
         val view = Files.getFileAttributeView(path, AclFileAttributeView::class.java, LinkOption.NOFOLLOW_LINKS)
             ?: return
         val sharedWrite = view.acl.any { entry ->
-            isSharedPrincipal(entry.principal()?.name) &&
+            entry.type() == AclEntryType.ALLOW && isSharedPrincipal(entry.principal()?.name) &&
                 entry.permissions().any { it in WRITE_PERMISSIONS }
         }
         require(!sharedWrite) {
-            "$settingName must not be writable by Everyone or Authenticated Users"
+            "$settingName must not be writable by shared Windows groups (Everyone, Authenticated Users, or Users)"
         }
     }
 
     /**
      * Creates [path] and, on POSIX, leaves it owner-only. Windows ACL rewrites
      * are not attempted: a mistaken ACE removal can lock the operator out of
-     * the session directory. Callers log when the directory stays broadly writable.
+     * the session directory. POSIX permission failures propagate instead of
+     * silently leaving the directory shared.
      */
     fun prepareOwnerDirectory(path: Path) {
         Files.createDirectories(path)
@@ -48,7 +50,9 @@ object LocalAccessChecks {
             PosixFilePermission.OWNER_WRITE,
             PosixFilePermission.OWNER_EXECUTE,
         )
-        runCatching { Files.setPosixFilePermissions(path, ownerOnly) }
+        if (Files.getFileAttributeView(path, java.nio.file.attribute.PosixFileAttributeView::class.java) != null) {
+            Files.setPosixFilePermissions(path, ownerOnly)
+        }
     }
 
     fun isSharedPrincipal(name: String?): Boolean {
@@ -56,12 +60,14 @@ object LocalAccessChecks {
         return simple.lowercase() in SHARED_PRINCIPALS
     }
 
-    // BUILTIN\Users is the normal interactive group on a single-user Windows
-    // profile. Treating it as shared write rejects ordinary AppData files.
     private val SHARED_PRINCIPALS = setOf(
         "everyone",
         "authenticated users",
         "unauthenticated users",
+        "users",
+        "s-1-1-0",
+        "s-1-5-11",
+        "s-1-5-32-545",
     )
 
     private val WRITE_PERMISSIONS = setOf(

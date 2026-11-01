@@ -3,7 +3,6 @@ package dev.telegrammcp.server.service
 import dev.telegrammcp.server.exception.TelegramBusyException
 import dev.telegrammcp.server.security.AccessPermissionService
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Caps how many tool calls one MCP client may hold at once. The TDLib bulkhead
@@ -17,19 +16,20 @@ class ClientConcurrencyGate(
         require(limit > 0) { "mcp.max-concurrent-calls-per-client must be positive" }
     }
 
-    private val inFlight = ConcurrentHashMap<String, AtomicInteger>()
+    private val inFlight = ConcurrentHashMap<String, Int>()
 
     fun <T> run(block: () -> T): T {
         val client = AccessPermissionService.clientIdentity().ifBlank { "anonymous" }
-        val counter = inFlight.computeIfAbsent(client) { AtomicInteger() }
-        if (counter.incrementAndGet() > limit) {
-            counter.decrementAndGet()
-            throw TelegramBusyException("client:$client", limit, retryable = true)
+        inFlight.compute(client) { _, count ->
+            if ((count ?: 0) >= limit) throw TelegramBusyException("client:$client", limit, retryable = true)
+            (count ?: 0) + 1
         }
         return try {
             block()
         } finally {
-            counter.decrementAndGet()
+            // Removal and acquisition must share compute's per-key lock; removing
+            // a zero AtomicInteger separately could create two counters for a client.
+            inFlight.computeIfPresent(client) { _, count -> if (count == 1) null else count - 1 }
         }
     }
 }

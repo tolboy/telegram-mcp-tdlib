@@ -6,6 +6,10 @@ import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermission
+import java.nio.file.attribute.AclEntry
+import java.nio.file.attribute.AclEntryPermission
+import java.nio.file.attribute.AclEntryType
+import java.nio.file.attribute.AclFileAttributeView
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -15,11 +19,29 @@ class LocalAccessChecksTest {
     lateinit var tempDir: Path
 
     @Test
-    fun `shared windows principals are recognized without treating builtin users as shared`() {
+    fun `shared windows principals include the multi-user builtin group and SID forms`() {
         assertTrue(LocalAccessChecks.isSharedPrincipal("Everyone"))
         assertTrue(LocalAccessChecks.isSharedPrincipal("NT AUTHORITY\\Authenticated Users"))
-        assertFalse(LocalAccessChecks.isSharedPrincipal("BUILTIN\\Users"))
+        assertTrue(LocalAccessChecks.isSharedPrincipal("BUILTIN\\Users"))
+        assertTrue(LocalAccessChecks.isSharedPrincipal("S-1-5-32-545"))
         assertFalse(LocalAccessChecks.isSharedPrincipal("DESKTOP\\Anatolii"))
+    }
+
+    @Test
+    fun `windows shared write grants are rejected while deny entries do not grant writes`() {
+        val file = Files.createFile(tempDir.resolve("windows-secret"))
+        val view = Files.getFileAttributeView(file, AclFileAttributeView::class.java) ?: return
+        val users = file.fileSystem.userPrincipalLookupService.lookupPrincipalByGroupName("BUILTIN\\Users")
+        val original = view.acl
+        val entry = AclEntry.newBuilder().setPrincipal(users).setPermissions(AclEntryPermission.WRITE_DATA)
+        try {
+            view.acl = original + entry.setType(AclEntryType.DENY).build()
+            LocalAccessChecks.rejectSharedWrite(file, "test secret")
+            view.acl = original + entry.setType(AclEntryType.ALLOW).build()
+            assertThrows<IllegalArgumentException> { LocalAccessChecks.rejectSharedWrite(file, "test secret") }
+        } finally {
+            view.acl = original
+        }
     }
 
     @Test
