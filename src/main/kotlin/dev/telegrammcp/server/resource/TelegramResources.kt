@@ -26,6 +26,10 @@ import org.springframework.context.annotation.Configuration
 class TelegramResources {
 
     @Bean
+    fun resourceSubscriptionRegistry(properties: McpResourceProperties) =
+        ResourceSubscriptionRegistry(properties.maxSubscriptionsPerSession)
+
+    @Bean
     fun telegramResourceReader(
         tools: ObjectProvider<List<SyncToolSpecification>>,
         mapper: ObjectMapper,
