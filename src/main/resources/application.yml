@@ -202,8 +202,19 @@ server-mode:
     # Caller acknowledgement for destructive tools. This does not prove that
     # a human supplied "confirmed": true; MCP hosts own human-approval UX.
     enabled: ${MCP_CONFIRMATION_REQUIRED:true}
-    # Override default destructive tool list (empty = use built-in defaults)
+    # Extra write tools to treat as destructive. Added to the built-in
+    # defaults (delete_message, ban_user, leave_chat, ...); never replaces them.
     destructive-tools: []
+    # Extra write tools to treat as high-risk, added to the built-in defaults
+    # (forward_message, send_file, promote_admin, demote_admin,
+    # set_privacy_settings, invite_to_group, update_profile,
+    # configure_chat_folder, unban_user, unblock_user, press_inline_button).
+    high-risk-tools: []
+    # Which tools ask for human approval when `approval` is not off:
+    #   destructive - destructive tools only (1.18.1 behaviour)
+    #   high-risk   - destructive and high-risk tools
+    #   all-writes  - every write tool
+    approval-scope: ${MCP_APPROVAL_SCOPE:high-risk}
     # Where approval for a destructive operation comes from. Every mode except
     # `off` gets the answer over a channel the model cannot write to.
     #   off         - only the caller-asserted "confirmed": true above

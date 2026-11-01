@@ -34,10 +34,21 @@ data class ServerModeProperties(
         val enabled: Boolean = false,
 
         /**
-         * Tool names that are considered destructive and require confirmation.
-         * Defaults are applied in [dev.telegrammcp.server.service.OperationGuardService].
+         * Extra write tools to treat as destructive, added to the built-in
+         * defaults in [dev.telegrammcp.server.service.OperationGuardService].
+         * Listing a tool here can only tighten policy, never drop a default.
          */
         val destructiveTools: List<String> = emptyList(),
+
+        /**
+         * Extra write tools to treat as high-risk, added to the built-in
+         * defaults. High-risk tools ask for human approval (under the default
+         * [approvalScope]) but do not take a `confirmed` argument.
+         */
+        val highRiskTools: List<String> = emptyList(),
+
+        /** Which classified tools ask for human approval when [approval] is not OFF. */
+        val approvalScope: ApprovalScope = ApprovalScope.HIGH_RISK,
 
         /**
          * How a destructive operation obtains human approval. [ApprovalMode.OFF]
@@ -104,6 +115,23 @@ data class ServerModeProperties(
          * can actually render.
          */
         AUTO,
+    }
+
+    /** How much of the write surface human approval covers. */
+    enum class ApprovalScope {
+        /** Only destructive tools (delete, ban, leave, …). The 1.18.1 behaviour. */
+        DESTRUCTIVE,
+
+        /**
+         * Destructive tools plus high-risk ones that move data out of the
+         * account or change who can do what: forwarding, file uploads, admin
+         * rights, privacy, invites, profile, folders, unban/unblock, and
+         * inline buttons (which can trigger arbitrary bot actions).
+         */
+        HIGH_RISK,
+
+        /** Every write tool, including plain sends, reactions, and drafts. */
+        ALL_WRITES,
     }
 
     data class FileSecurityProps(

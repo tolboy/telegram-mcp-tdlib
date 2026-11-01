@@ -20,6 +20,8 @@ import io.modelcontextprotocol.spec.McpSchema
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 /**
  * Approval is only worth having if it runs before the operation does.
@@ -165,6 +167,52 @@ class McpConfigApprovalTest {
                 OperationGuardService(props, mockk(relaxed = true)),
             ),
         ).single()
+    }
+
+    /**
+     * A tool an operator adds to `destructive-tools` starts requiring
+     * `"confirmed": true`, so its schema has to offer that argument and its
+     * annotation has to say it is gated.
+     */
+    @Test
+    fun `a configured destructive tool advertises confirmed and the destructive hint`() {
+        val registry = TelegramAccountRegistry().also {
+            it.register(
+                TelegramAccountRegistry.AccountHandle(
+                    "default",
+                    mockk<dev.telegrammcp.server.client.TelegramClientService>(relaxed = true),
+                ),
+            )
+        }
+        val props = ServerModeProperties(
+            readOnly = false,
+            confirmation = ServerModeProperties.ConfirmationProps(
+                destructiveTools = listOf("send_message"),
+                approval = ServerModeProperties.ApprovalMode.ELICITATION,
+            ),
+        )
+        val tools = McpConfig().syncToolSpecifications(
+            handlers = listOf(CountingHandler("send_message"), CountingHandler("send_reaction")),
+            registry = registry,
+            accountContext = TelegramAccountContext(registry),
+            accountAccessPolicy = AccountAccessPolicy(registry),
+            serverMode = props,
+            toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.ALL)),
+            auditService = auditService(),
+            approvalService = DestructiveApprovalService(props, OperationGuardService(props, mockk(relaxed = true))),
+        ).associate { it.tool().name() to it.tool() }
+
+        val send = tools.getValue("send_message")
+        @Suppress("UNCHECKED_CAST")
+        val sendProperties = send.inputSchema()["properties"] as Map<String, Any>
+        assertTrue("confirmed" in sendProperties, "configured destructive tool must accept confirmed")
+        assertEquals(true, send.annotations().destructiveHint())
+
+        val reaction = tools.getValue("send_reaction")
+        @Suppress("UNCHECKED_CAST")
+        val reactionProperties = reaction.inputSchema()["properties"] as Map<String, Any>
+        assertFalse("confirmed" in reactionProperties)
+        assertEquals(false, reaction.annotations().destructiveHint())
     }
 
     private fun acceptingExchange(): McpSyncServerExchange =

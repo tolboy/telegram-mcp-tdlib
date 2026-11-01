@@ -12,8 +12,8 @@ import org.springframework.stereotype.Service
  *
  * 1. **Read-only mode** — blocks writes except explicitly permitted local downloads
  * 2. **Caller-acknowledgement mode** — requires explicit `"confirmed": true`
- *    for destructive operations (delete, ban, leave, etc.). The MCP host is
- *    responsible for obtaining human approval when its policy requires it.
+ *    for destructive operations (delete, ban, leave, etc.). Human approval
+ *    (destructive and high-risk tools) is [DestructiveApprovalService]'s job.
  *
  * This service is called at the start of every tool execution before any
  * Telegram API call is made.
@@ -117,16 +117,41 @@ class OperationGuardService(
         )
 
         /**
+         * Writes that are not destructive in the delete/ban sense but move data
+         * out of the account, change who can do what, or trigger actions the
+         * server cannot see. Human approval covers them by default.
+         */
+        val DEFAULT_HIGH_RISK_TOOLS = setOf(
+            "forward_message",
+            "send_file",
+            "promote_admin",
+            "demote_admin",
+            "set_privacy_settings",
+            "invite_to_group",
+            "update_profile",
+            "configure_chat_folder",
+            "unban_user",
+            "unblock_user",
+            // A bot button can do anything the bot implements: pay, confirm, delete.
+            "press_inline_button",
+        )
+
+        /**
          * Standard MCP behavior hints derived from the same policy tables that
-         * enforce writes and confirmations at invocation time.
+         * enforce writes, confirmations, and human approval at invocation time.
+         * `destructiveHint` is true exactly for the tools the approval gate covers.
          */
         fun annotationsFor(
             toolName: String,
             additionalDestructiveTools: Collection<String> = emptyList(),
-        ): McpSchema.ToolAnnotations {
+        ): McpSchema.ToolAnnotations = annotationsFor(
+            toolName,
+            RiskPolicy(ServerModeProperties.ConfirmationProps(destructiveTools = additionalDestructiveTools.toList())),
+        )
+
+        fun annotationsFor(toolName: String, policy: RiskPolicy): McpSchema.ToolAnnotations {
             val readOnly = toolName !in WRITE_TOOLS
-            val destructive = !readOnly &&
-                (toolName in DEFAULT_DESTRUCTIVE_TOOLS || toolName in additionalDestructiveTools)
+            val destructive = !readOnly && policy.requiresApproval(toolName)
             return McpSchema.ToolAnnotations.builder()
                 .readOnlyHint(readOnly)
                 .destructiveHint(destructive)
@@ -138,13 +163,54 @@ class OperationGuardService(
         }
     }
 
-    /** The effective set of destructive tool names. */
-    private val destructiveTools: Set<String> =
-        if (props.confirmation.destructiveTools.isNotEmpty()) {
-            props.confirmation.destructiveTools.toSet()
-        } else {
-            DEFAULT_DESTRUCTIVE_TOOLS
+    /**
+     * Effective tool classification for one configuration.
+     *
+     * Configured lists add to the defaults. In 1.18.1 a non-empty
+     * `destructive-tools` replaced them, so listing one extra tool silently
+     * dropped confirmation and approval from `delete_message`, `ban_user`, …
+     */
+    class RiskPolicy(confirmation: ServerModeProperties.ConfirmationProps) {
+        val destructiveTools: Set<String> =
+            DEFAULT_DESTRUCTIVE_TOOLS + validated(confirmation.destructiveTools, "destructive-tools")
+
+        val highRiskTools: Set<String> =
+            (DEFAULT_HIGH_RISK_TOOLS + validated(confirmation.highRiskTools, "high-risk-tools")) - destructiveTools
+
+        val scope: ServerModeProperties.ApprovalScope = confirmation.approvalScope
+
+        /** Tools that ask for human approval when an approval mode is on. */
+        val approvalTools: Set<String> = when (scope) {
+            ServerModeProperties.ApprovalScope.DESTRUCTIVE -> destructiveTools
+            ServerModeProperties.ApprovalScope.HIGH_RISK -> destructiveTools + highRiskTools
+            ServerModeProperties.ApprovalScope.ALL_WRITES -> WRITE_TOOLS
         }
+
+        fun requiresApproval(toolName: String): Boolean = toolName in approvalTools
+
+        /** "destructive", "high-risk", or "write", for approval prompts and logs. */
+        fun riskLabel(toolName: String): String = when (toolName) {
+            in destructiveTools -> "destructive"
+            in highRiskTools -> "high-risk"
+            else -> "write"
+        }
+
+        private fun validated(names: List<String>, setting: String): Set<String> {
+            val cleaned = names.map(String::trim).filter(String::isNotEmpty).toSet()
+            val unknown = cleaned - WRITE_TOOLS
+            require(unknown.isEmpty()) {
+                "server-mode.confirmation.$setting lists ${unknown.sorted().joinToString()}, which " +
+                    (if (unknown.size == 1) "is not a write tool" else "are not write tools") +
+                    "; only write tools can be gated"
+            }
+            return cleaned
+        }
+    }
+
+    val riskPolicy = RiskPolicy(props.confirmation)
+
+    /** The effective set of destructive tool names (defaults plus configured additions). */
+    private val destructiveTools: Set<String> = riskPolicy.destructiveTools
 
     /**
      * Checks whether the tool invocation is permitted.
@@ -208,6 +274,15 @@ class OperationGuardService(
      * stop asking anyone the moment caller acknowledgement was turned off.
      */
     fun isDestructiveTool(toolName: String): Boolean = toolName in destructiveTools
+
+    /**
+     * Whether human approval covers this tool under the configured
+     * [ServerModeProperties.ApprovalScope]. Independent of the approval mode,
+     * like [isDestructiveTool].
+     */
+    fun requiresHumanApproval(toolName: String): Boolean = riskPolicy.requiresApproval(toolName)
+
+    fun riskLabel(toolName: String): String = riskPolicy.riskLabel(toolName)
 
     private fun getDestructiveDescription(toolName: String): String {
         return when (toolName) {

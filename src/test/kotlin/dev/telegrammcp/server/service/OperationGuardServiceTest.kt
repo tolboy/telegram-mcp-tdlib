@@ -8,6 +8,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertDoesNotThrow
 import org.junit.jupiter.api.assertThrows
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -153,7 +154,7 @@ class OperationGuardServiceTest {
     }
 
     @Test
-    fun `custom destructive tools override defaults`() {
+    fun `configured destructive tools add to the defaults instead of replacing them`() {
         val service = guard(
             ServerModeProperties(
                 confirmation = ServerModeProperties.ConfirmationProps(
@@ -163,15 +164,89 @@ class OperationGuardServiceTest {
             ),
         )
 
-        // Custom list: send_message now requires confirmation
+        // The configured tool now requires confirmation…
         assertThrows<ConfirmationRequiredException> {
             service.checkPermission("send_message", emptyMap())
         }
-
-        // Default destructive (delete_message) no longer in list
-        assertDoesNotThrow {
+        // …and the defaults still do. In 1.18.1 this list replaced them.
+        assertThrows<ConfirmationRequiredException> {
             service.checkPermission("delete_message", emptyMap())
         }
+        assertTrue(service.isDestructiveTool("ban_user"))
+    }
+
+    @Test
+    fun `configured gating lists must name write tools`() {
+        val error = assertThrows<IllegalArgumentException> {
+            guard(
+                ServerModeProperties(
+                    confirmation = ServerModeProperties.ConfirmationProps(destructiveTools = listOf("delete_mesage")),
+                ),
+            )
+        }
+        assertTrue(error.message.orEmpty().contains("delete_mesage"))
+        assertThrows<IllegalArgumentException> {
+            guard(
+                ServerModeProperties(
+                    confirmation = ServerModeProperties.ConfirmationProps(highRiskTools = listOf("get_history")),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `approval scope decides which tools need a human`() {
+        fun scoped(scope: ServerModeProperties.ApprovalScope, highRisk: List<String> = emptyList()) = guard(
+            ServerModeProperties(
+                confirmation = ServerModeProperties.ConfirmationProps(approvalScope = scope, highRiskTools = highRisk),
+            ),
+        )
+
+        val destructive = scoped(ServerModeProperties.ApprovalScope.DESTRUCTIVE)
+        assertTrue(destructive.requiresHumanApproval("ban_user"))
+        assertFalse(destructive.requiresHumanApproval("forward_message"))
+
+        val highRisk = scoped(ServerModeProperties.ApprovalScope.HIGH_RISK, highRisk = listOf("send_voice"))
+        OperationGuardService.DEFAULT_HIGH_RISK_TOOLS.forEach { assertTrue(highRisk.requiresHumanApproval(it), it) }
+        assertTrue(highRisk.requiresHumanApproval("send_voice"))
+        assertTrue(highRisk.requiresHumanApproval("delete_message"))
+        assertFalse(highRisk.requiresHumanApproval("send_message"))
+        assertFalse(highRisk.requiresHumanApproval("send_reaction"))
+        assertEquals("high-risk", highRisk.riskLabel("forward_message"))
+        assertEquals("destructive", highRisk.riskLabel("delete_message"))
+
+        val all = scoped(ServerModeProperties.ApprovalScope.ALL_WRITES)
+        OperationGuardService.WRITE_TOOLS.forEach { assertTrue(all.requiresHumanApproval(it), it) }
+        assertFalse(all.requiresHumanApproval("get_history"))
+    }
+
+    @Test
+    fun `high-risk tools do not demand the confirmed argument`() {
+        val service = guard(
+            ServerModeProperties(confirmation = ServerModeProperties.ConfirmationProps(enabled = true)),
+        )
+        // Approval is a separate, human gate; existing clients never sent
+        // `confirmed` for these, so requiring it would break them.
+        assertDoesNotThrow { service.checkPermission("forward_message", emptyMap()) }
+    }
+
+    @Test
+    fun `destructive hints follow the effective approval set`() {
+        val policy = OperationGuardService.RiskPolicy(
+            ServerModeProperties.ConfirmationProps(destructiveTools = listOf("send_message")),
+        )
+        assertTrue(OperationGuardService.annotationsFor("send_message", policy).destructiveHint())
+        assertTrue(OperationGuardService.annotationsFor("delete_message", policy).destructiveHint())
+        assertTrue(OperationGuardService.annotationsFor("forward_message", policy).destructiveHint())
+        assertTrue(OperationGuardService.annotationsFor("press_inline_button", policy).destructiveHint())
+        assertFalse(OperationGuardService.annotationsFor("send_reaction", policy).destructiveHint())
+        assertFalse(OperationGuardService.annotationsFor("get_history", policy).destructiveHint())
+
+        val narrow = OperationGuardService.RiskPolicy(
+            ServerModeProperties.ConfirmationProps(approvalScope = ServerModeProperties.ApprovalScope.DESTRUCTIVE),
+        )
+        assertFalse(OperationGuardService.annotationsFor("forward_message", narrow).destructiveHint())
+        assertTrue(OperationGuardService.annotationsFor("ban_user", narrow).destructiveHint())
     }
 
     // ── Helper methods ──────────────────────────────────────────────────────

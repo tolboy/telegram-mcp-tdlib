@@ -47,6 +47,12 @@ inside an un-published Docker network namespace is not reachable from the host,
 so a generated Docker entry with `--writes` pins `elicitation` instead of `auto`
 and refuses destructive tools on clients that cannot ask.
 
+Approval covers high-risk tools too unless `MCP_APPROVAL_SCOPE=destructive`:
+`forward_message`, `send_file`, `promote_admin`, `demote_admin`,
+`set_privacy_settings`, `invite_to_group`, `update_profile`,
+`configure_chat_folder`, `unban_user`, `unblock_user`, and
+`press_inline_button`. `MCP_APPROVAL_SCOPE=all-writes` extends it to every write.
+
 For a custom surface, apply exact-name `MCP_TOOL_ALLOW` and `MCP_TOOL_DENY`
 filters. They run after the profile and before read-only filtering. Unknown
 names stop startup, and deny always wins over allow.

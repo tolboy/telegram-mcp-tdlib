@@ -168,6 +168,56 @@ class DestructiveApprovalServiceTest {
         verify(exactly = 0) { exchange.createElicitation(any()) }
     }
 
+    /**
+     * Forwarding a chat to a stranger or handing out admin rights is not a
+     * delete, but it is exactly what a prompt-injected model would be steered
+     * into. Under the default scope a person decides these too.
+     */
+    @Test
+    fun `high-risk tools are gated under the default scope and named as such`() {
+        val exchange = exchangeAnswering(McpSchema.ElicitResult.Action.ACCEPT)
+        val request = slot<McpSchema.ElicitRequest>()
+        every { exchange.createElicitation(capture(request)) } returns
+            McpSchema.ElicitResult(McpSchema.ElicitResult.Action.ACCEPT, emptyMap())
+
+        service(ServerModeProperties.ApprovalMode.ELICITATION).requireApproval(
+            exchange,
+            "forward_message",
+            mapOf("from_chat_id" to -1001L, "to_chat_id" to 555L, "message_ids" to listOf(1L, 2L)),
+        )
+
+        val message = request.captured.message()
+        assertTrue("high-risk" in message && "forward_message" in message, message)
+        assertTrue("from_chat_id=-1001" in message && "to_chat_id=555" in message, message)
+    }
+
+    @Test
+    fun `every default high-risk tool is refused without an approver`() {
+        val noElicitation = mockk<McpSyncServerExchange>(relaxed = true)
+        every { noElicitation.clientCapabilities } returns McpSchema.ClientCapabilities.builder().build()
+        val service = service(ServerModeProperties.ApprovalMode.ELICITATION)
+        OperationGuardService.DEFAULT_HIGH_RISK_TOOLS.forEach { tool ->
+            assertFailsWith<ApprovalUnavailableException>(tool) { service.requireApproval(noElicitation, tool, emptyMap()) }
+        }
+        // Ordinary sends and reactions stay ungated unless the scope is all-writes.
+        service.requireApproval(noElicitation, "send_message", emptyMap())
+        service.requireApproval(noElicitation, "send_reaction", emptyMap())
+    }
+
+    @Test
+    fun `the destructive scope keeps the 1_18_1 behaviour`() {
+        val props = ServerModeProperties(
+            confirmation = ServerModeProperties.ConfirmationProps(
+                approval = ServerModeProperties.ApprovalMode.ELICITATION,
+                approvalScope = ServerModeProperties.ApprovalScope.DESTRUCTIVE,
+            ),
+        )
+        val exchange = mockk<McpSyncServerExchange>(relaxed = true)
+        DestructiveApprovalService(props, OperationGuardService(props, mockk(relaxed = true)), mockk(relaxed = true))
+            .requireApproval(exchange, "forward_message", emptyMap())
+        verify(exactly = 0) { exchange.createElicitation(any()) }
+    }
+
     @Test
     fun `the default mode asks nobody and blocks nothing`() {
         val exchange = mockk<McpSyncServerExchange>(relaxed = true)
