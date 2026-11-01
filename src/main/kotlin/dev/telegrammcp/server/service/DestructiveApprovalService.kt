@@ -41,7 +41,12 @@ class DestructiveApprovalService(
      */
     private val loopbackServer: Lazy<LoopbackApprovalServer> = injectedLoopbackServer
         ?.let { lazyOf(it) }
-        ?: lazy { LoopbackApprovalServer(props.confirmation.approvalTimeout) }
+        ?: lazy {
+            LoopbackApprovalServer(
+                props.confirmation.approvalTimeout,
+                printLink = props.confirmation.approvalLinkOnStderr || stderrIsTerminal(),
+            )
+        }
 
     private val log = StructuredLogger.forClass<DestructiveApprovalService>()
 
@@ -58,15 +63,22 @@ class DestructiveApprovalService(
      * to watch a host prompt that never appears will read the resulting refusals
      * as a Telegram fault.
      */
+    private fun loopbackDelivery(): String =
+        if (props.confirmation.approvalLinkOnStderr || stderrIsTerminal()) {
+            "whose link is written to stderr"
+        } else {
+            "opened in the default browser (the link is not printed)"
+        }
+
     fun describeApprovalRoute(): String = when (props.confirmation.approval) {
         ApprovalMode.OFF -> "no approval is requested"
         ApprovalMode.ELICITATION ->
             "asked through the MCP host; clients without the elicitation capability cannot run them"
         ApprovalMode.LOOPBACK ->
-            "asked on a loopback page, with the link written to stderr"
+            "asked on a loopback page ${loopbackDelivery()}"
         ApprovalMode.AUTO ->
             "asked through the MCP host when it supports elicitation, otherwise on a loopback page " +
-                "whose link is written to stderr"
+                loopbackDelivery()
     }
 
     /**
@@ -194,6 +206,13 @@ class DestructiveApprovalService(
                     toolName,
                     "the local loopback approval endpoint is closed or shutting down",
                     "Retry only after the server has restarted cleanly.",
+                )
+            LoopbackApprovalServer.ApprovalResult.UNDELIVERABLE ->
+                throw ApprovalUnavailableException(
+                    toolName,
+                    "no browser could be opened for the loopback approval page",
+                    "Run the server where a browser can open, set MCP_APPROVAL_LINK_ON_STDERR=true " +
+                        "if only the operator can read server output, or use MCP_DESTRUCTIVE_APPROVAL=elicitation.",
                 )
         }
     }

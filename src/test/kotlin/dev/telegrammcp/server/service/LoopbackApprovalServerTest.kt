@@ -4,10 +4,12 @@ import com.sun.net.httpserver.HttpServer
 import dev.telegrammcp.server.service.LoopbackApprovalServer.ApprovalResult
 import org.junit.jupiter.api.Test
 import java.io.IOException
-import java.net.HttpURLConnection
 import java.net.Inet4Address
 import java.net.InetSocketAddress
 import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
 import java.nio.charset.StandardCharsets
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
@@ -48,24 +50,47 @@ class LoopbackApprovalServerTest {
         }
     }
 
-    private fun post(url: String, decision: String): Int = request(url, "POST", "decision=$decision")
+    private val http: HttpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build()
+
+    /** What the operator's browser does: load the page, then submit its form. */
+    private fun post(url: String, decision: String): Int {
+        val token = formToken(url) ?: return request(url, "POST", "decision=$decision")
+        return request(url, "POST", "form_token=$token&decision=$decision")
+    }
+
+    private fun formToken(url: String): String? {
+        val response = send(url, "GET", null, emptyMap())
+        if (response.statusCode() != 200) return null
+        return Regex("name=\"form_token\" value=\"([^\"]+)\"").find(response.body())?.groupValues?.get(1)
+    }
 
     private fun get(url: String): Int = request(url, "GET", null)
 
-    private fun request(url: String, method: String, body: String?): Int {
-        val connection = URI(url).toURL().openConnection() as HttpURLConnection
-        connection.requestMethod = method
-        connection.connectTimeout = 5_000
-        connection.readTimeout = 5_000
-        if (body != null) {
-            connection.doOutput = true
-            connection.outputStream.use { it.write(body.toByteArray(StandardCharsets.UTF_8)) }
-        }
-        return try {
-            connection.responseCode
-        } finally {
-            connection.disconnect()
-        }
+    private fun request(
+        url: String,
+        method: String,
+        body: String?,
+        headers: Map<String, String> = if (method == "POST") mapOf("Origin" to originOf(url)) else emptyMap(),
+    ): Int = send(url, method, body, headers).statusCode()
+
+    private fun send(url: String, method: String, body: String?, headers: Map<String, String>): HttpResponse<String> {
+        val builder = HttpRequest.newBuilder(URI(url)).timeout(Duration.ofSeconds(5))
+            .method(method, body?.let { HttpRequest.BodyPublishers.ofString(it) } ?: HttpRequest.BodyPublishers.noBody())
+        headers.forEach { (name, value) -> builder.header(name, value) }
+        return http.send(builder.build(), HttpResponse.BodyHandlers.ofString())
+    }
+
+    private fun originOf(url: String): String = URI(url).let { "${it.scheme}://${it.host}:${it.port}" }
+
+    /** A server that hands the link to [announcer] the way a watched terminal would. */
+    private fun printingServer(
+        timeout: Duration,
+        announcer: Announcer,
+        serverFactory: ((InetSocketAddress, Int) -> HttpServer)? = null,
+    ): LoopbackApprovalServer = if (serverFactory == null) {
+        LoopbackApprovalServer(timeout, announcer.sink, printLink = true)
+    } else {
+        LoopbackApprovalServer(timeout, announcer.sink, serverFactory, printLink = true)
     }
 
     /** Runs [operatorAction] once the link appears, while the caller blocks. */
@@ -84,7 +109,7 @@ class LoopbackApprovalServerTest {
     @Test
     fun `approving on the page lets the operation proceed`() {
         val announcer = Announcer()
-        LoopbackApprovalServer(Duration.ofSeconds(15), announcer.sink).use { server ->
+        printingServer(Duration.ofSeconds(15), announcer).use { server ->
             val result = withPendingApproval(server, announcer) { url ->
                 assertEquals(200, get(url), "the operator must be able to open the page")
                 assertEquals(200, post(url, "approve"))
@@ -96,7 +121,7 @@ class LoopbackApprovalServerTest {
     @Test
     fun `denying on the page refuses the operation`() {
         val announcer = Announcer()
-        LoopbackApprovalServer(Duration.ofSeconds(15), announcer.sink).use { server ->
+        printingServer(Duration.ofSeconds(15), announcer).use { server ->
             val result = withPendingApproval(server, announcer) { url -> post(url, "deny") }
             assertEquals(ApprovalResult.DENIED, result)
         }
@@ -106,7 +131,7 @@ class LoopbackApprovalServerTest {
     @Test
     fun `an unanswered request expires as a refusal`() {
         val announcer = Announcer()
-        LoopbackApprovalServer(Duration.ofSeconds(1), announcer.sink).use { server ->
+        printingServer(Duration.ofSeconds(1), announcer).use { server ->
             assertEquals(
                 ApprovalResult.TIMED_OUT,
                 server.requestApproval("delete_message", "chat_id=1, message_id=2"),
@@ -121,7 +146,7 @@ class LoopbackApprovalServerTest {
     @Test
     fun `a link cannot answer a second operation`() {
         val announcer = Announcer()
-        LoopbackApprovalServer(Duration.ofSeconds(15), announcer.sink).use { server ->
+        printingServer(Duration.ofSeconds(15), announcer).use { server ->
             val url = withPendingApprovalReturningUrl(server, announcer)
             assertEquals(404, post(url, "approve"), "a spent link must no longer resolve")
             assertEquals(404, get(url), "a spent link must not render the page again")
@@ -144,7 +169,7 @@ class LoopbackApprovalServerTest {
     @Test
     fun `a wrong nonce is refused and reveals nothing`() {
         val announcer = Announcer()
-        LoopbackApprovalServer(Duration.ofSeconds(15), announcer.sink).use { server ->
+        printingServer(Duration.ofSeconds(15), announcer).use { server ->
             val started = CountDownLatch(1)
             val result = CompletableFuture.supplyAsync {
                 started.countDown()
@@ -165,7 +190,7 @@ class LoopbackApprovalServerTest {
     @Test
     fun `an unknown id is refused`() {
         val announcer = Announcer()
-        LoopbackApprovalServer(Duration.ofSeconds(15), announcer.sink).use { server ->
+        printingServer(Duration.ofSeconds(15), announcer).use { server ->
             val result = CompletableFuture.supplyAsync {
                 server.requestApproval("ban_user", "chat_id=1, user_id=2")
             }
@@ -182,9 +207,9 @@ class LoopbackApprovalServerTest {
     fun `closing the server refuses an in-flight request`() {
         val announcer = Announcer()
         val factoryCalls = AtomicInteger()
-        val server = LoopbackApprovalServer(
+        val server = printingServer(
             Duration.ofSeconds(30),
-            announcer.sink,
+            announcer,
             serverFactory = { address, backlog ->
                 factoryCalls.incrementAndGet()
                 HttpServer.create(address, backlog)
@@ -253,7 +278,7 @@ class LoopbackApprovalServerTest {
     @Test
     fun `the page escapes the description it renders`() {
         val announcer = Announcer()
-        LoopbackApprovalServer(Duration.ofSeconds(15), announcer.sink).use { server ->
+        printingServer(Duration.ofSeconds(15), announcer).use { server ->
             val result = CompletableFuture.supplyAsync {
                 server.requestApproval("ban_user", "chat_id=<script>alert(1)</script>")
             }
@@ -270,17 +295,13 @@ class LoopbackApprovalServerTest {
     @Test
     fun `the result page escapes what it echoes`() {
         val announcer = Announcer()
-        LoopbackApprovalServer(Duration.ofSeconds(15), announcer.sink).use { server ->
+        printingServer(Duration.ofSeconds(15), announcer).use { server ->
             val result = CompletableFuture.supplyAsync {
                 server.requestApproval("<img src=x onerror=alert(1)>", "chat_id=1")
             }
             val url = announcer.url()
-            val connection = URI(url).toURL().openConnection() as HttpURLConnection
-            connection.requestMethod = "POST"
-            connection.doOutput = true
-            connection.outputStream.use { it.write("decision=deny".toByteArray(StandardCharsets.UTF_8)) }
-            val body = connection.inputStream.use { it.readBytes().toString(StandardCharsets.UTF_8) }
-            connection.disconnect()
+            val token = formToken(url)
+            val body = send(url, "POST", "form_token=$token&decision=deny", mapOf("Origin" to originOf(url))).body()
 
             assertFalse("<img src=x" in body, "raw markup must not reach the confirmation page")
             assertTrue("&lt;img src=x" in body, "the tool name must still be shown, escaped")
@@ -292,9 +313,9 @@ class LoopbackApprovalServerTest {
     fun `the listener binds only to loopback`() {
         val announcer = Announcer()
         val requestedBind = AtomicReference<InetSocketAddress>()
-        LoopbackApprovalServer(
+        printingServer(
             Duration.ofSeconds(5),
-            announcer.sink,
+            announcer,
             serverFactory = { address, backlog ->
                 requestedBind.set(address)
                 HttpServer.create(address, backlog)
@@ -313,7 +334,7 @@ class LoopbackApprovalServerTest {
     @Test
     fun `an oversized post body is rejected without consuming the approval`() {
         val announcer = Announcer()
-        LoopbackApprovalServer(Duration.ofSeconds(15), announcer.sink).use { server ->
+        printingServer(Duration.ofSeconds(15), announcer).use { server ->
             val result = CompletableFuture.supplyAsync {
                 server.requestApproval("ban_user", "chat_id=1, user_id=2")
             }
@@ -321,6 +342,73 @@ class LoopbackApprovalServerTest {
 
             assertEquals(413, request(url, "POST", "decision=approve&padding=" + "x".repeat(5_000)))
             assertEquals(200, post(url, "deny"), "a rejected body must not decide the request")
+            assertEquals(ApprovalResult.DENIED, result.get(20, TimeUnit.SECONDS))
+        }
+    }
+
+    /**
+     * Host log files and agent-visible process output must not carry a working
+     * link. Without a watched terminal the server opens the page itself.
+     */
+    @Test
+    fun `without a terminal the page is opened in a browser and the link is not printed`() {
+        val announced = CompletableFuture<String>()
+        val opened = CompletableFuture<String>()
+        LoopbackApprovalServer(
+            Duration.ofSeconds(15),
+            announce = { line -> announced.complete(line) },
+            openBrowser = { url -> opened.complete(url); true },
+        ).use { server ->
+            val result = CompletableFuture.supplyAsync { server.requestApproval("ban_user", "chat_id=1") }
+            val url = opened.get(10, TimeUnit.SECONDS)
+            val notice = announced.get(10, TimeUnit.SECONDS)
+            assertFalse("nonce=" in notice || "/approve" in notice, "the link must not be printed: $notice")
+            assertTrue("ban_user" in notice, "the operator still learns what is waiting: $notice")
+            post(url, "approve")
+            assertEquals(ApprovalResult.APPROVED, result.get(20, TimeUnit.SECONDS))
+        }
+    }
+
+    @Test
+    fun `no browser and no terminal refuses at once without leaking the link`() {
+        val lines = mutableListOf<String>()
+        LoopbackApprovalServer(
+            Duration.ofSeconds(30),
+            announce = { line -> synchronized(lines) { lines += line } },
+            openBrowser = { false },
+        ).use { server ->
+            val startedAt = System.nanoTime()
+            assertEquals(ApprovalResult.UNDELIVERABLE, server.requestApproval("ban_user", "chat_id=1"))
+            assertTrue((System.nanoTime() - startedAt) / 1_000_000 < 5_000, "must not wait for the timeout")
+            assertTrue(lines.none { "nonce=" in it }, "the link must not be printed: $lines")
+        }
+    }
+
+    /**
+     * Knowing the link is not enough to answer: the decision has to come from
+     * the rendered page, on its own origin. A forged attempt must not consume
+     * the request either, or it could pre-empt the operator's real answer.
+     */
+    @Test
+    fun `a decision from outside the page is refused without consuming the request`() {
+        val announcer = Announcer()
+        printingServer(Duration.ofSeconds(15), announcer).use { server ->
+            val result = CompletableFuture.supplyAsync { server.requestApproval("ban_user", "chat_id=1") }
+            val url = announcer.url()
+            val token = formToken(url)
+            val body = "form_token=$token&decision=approve"
+
+            assertEquals(403, request(url, "POST", body, headers = emptyMap()), "a missing Origin must be refused")
+            assertEquals(403, request(url, "POST", body, mapOf("Origin" to "null")))
+            assertEquals(403, request(url, "POST", body, mapOf("Origin" to "http://evil.example")))
+            assertEquals(
+                403,
+                request(url, "POST", body, mapOf("Origin" to originOf(url), "Sec-Fetch-Site" to "cross-site")),
+            )
+            assertEquals(403, request(url, "POST", "decision=approve"), "the page's form token is required")
+            assertEquals(403, request(url, "POST", "form_token=wrong&decision=approve"))
+
+            assertEquals(200, post(url, "deny"), "the real answer still decides")
             assertEquals(ApprovalResult.DENIED, result.get(20, TimeUnit.SECONDS))
         }
     }

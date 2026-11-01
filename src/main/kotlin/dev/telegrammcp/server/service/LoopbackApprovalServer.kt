@@ -27,9 +27,20 @@ import java.util.concurrent.atomic.AtomicReference
  * the guarantee holds everywhere.
  *
  * What makes it a real approval is that nothing travels through the model: the
- * link is written to stderr, where the MCP host shows server output to its
- * operator, and the decision arrives on a separate connection. A model that was
- * talked into requesting a ban cannot answer the question about it.
+ * link is opened in the operator's browser, and the decision arrives on a
+ * separate connection. A model that was talked into requesting a ban cannot
+ * answer the question about it.
+ *
+ * The link is not written to stderr by default. Hosts keep server stderr in log
+ * files, and coding agents can often read those or the process output, which
+ * would hand a working approval link to the very party it guards against. It
+ * is printed only when [printLink] is set (stderr is a terminal a person
+ * watches, or `MCP_APPROVAL_LINK_ON_STDERR=true`). Otherwise the server opens
+ * the page itself and, failing that, refuses rather than leaking the link.
+ *
+ * The decision POST additionally needs the page's own Origin and a per-request
+ * form token that only the rendered page carries, so following the link from
+ * a tool that can merely fetch URLs is not enough to approve.
  *
  * The JDK server is deliberate. STDIO runs with no Spring web context at all,
  * so the approval path cannot depend on one.
@@ -43,6 +54,10 @@ class LoopbackApprovalServer(
     private val serverFactory: (InetSocketAddress, Int) -> HttpServer = { address, backlog ->
         HttpServer.create(address, backlog)
     },
+    /** Print the full link through [announce] instead of opening a browser. */
+    private val printLink: Boolean = false,
+    /** Opens the link in the operator's browser; false when no browser could be started. */
+    private val openBrowser: (String) -> Boolean = ::openInBrowser,
 ) : AutoCloseable {
 
     init {
@@ -74,16 +89,14 @@ class LoopbackApprovalServer(
         val approval = PendingApproval(
             id = randomToken(),
             nonce = randomToken(),
+            formToken = randomToken(),
             toolName = toolName,
             description = description,
         )
         val port = startAndRegister(approval) ?: return ApprovalResult.UNAVAILABLE
         try {
-            announce(
-                "APPROVAL REQUIRED for '$toolName' — $description\n" +
-                    "Approve or deny within ${timeout.toSeconds()}s: " +
-                    "http://127.0.0.1:$port/approve?id=${approval.id}&nonce=${approval.nonce}",
-            )
+            val url = "http://127.0.0.1:$port/approve?id=${approval.id}&nonce=${approval.nonce}"
+            if (!deliver(toolName, description, url)) return ApprovalResult.UNDELIVERABLE
             val answered = approval.answered.await(timeout.toMillis(), TimeUnit.MILLISECONDS)
             if (!answered) {
                 log.warn("Approval for '{}' expired after {}s", toolName, timeout.toSeconds())
@@ -98,6 +111,35 @@ class LoopbackApprovalServer(
             // interrupted, so a link can never authorise a second operation.
             pending.remove(approval.id)
         }
+    }
+
+    /**
+     * Gets the link to a person without putting it where an agent reads.
+     * Returns false when no channel is available; the caller then refuses.
+     */
+    private fun deliver(toolName: String, description: String, url: String): Boolean {
+        val header = "APPROVAL REQUIRED for '$toolName' — $description"
+        if (printLink) {
+            announce("$header\nApprove or deny within ${timeout.toSeconds()}s: $url")
+            return true
+        }
+        val opened = runCatching { openBrowser(url) }
+            .onFailure { error -> log.warn("Could not open the approval page: {}", error.message) }
+            .getOrDefault(false)
+        if (opened) {
+            announce(
+                "$header\nThe approval page was opened in your browser; answer there within " +
+                    "${timeout.toSeconds()}s. The link is not printed so that an agent reading " +
+                    "this output cannot follow it (MCP_APPROVAL_LINK_ON_STDERR=true prints it).",
+            )
+            return true
+        }
+        announce(
+            "$header\nRefused: no browser could be opened for the approval page, and the link is " +
+                "not printed where an agent could read it. Set MCP_APPROVAL_LINK_ON_STDERR=true if " +
+                "only you can see this output, or use MCP_DESTRUCTIVE_APPROVAL=elicitation.",
+        )
+        return false
     }
 
     /**
@@ -159,8 +201,19 @@ class LoopbackApprovalServer(
             when (exchange.requestMethod.uppercase()) {
                 "GET" -> respondHtml(exchange, page(approval))
                 "POST" -> {
+                    if (!sameOriginPost(exchange)) {
+                        // Not consumed: a forged cross-site POST must not be
+                        // able to deny the operator's real decision either.
+                        respond(exchange, 403, "The decision must be submitted from the approval page.")
+                        return
+                    }
                     val body = readBody(exchange) ?: return
-                    val decision = parseQuery(body)["decision"]
+                    val form = parseQuery(body)
+                    if (!constantTimeEquals(form["form_token"].orEmpty(), approval.formToken)) {
+                        respond(exchange, 403, "The decision must be submitted from the approval page.")
+                        return
+                    }
+                    val decision = form["decision"]
                     approval.complete(
                         if (decision == "approve") ApprovalResult.APPROVED else ApprovalResult.DENIED,
                     )
@@ -183,6 +236,19 @@ class LoopbackApprovalServer(
         }
     }
 
+    /**
+     * Browsers send `Origin` on every form POST (the page's Referrer-Policy is
+     * `same-origin` so it is not blanked to `null`). Requiring the exact
+     * loopback origin keeps other sites and bare URL fetchers from answering.
+     */
+    private fun sameOriginPost(exchange: HttpExchange): Boolean {
+        val expected = "http://127.0.0.1:${exchange.localAddress.port}"
+        val origin = exchange.requestHeaders.getFirst("Origin") ?: return false
+        if (origin != expected) return false
+        val fetchSite = exchange.requestHeaders.getFirst("Sec-Fetch-Site")
+        return fetchSite == null || fetchSite == "same-origin"
+    }
+
     private fun page(approval: PendingApproval): String = """
         <!doctype html><html lang="en"><head><meta charset="utf-8">
         <title>Approve Telegram operation</title>
@@ -197,6 +263,7 @@ class LoopbackApprovalServer(
         <p class="note">An AI assistant requested it. This server cannot undo it once it runs.</p>
         <div class="op"><strong>${escape(approval.toolName)}</strong><br>${escape(approval.description)}</div>
         <form method="post">
+          <input type="hidden" name="form_token" value="${escape(approval.formToken)}">
           <button class="approve" name="decision" value="approve" type="submit">Approve</button>
           <button class="deny" name="decision" value="deny" type="submit">Deny</button>
         </form>
@@ -217,7 +284,9 @@ class LoopbackApprovalServer(
         // The page is a security decision; caching or embedding it is not wanted.
         exchange.responseHeaders.add("Cache-Control", "no-store")
         exchange.responseHeaders.add("X-Frame-Options", "DENY")
-        exchange.responseHeaders.add("Referrer-Policy", "no-referrer")
+        // same-origin, not no-referrer: with no-referrer browsers send
+        // `Origin: null` on the form POST and the origin check cannot pass.
+        exchange.responseHeaders.add("Referrer-Policy", "same-origin")
         exchange.responseHeaders.add(
             "Content-Security-Policy",
             "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
@@ -311,6 +380,7 @@ class LoopbackApprovalServer(
     private class PendingApproval(
         val id: String,
         val nonce: String,
+        val formToken: String,
         val toolName: String,
         val description: String,
     ) {
@@ -343,8 +413,42 @@ class LoopbackApprovalServer(
         DENIED,
         TIMED_OUT,
         UNAVAILABLE,
+
+        /** No channel to the operator that an agent cannot also read. */
+        UNDELIVERABLE,
     }
 }
+
+/**
+ * Opens [url] with the platform's default browser. The child gets no stdin and
+ * its output is discarded, so it cannot touch an STDIO transport.
+ */
+internal fun openInBrowser(url: String): Boolean {
+    val os = System.getProperty("os.name").orEmpty().lowercase()
+    val command = when {
+        os.contains("win") -> listOf("rundll32", "url.dll,FileProtocolHandler", url)
+        os.contains("mac") -> listOf("open", url)
+        System.getenv("DISPLAY").isNullOrBlank() && System.getenv("WAYLAND_DISPLAY").isNullOrBlank() -> return false
+        else -> listOf("xdg-open", url)
+    }
+    return try {
+        val process = ProcessBuilder(command)
+            .redirectInput(ProcessBuilder.Redirect.from(java.io.File(if (os.contains("win")) "NUL" else "/dev/null")))
+            .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+            .redirectError(ProcessBuilder.Redirect.DISCARD)
+            .start()
+        // A launcher that is still running after a few seconds has handed off.
+        !process.waitFor(5, TimeUnit.SECONDS) || process.exitValue() == 0
+    } catch (error: java.io.IOException) {
+        false
+    } catch (interrupted: InterruptedException) {
+        Thread.currentThread().interrupt()
+        false
+    }
+}
+
+/** True when stderr is an interactive terminal a person is presumably watching. */
+internal fun stderrIsTerminal(): Boolean = runCatching { System.console()?.isTerminal == true }.getOrDefault(false)
 
 /** Thrown when the approval listener cannot be started at all. */
 class ApprovalEndpointException(cause: Exception) :

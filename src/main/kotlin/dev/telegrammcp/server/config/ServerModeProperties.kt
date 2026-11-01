@@ -51,6 +51,13 @@ data class ServerModeProperties(
         val approvalScope: ApprovalScope = ApprovalScope.HIGH_RISK,
 
         /**
+         * Print the loopback approval link on stderr even when stderr is not a
+         * terminal. Off by default: host log files and agent-visible process
+         * output would otherwise carry a working approval link.
+         */
+        val approvalLinkOnStderr: Boolean = false,
+
+        /**
          * How a destructive operation obtains human approval. [ApprovalMode.OFF]
          * keeps the caller acknowledgement above as the only gate.
          */

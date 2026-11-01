@@ -230,6 +230,10 @@ server-mode:
     # Loopback-page answer deadline. Host elicitation uses the MCP request
     # deadline negotiated by the SDK/client instead.
     approval-timeout: ${MCP_DESTRUCTIVE_APPROVAL_TIMEOUT:120s}
+    # The loopback page opens in your browser. Its link goes to stderr only when
+    # stderr is a terminal, or when this is true (only if no agent can read the
+    # server's output or log files).
+    approval-link-on-stderr: ${MCP_APPROVAL_LINK_ON_STDERR:false}
   file-security:
     # Allowed root directories for file operations (empty = deny all file ops)
     allowed-roots: ${MCP_FILE_ROOTS:}

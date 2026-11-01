@@ -40,7 +40,9 @@ unless `MCP_ALLOW_MODEL_CONFIRMED_WRITES=true`.
 
 `MCP_DESTRUCTIVE_APPROVAL=auto` obtains the answer from a person instead. The
 server asks the MCP host when it advertised elicitation; otherwise it opens a
-single-use, nonce-protected page on IPv4 loopback and prints the link to stderr.
+single-use, nonce-protected page on IPv4 loopback and opens it in the default
+browser (the link is printed on stderr only when stderr is a terminal or
+`MCP_APPROVAL_LINK_ON_STDERR=true`).
 Both replies travel outside the model's turn. Select `elicitation` or `loopback`
 to require one route and fail closed when it is unavailable. A loopback page
 inside an un-published Docker network namespace is not reachable from the host,
