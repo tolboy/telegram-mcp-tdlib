@@ -122,6 +122,36 @@ class AccessPermissionServiceTest {
     }
 
     @Test
+    fun `permission file must be a regular file that other local users cannot rewrite`() {
+        val real = directory.resolve("permissions.json")
+        Files.writeString(real, mapper.writeValueAsString(PermissionDocument(1, emptyList())))
+        val link = directory.resolve("permissions-link.json")
+        if (runCatching { Files.createSymbolicLink(link, real) }.isSuccess) {
+            val error = assertFails {
+                AccessPermissionService(McpSecurityProperties(permissionsFile = link.toString()), PlatformPaths(), mapper)
+            }
+            assertContains(error.message.orEmpty(), "symbolic link")
+        }
+
+        val shared = runCatching {
+            Files.setPosixFilePermissions(
+                real,
+                setOf(
+                    java.nio.file.attribute.PosixFilePermission.OWNER_READ,
+                    java.nio.file.attribute.PosixFilePermission.OWNER_WRITE,
+                    java.nio.file.attribute.PosixFilePermission.GROUP_WRITE,
+                ),
+            )
+        }.isSuccess
+        if (shared) {
+            val error = assertFails {
+                AccessPermissionService(McpSecurityProperties(permissionsFile = real.toString()), PlatformPaths(), mapper)
+            }
+            assertContains(error.message.orEmpty(), "MCP_PERMISSIONS_FILE")
+        }
+    }
+
+    @Test
     fun `account and grants propagate into reused coroutine workers without leaking between requests`() {
         val registry = TelegramAccountRegistry().also {
             for (label in listOf("work", "personal")) it.register(TelegramAccountRegistry.AccountHandle(label, mockk(relaxed = true)))
