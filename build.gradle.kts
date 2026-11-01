@@ -3,10 +3,10 @@ import java.nio.file.Path
 import java.util.zip.ZipFile
 
 plugins {
-    kotlin("jvm") version "2.4.21"
-    kotlin("plugin.spring") version "2.4.21"
-    id("org.springframework.boot") version "4.1.1"
-    id("io.spring.dependency-management") version "1.1.7"
+    kotlin("jvm")
+    kotlin("plugin.spring")
+    id("org.springframework.boot")
+    id("io.spring.dependency-management")
 }
 
 group = "dev.telegrammcp"

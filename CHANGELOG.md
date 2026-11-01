@@ -5,6 +5,10 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- Declare Gradle plugin versions in `settings.gradle.kts` so IntelliJ can
+  resolve `org.jetbrains.kotlin.gradle.dsl.JvmTarget`. Reload the Gradle project
+  after updating.
+
 ## 1.18.0 - 2026-10-26
 
 This release adds event waiting and richer message context, updates TDLib, and
