@@ -18,6 +18,7 @@ import java.time.Duration
 import java.util.UUID
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.Semaphore
 import java.util.concurrent.atomic.AtomicBoolean
@@ -51,7 +52,7 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
         const val QUEUE_CAPACITY = 20_000
         const val MAX_WAITERS_PER_ACCOUNT = 25
         private const val MAX_BATCH = 4_096
-        private const val GAP = "coverage_gap"
+        const val GAP = "coverage_gap"
     }
 
     private class Observed(val account: String, val kind: String, val chatId: Long?, val messageId: Long?, val at: Instant)
@@ -59,7 +60,14 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
         val sequence get() = entries.lastOrNull()?.sequence ?: 0L
     }
 
+    /** Observes accepted updates on the writer thread, outside the journal lock. Must not block. */
+    fun interface Listener {
+        fun onChange(account: String, kind: String, chatId: Long?, messageId: Long?)
+    }
+
     private val log = StructuredLogger.forClass<ChangeJournal>()
+    private val listeners = CopyOnWriteArrayList<Listener>()
+    private val listenerGaps: MutableSet<String> = ConcurrentHashMap.newKeySet()
     private val lineWriter = mapper.writer().without(SerializationFeature.INDENT_OUTPUT)
     private val queue = ArrayBlockingQueue<Observed>(queueCapacity)
     private val enqueued = AtomicLong()
@@ -82,10 +90,14 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
         if (closed) return
         val label = TelegramAccountRegistry.normalizeLabel(account)
         if (queue.offer(Observed(label, kind, chatId, messageId, Instant.now()))) enqueued.incrementAndGet()
-        else overflowed += label
+        else { overflowed += label; if (listeners.isNotEmpty()) listenerGaps += label }
         if (writerStarted.compareAndSet(false, true)) {
             writer = Thread(::drain, "telegram-change-journal").apply { isDaemon = true; start() }
         }
+    }
+
+    fun addListener(listener: Listener) {
+        listeners += listener
     }
 
     fun page(account: String, cursor: String?, limit: Int, allowed: (Long) -> Boolean): ChangePage {
@@ -202,8 +214,20 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
                 try { batch.groupBy { it.account }.forEach { (account, items) -> persist(account, items) } }
                 finally { handled += batch.size; progress.signalAll() }
             }
+            dispatch(batch)
             batch.clear()
         }
+    }
+
+    private fun dispatch(batch: List<Observed>) {
+        if (listeners.isEmpty()) return
+        fun deliver(account: String, kind: String, chatId: Long?, messageId: Long?) = listeners.forEach { listener ->
+            try { listener.onChange(account, kind, chatId, messageId) }
+            catch (failure: Exception) { log.warn("Change listener failed: {}", failure.javaClass.simpleName) }
+        }
+        batch.forEach { deliver(it.account, it.kind, it.chatId, it.messageId) }
+        // Overflow dropped updates that listeners never saw; they learn of the loss once, as a gap.
+        listenerGaps.toList().forEach { if (listenerGaps.remove(it)) deliver(it, GAP, null, null) }
     }
 
     private fun persist(account: String, items: List<Observed>) {
