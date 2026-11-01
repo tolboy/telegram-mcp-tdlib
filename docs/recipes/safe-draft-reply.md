@@ -8,7 +8,8 @@ send.
 ## Configuration
 
 Drafts are a write operation, so this recipe opts out of read-only mode — but
-keeps the surface at `inbox` and confirmation gating on:
+keeps the surface at `inbox`, confirmation gating on, and asks a person (not
+the model) to approve anything destructive or high-risk:
 
 ```json
 "env": {
@@ -16,9 +17,17 @@ keeps the surface at `inbox` and confirmation gating on:
   "TDLIB_API_HASH_FILE": "/absolute/path/to/telegram-api-hash",
   "MCP_TOOL_PROFILE": "inbox",
   "MCP_READ_ONLY": "false",
-  "MCP_CONFIRMATION_REQUIRED": "true"
+  "MCP_CONFIRMATION_REQUIRED": "true",
+  "MCP_DESTRUCTIVE_APPROVAL": "auto"
 }
 ```
+
+Startup refuses `MCP_READ_ONLY=false` without a human approval route, so
+`MCP_DESTRUCTIVE_APPROVAL` is required here. `auto` asks through the MCP host
+when it supports elicitation and on a local approval page otherwise; in Docker,
+where the local page is not reachable from the host, use `elicitation`.
+`save_draft` and `clear_draft` themselves are not gated, so the recipe runs
+without prompts until the model reaches for something riskier.
 
 ## Prompt
 
