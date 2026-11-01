@@ -241,9 +241,10 @@ management:
         enabled: true
   info:
     env:
-      enabled: true
+      # Disabled: an unauthenticated /actuator/info must not grow an environment dump.
+      enabled: false
     git:
-      mode: full
+      mode: simple
   metrics:
     tags:
       application: telegram-mcp-server

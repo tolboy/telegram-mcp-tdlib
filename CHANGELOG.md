@@ -17,6 +17,11 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 - Clamp runtime anti-spam overrides to a default ceiling, refuse a shared-write
   or corrupt overrides file at startup, and reject secret files that Everyone
   or Authenticated Users can write on Windows.
+- Warn when a TDLib session directory is created, record that TDLib is not
+  encrypting it, and restrict the directory to the owner on POSIX. Warn when
+  HTTP is bound off loopback in API-key mode.
+- Stop publishing the Actuator environment contributor and full git metadata
+  on unauthenticated `/actuator/info`.
 - Declare Gradle plugin versions in `settings.gradle.kts` so IntelliJ can
   resolve `org.jetbrains.kotlin.gradle.dsl.JvmTarget`. Reload the Gradle project
   after updating.
