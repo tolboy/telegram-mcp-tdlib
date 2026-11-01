@@ -60,6 +60,21 @@ class CsrfSecurityFilterChainTest {
     }
 
     @Test
+    fun `an MCP session id cannot move to another authenticated client`() = withChain(
+        apiKey = "",
+        clients = listOf(
+            McpSecurityProperties.ClientKeyProps(id = "client-a", apiKey = "key-a"),
+            McpSecurityProperties.ClientKeyProps(id = "client-b", apiKey = "key-b"),
+        ),
+    ) { chain ->
+        assertEquals(204, request(chain, "/mcp", "Authorization" to "Bearer key-a", sessionId = "sess-1"))
+        assertEquals(403, request(chain, "/mcp", "Authorization" to "Bearer key-b", sessionId = "sess-1"))
+        assertEquals(204, request(chain, "/mcp", "Authorization" to "Bearer key-a", sessionId = "sess-1"))
+        assertEquals(204, request(chain, "/mcp", "Authorization" to "Bearer key-a", method = "DELETE", sessionId = "sess-1"))
+        assertEquals(204, request(chain, "/mcp", "Authorization" to "Bearer key-b", sessionId = "sess-1"))
+    }
+
+    @Test
     fun `wizard nonce remains required and works without an additional CSRF token`() =
         withChain(wizard = AuthWizardProperties(enabled = true, nonce = "wizard-secret")) { chain ->
             assertEquals(204, request(chain, "/auth/logout", "X-Auth-Wizard-Nonce" to "wizard-secret"))
@@ -80,12 +95,13 @@ class CsrfSecurityFilterChainTest {
         apiKey: String = "secret-key",
         mode: McpAuthMode = McpAuthMode.API_KEY,
         wizard: AuthWizardProperties = AuthWizardProperties(),
+        clients: List<McpSecurityProperties.ClientKeyProps> = emptyList(),
         test: (Filter) -> Unit,
     ) {
         AnnotationConfigWebApplicationContext().use { context ->
             context.servletContext = MockServletContext()
             val props = McpSecurityProperties(security = McpSecurityProperties.SecurityProps(
-                apiKey = apiKey, mode = mode,
+                apiKey = apiKey, mode = mode, clients = clients,
                 oauth = McpSecurityProperties.OAuthProps(resourceUri = "https://mcp.example/mcp"),
             ))
             context.addBeanFactoryPostProcessor { factory ->
@@ -109,6 +125,7 @@ class CsrfSecurityFilterChainTest {
         method: String = "POST",
         origin: String? = null,
         host: String? = null,
+        sessionId: String? = null,
         csrfToken: Boolean = false,
     ): Int {
         val request = MockHttpServletRequest(method, path).also {
@@ -118,6 +135,7 @@ class CsrfSecurityFilterChainTest {
             header?.let { (name, value) -> it.addHeader(name, value) }
             origin?.let { value -> it.addHeader("Origin", value) }
             host?.let { value -> it.addHeader("Host", value) }
+            sessionId?.let { value -> it.addHeader(McpSessionPrincipalBinder.HEADER, value) }
         }
         val response = MockHttpServletResponse()
         if (csrfToken) {

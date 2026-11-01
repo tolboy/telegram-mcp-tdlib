@@ -15,6 +15,9 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 - Declare Gradle plugin versions in `settings.gradle.kts` so IntelliJ can
   resolve `org.jetbrains.kotlin.gradle.dsl.JvmTarget`. Reload the Gradle project
   after updating.
+- **Behaviour change:** a present non-loopback `Host` on `/mcp` is HTTP 403
+  unless it is listed in `MCP_ALLOWED_HOSTS`. A missing Host stays allowed.
+  `Mcp-Session-Id` stays bound to the first authenticated client that uses it.
 
 ## 1.18.0 - 2026-10-26
 
