@@ -48,6 +48,26 @@ class AccessPermissionService(props: McpSecurityProperties, paths: PlatformPaths
     }
     val enabled: Boolean get() = document != null
 
+    /**
+     * Whether [tool] may appear in this client's HTTP `tools/list`.
+     * Account is unknown at list time, so any matching account grant counts.
+     * A chat-scoped grant does not reveal an account-wide tool. Call-time
+     * [withPermission] remains the authority check.
+     */
+    fun allowsListedTool(tool: String): Boolean {
+        if (!enabled) return true
+        val grants = document?.grants.orEmpty().filter { it.client == clientIdentity() }
+        return grantAllows(tool, grants)
+    }
+
+    private fun grantAllows(tool: String, grants: List<PermissionGrant>): Boolean {
+        val matching = grants.filter { actionFor(tool) in it.actions }
+        if (matching.isEmpty()) return false
+        if (matching.any { it.chatIds == null }) return true
+        if (tool !in CHAT_SCOPED_TOOLS) return false
+        return matching.any { !it.chatIds.isNullOrEmpty() }
+    }
+
     private fun matching(account: String) = document?.grants.orEmpty().filter {
         it.client == clientIdentity() && (it.account == account || it.account == "*")
     }

@@ -49,6 +49,23 @@ class AccessPermissionServiceTest {
     }
 
     @Test
+    fun `listed tools follow the client grants and hide account-wide tools from a chat scope`() {
+        val policy = policy(listOf(
+            PermissionGrant("reader", "work", setOf("read"), setOf(42)),
+            PermissionGrant("writer", "*", setOf("mutate"), null),
+        ))
+        SecurityContextHolder.getContext().authentication = ApiKeyAuthToken("reader")
+        assertTrue(policy.allowsListedTool("get_history"))
+        assertFalse(policy.allowsListedTool("get_me"))
+        assertFalse(policy.allowsListedTool("send_message"))
+        SecurityContextHolder.getContext().authentication = ApiKeyAuthToken("writer")
+        assertTrue(policy.allowsListedTool("send_message"))
+        assertFalse(policy.allowsListedTool("get_history"))
+        SecurityContextHolder.getContext().authentication = ApiKeyAuthToken("stranger")
+        assertFalse(policy.allowsListedTool("get_history"))
+    }
+
+    @Test
     fun `client account and action scopes cannot substitute for each other`() {
         val policy = policy(listOf(
             PermissionGrant("reader", "work", setOf("read"), null),

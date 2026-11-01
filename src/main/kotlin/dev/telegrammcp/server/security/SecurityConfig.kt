@@ -4,6 +4,7 @@ import dev.telegrammcp.server.config.McpAuthMode
 import dev.telegrammcp.server.config.McpSecurityProperties
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
@@ -31,6 +32,7 @@ import java.net.URI
 class SecurityConfig(
     private val apiKeyAuthFilter: ApiKeyAuthFilter,
     private val properties: McpSecurityProperties,
+    private val permissions: ObjectProvider<AccessPermissionService>,
 ) {
 
     @Bean
@@ -98,6 +100,9 @@ class SecurityConfig(
                 }
         }
         configured.addFilterAfter(McpRoutingHeaderFilter(), McpOriginFilter::class.java)
+        permissions.ifAvailable?.let { access ->
+            configured.addFilterAfter(McpToolsListFilter(access), McpSessionPrincipalFilter::class.java)
+        }
         return configured.build()
     }
 

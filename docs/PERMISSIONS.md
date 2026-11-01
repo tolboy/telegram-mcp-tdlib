@@ -21,6 +21,11 @@ legacy single API key. Never put API keys, tokens or phone numbers in this file.
 STDIO has one local identity; use separate server configurations if different
 STDIO processes need different grants.
 
+On HTTP, `tools/list` omits tools the authenticated client cannot call. A
+chat-scoped grant does not reveal an account-wide tool. The startup catalog
+stays global, and every call is still checked. STDIO has no per-request list
+filter, so it keeps the full catalog and denies the call instead.
+
 Account labels are exact normalized labels; `*` matches all configured accounts.
 Client wildcards are not supported. Rules for the same client/account/action
 are additive. Existing API-key/OAuth account restrictions and the global chat
