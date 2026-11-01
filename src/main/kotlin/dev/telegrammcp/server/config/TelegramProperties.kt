@@ -38,6 +38,13 @@ data class TelegramProperties(
     data class SecurityProperties(
         /** Comma-separated allowed chat IDs; empty means all chats allowed. */
         val allowedChatIds: List<Long> = emptyList(),
+        /**
+         * Chats a write tool may change. Empty keeps the read allow-list, which
+         * itself means every chat when [allowedChatIds] is empty. A non-empty
+         * list only narrows writes; it does not grant a chat excluded by the
+         * read list or by a client permission.
+         */
+        val mutationAllowedChatIds: List<Long> = emptyList(),
     )
 
     /** Per-account TDLib configuration for multi-account deployments. */

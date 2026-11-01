@@ -18,6 +18,7 @@ class GuardrailServiceTest {
         maxLen: Int = 4096,
         patterns: List<String> = listOf("(?i)ignore.*previous.*instructions"),
         allowedChats: List<Long> = emptyList(),
+        mutationChats: List<Long> = emptyList(),
     ): GuardrailService {
         val mcpProps = McpSecurityProperties(
             guardrails = McpSecurityProperties.GuardrailProps(
@@ -26,7 +27,10 @@ class GuardrailServiceTest {
             ),
         )
         val telegramProps = TelegramProperties(
-            security = TelegramProperties.SecurityProperties(allowedChatIds = allowedChats),
+            security = TelegramProperties.SecurityProperties(
+                allowedChatIds = allowedChats,
+                mutationAllowedChatIds = mutationChats,
+            ),
         )
         return GuardrailService(mcpProps, telegramProps)
     }
@@ -96,6 +100,33 @@ class GuardrailServiceTest {
         }
 
         @Test
+        fun `mutation list narrows write tools and leaves reads unchanged`() {
+            val restricted = service(mutationChats = listOf(100L))
+
+            assertDoesNotThrow { restricted.validateChatAccess(999L) }
+            restricted.mutationScope("send_message").use {
+                assertDoesNotThrow { restricted.validateChatAccess(100L) }
+                assertThrows<ChatNotAllowedException> { restricted.validateChatAccess(999L) }
+            }
+            restricted.mutationScope("get_history").use {
+                assertDoesNotThrow { restricted.validateChatAccess(999L) }
+            }
+            assertDoesNotThrow { restricted.validateChatAccess(999L) }
+        }
+
+        @Test
+        fun `mutation list does not grant a chat excluded by the read list`() {
+            val restricted = service(allowedChats = listOf(100L), mutationChats = listOf(100L, 200L))
+
+            restricted.mutationScope("send_message").use {
+                val error = assertThrows<ChatNotAllowedException> {
+                    restricted.validateDerivedChatAccess(200L)
+                }
+                assertFalse(error.message.orEmpty().contains("200"))
+            }
+        }
+
+        @Test
         fun `unknown-target side effects fail closed under a static allow-list`() {
             val restricted = service(allowedChats = listOf(100L))
 
@@ -104,6 +135,9 @@ class GuardrailServiceTest {
             }
             assertDoesNotThrow {
                 service().requireUnrestrictedChatScope("create_group")
+            }
+            assertThrows<GuardrailViolationException> {
+                service(mutationChats = listOf(100L)).requireUnrestrictedChatScope("create_group")
             }
         }
     }

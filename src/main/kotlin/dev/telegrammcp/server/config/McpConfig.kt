@@ -8,6 +8,7 @@ import dev.telegrammcp.server.security.AccountAccessPolicy
 import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.ClientConcurrencyGate
 import dev.telegrammcp.server.service.DestructiveApprovalService
+import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.service.ToolSurfacePolicy
 import dev.telegrammcp.server.tool.AccountAgnosticMcpToolHandler
@@ -48,6 +49,7 @@ class McpConfig {
         approvalService: DestructiveApprovalService,
         permissions: dev.telegrammcp.server.security.AccessPermissionService? = null,
         clientConcurrencyGate: ClientConcurrencyGate = ClientConcurrencyGate(8),
+        guardrails: GuardrailService? = null,
     ): List<SyncToolSpecification> {
         val definitions = handlers.map { handler -> handler to handler.definition() }
         val duplicateNames = definitions
@@ -74,6 +76,8 @@ class McpConfig {
             SyncToolSpecification(tool) { exchange, request ->
                 try {
                     clientConcurrencyGate.run {
+                val mutationScope = guardrails?.mutationScope(tool.name())
+                try {
                 val arguments = request.arguments() ?: emptyMap()
                 // The single place a tool call's deadline is opened: every
                 // registered handler runs under it, whether or not it goes
@@ -141,6 +145,9 @@ class McpConfig {
                     ToolSupport.errorResult(error)
                 } }
                 dev.telegrammcp.server.tool.ToolPagination.decorate(tool, result)
+                } finally {
+                    mutationScope?.close()
+                }
                     }
                 } catch (error: Exception) {
                     dev.telegrammcp.server.tool.ToolSupport.errorResult(error)

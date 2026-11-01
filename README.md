@@ -476,6 +476,7 @@ Docker, mount the secret file into the container and set the container path.
 | `TELEGRAM_BOT_TOKEN`       | No       | —               | Legacy Bot API token (fallback only)     |
 | `TELEGRAM_BOT_USERNAME`    | No       | —               | Bot username (for logging)               |
 | `TELEGRAM_ALLOWED_CHAT_IDS`| No       | (all allowed)   | Comma-separated chat IDs to allow        |
+| `TELEGRAM_MUTATION_CHAT_IDS` | No    | (same as reads) | Chats write tools may change. Empty follows the read allow-list and does not grant extra chats |
 | `MCP_API_KEY`              | Remote API-key mode* | —       | API key for MCP endpoint auth            |
 | `MCP_API_KEY_FILE`         | No       | —               | Secret-file alternative to `MCP_API_KEY` |
 | `MCP_AUTH_HEADER`          | No       | `Authorization` | Header name for API key                  |

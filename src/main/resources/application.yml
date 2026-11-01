@@ -135,6 +135,9 @@ telegram:
   security:
     # Comma-separated list of allowed chat IDs (empty = all allowed)
     allowed-chat-ids: ${TELEGRAM_ALLOWED_CHAT_IDS:}
+    # Chats write tools may change. Empty follows the read allow-list.
+    # A non-empty list narrows writes and does not grant extra chats.
+    mutation-allowed-chat-ids: ${TELEGRAM_MUTATION_CHAT_IDS:}
 # Optional isolated TDLib accounts are omitted by default. Environment variables
 # bind naturally as TELEGRAM_ACCOUNTS_WORK_API_ID, _API_HASH_FILE,
 # _PHONE_NUMBER, etc. Each account gets its own TDLib database directory.

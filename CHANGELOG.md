@@ -28,6 +28,9 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 - **Behaviour change:** a present non-loopback `Host` on `/mcp` is HTTP 403
   unless it is listed in `MCP_ALLOWED_HOSTS`. A missing Host stays allowed.
   `Mcp-Session-Id` stays bound to the first authenticated client that uses it.
+- `TELEGRAM_MUTATION_CHAT_IDS` narrows chats that write tools may change.
+  Empty keeps the read allow-list. File operations cannot read or write a
+  path that overlaps a TDLib session directory.
 
 ## 1.18.0 - 2026-10-26
 
