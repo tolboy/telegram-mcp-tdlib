@@ -6,6 +6,9 @@ It implements the MCP `2025-06-18` lifecycle and requires `Mcp-Session-Id`
 after `initialize`. API-key deployments accept `Authorization: Bearer <key>`;
 `X-MCP-API-Key` and the configured `MCP_AUTH_HEADER` remain available too.
 
+Recipe prompts are advertised. They are fixed instructions and do not add
+tools.
+
 ## Compatibility Matrix
 
 | Client | Connection data | Verification | Status |

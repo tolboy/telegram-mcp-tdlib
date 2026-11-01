@@ -18,6 +18,9 @@ spring:
         # Streamable HTTP is the current MCP transport. The same endpoint
         # accepts client requests and may stream server responses as SSE.
         protocol: STREAMABLE
+        # Recipe prompts are static instructions. They do not add tools.
+        capabilities:
+          prompt: true
         streamable-http:
           mcp-endpoint: /mcp
           # This server does not need clients to delete sessions explicitly.

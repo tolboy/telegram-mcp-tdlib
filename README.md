@@ -169,7 +169,8 @@ tool surface that can do the job:
 [research public groups](docs/recipes/research-public-groups.md),
 [read-only community health check](docs/recipes/community-review-readonly.md),
 and [draft replies without sending](docs/recipes/safe-draft-reply.md) —
-index in [docs/recipes](docs/recipes/README.md).
+index in [docs/recipes](docs/recipes/README.md). Those recipes are also MCP
+prompts. Selecting one does not grant tools beyond the configured profile.
 
 ## How it compares
 
