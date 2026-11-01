@@ -79,14 +79,36 @@ class McpOriginFilter(
     ) {
         if (request.getHeaders("Origin").toList().size > 1 ||
             !McpOriginPolicy.allows(request.getHeader("Origin"), extraOrigins)) {
+            warnOnce(rejectedOrigins, request.getHeader("Origin"), "Origin", "MCP_ALLOWED_ORIGINS")
             response.sendError(HttpServletResponse.SC_FORBIDDEN, "Origin is not allowed")
             return
         }
         if (request.getHeaders("Host").toList().size > 1 ||
             !McpHostPolicy.allows(request.getHeader("Host"), extraHosts)) {
+            warnOnce(rejectedHosts, request.getHeader("Host"), "Host", "MCP_ALLOWED_HOSTS")
             response.sendError(HttpServletResponse.SC_FORBIDDEN, "Host is not allowed")
             return
         }
         filterChain.doFilter(request, response)
+    }
+
+    private val log = dev.telegrammcp.server.util.StructuredLogger.forClass<McpOriginFilter>()
+    private val rejectedHosts: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+    private val rejectedOrigins: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    /**
+     * A deployment that upgraded without listing its public name sees nothing
+     * but 403s; name the rejected value once so the fix is obvious. Bounded so
+     * a scanner cycling Host values cannot grow the set or flood the log.
+     */
+    private fun warnOnce(seen: MutableSet<String>, value: String?, header: String, setting: String) {
+        val shown = value?.take(MAX_LOGGED_VALUE_LENGTH)?.replace(Regex("[\\p{Cntrl}]"), "?") ?: "(multiple)"
+        if (seen.size >= MAX_WARNED_VALUES || !seen.add(shown)) return
+        log.warn("Rejected /mcp request with {} '{}'; add it to {} if this deployment should accept it", header, shown, setting)
+    }
+
+    private companion object {
+        private const val MAX_WARNED_VALUES = 32
+        private const val MAX_LOGGED_VALUE_LENGTH = 120
     }
 }

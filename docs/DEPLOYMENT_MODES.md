@@ -40,6 +40,12 @@ Recommended defaults:
   rejected.
 - Add IP allow-lists, rate limits, request size limits, and centralized access logs at the proxy layer.
 - Assign a distinct scoped MCP key to each remote client and restrict it to the account labels it needs.
+- Set `MCP_ALLOWED_HOSTS` to the public host name the proxy forwards (for
+  example `telegram-mcp.example.com`). Since 1.18.1 a non-loopback `Host` on
+  `/mcp` gets HTTP 403 unless it is listed. Browser-based clients also need
+  their exact origin in `MCP_ALLOWED_ORIGINS`; desktop clients send none. In
+  the bundled `docker-compose.yml`, `MCP_ALLOWED_HOSTS` defaults to the
+  `telegram-mcp` service name so containers on the same network can connect.
 
 For this repository, a reverse proxy matters mostly in remote deployments. It is not a prerequisite for a local installation.
 
