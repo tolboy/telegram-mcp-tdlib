@@ -1,7 +1,8 @@
 # Recoverable sends
 
 `send_message`, `reply_to_message`, `send_file`, `send_voice`, `send_sticker`,
-`forward_message` and `schedule_message` accept an optional `idempotency_key`.
+`send_album`, `send_location`, `send_venue`, `send_contact`, `forward_message`
+and `schedule_message` accept an optional `idempotency_key`.
 Use a new random key (for example a UUID) for each intentional send. Keep the
 same key and parameters when recovering from a lost response. Keys are scoped
 to the configured account label and shared between these tools.

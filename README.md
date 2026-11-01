@@ -195,7 +195,7 @@ is in [PUBLIC_BENCHMARK_AND_ROADMAP.md](docs/PUBLIC_BENCHMARK_AND_ROADMAP.md).
 
 ## Tool profiles
 
-You don't expose 116 tools on day one. `MCP_TOOL_PROFILE` narrows the advertised surface
+You don't expose 126 tools on day one. `MCP_TOOL_PROFILE` narrows the advertised surface
 *before a client ever sees it*, without weakening account scoping, read-only mode,
 confirmation, audit, or anti-spam:
 
@@ -211,7 +211,7 @@ See [TOOL_PROFILES.md](docs/TOOL_PROFILES.md) for the exact intent of each surfa
 
 ## Features
 
-- **116 MCP tools** — messages, polls, read receipts, scheduled sends, chats, folders,
+- **126 MCP tools** — messages, polls, read receipts, scheduled sends, chats, folders,
   invite-link administration, contacts, media, drafts, privacy, bot commands, detailed group
   permissions, profile, search, and account routing.
 - **TDLib via tdlight-java** — real user accounts, not just the Bot API.
@@ -686,9 +686,9 @@ The full inventory is grouped below. In practice you start with a
 [tool profile](#tool-profiles) rather than enabling all of it at once.
 
 <details>
-<summary><b>Show all 116 tools</b></summary>
+<summary><b>Show all 126 tools</b></summary>
 
-### Messages (30 tools)
+### Messages (35 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -704,6 +704,7 @@ The full inventory is grouped below. In practice you start with a
 | `forward_message` | Forward messages between chats |
 | `pin_message` | Pin a message in a chat |
 | `unpin_message` | Unpin a message |
+| `unpin_all_messages` | Unpin every pinned message in a chat (destructive, requires confirmation) |
 | `get_pinned_messages` | Get all pinned messages in a chat |
 | `mark_as_read` | Mark messages as read |
 | `send_reaction` | Add an emoji reaction to a message (requires confirmation) |
@@ -722,8 +723,12 @@ The full inventory is grouped below. In practice you start with a
 | `schedule_message` | Queue a text message for a future ISO time or Unix timestamp |
 | `reschedule_message` | Change a queued message's send time |
 | `cancel_scheduled_message` | Cancel a queued message (destructive, requires confirmation) |
+| `send_chat_action` | Show a short-lived status such as typing; no message is sent |
+| `send_location` | Send a static location (map point) |
+| `send_venue` | Send a named place with an address |
+| `send_contact` | Send a contact card |
 
-### Chats (45 tools)
+### Chats (49 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -763,6 +768,10 @@ The full inventory is grouped below. In practice you start with a
 | `get_banned_users` | List banned members of a chat |
 | `search_public_chats` | Search the global catalog of public Telegram chats |
 | `get_recent_actions` | Get the admin event log for a supergroup/channel |
+| `get_chat_statistics` | Summary statistics for a supergroup or channel you administer (graphs omitted) |
+| `list_join_requests` | List pending requests to join a chat |
+| `process_join_request` | Approve or decline one pending join request |
+| `delete_messages_by_sender` | Delete every message from one sender in a supergroup (destructive, requires confirmation) |
 | `list_chat_folders` | List account chat folders known to TDLib |
 | `get_chat_folder` | Read the full matching rules for one folder |
 | `configure_chat_folder` | Create or fully replace a folder configuration |
@@ -817,7 +826,7 @@ all-administrator, chat, chat-administrator, and chat-member scopes.
 | `get_last_interaction` | Get the most recent message exchanged with a contact |
 | `get_common_chats` | List groups and channels shared with a user |
 
-### Media (7 tools)
+### Media (8 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -827,6 +836,7 @@ all-administrator, chat, chat-administrator, and chat-member scopes.
 | `send_voice` | Send a voice note (OGG/Opus) to a chat (write, file security) |
 | `transcribe_voice_note` | Request Telegram's native transcript on a voice message (Premium/trial quota; no new message is sent) |
 | `send_sticker` | Send a sticker (WEBP/TGS/WEBM) to a chat (write, file security) |
+| `send_album` | Send 2-10 photos/videos, documents or audio files as one grouped album (write, file security) |
 | `get_sticker_sets` | List installed regular sticker sets |
 
 ### Drafts (3 tools)
