@@ -269,7 +269,9 @@ anti-spam:
     window-ms: 60000
   # Runtime overrides persisted by AntiSpamPolicyService. Blank disables persistence.
   overrides-file: ${ANTI_SPAM_OVERRIDES_FILE:anti-spam-overrides.json}
-  # Hard ceilings — runtime overrides clamp to these. Empty map = no clamp.
+  # Hard ceilings. A tool without an entry still clamps runtime overrides to
+  # max-ops 60, daily-max 500, and a 1s window floor. Yaml rules are not
+  # clamped unless the tool is listed here.
   # Per-tool entries can set: max-ops-ceiling, daily-max-ceiling,
   # window-ms-floor, dedup-window-ms-floor.
   ceilings:

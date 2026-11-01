@@ -14,6 +14,9 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   listed in `MCP_ALLOWED_ORIGINS`. Requests without `Origin` stay allowed.
 - Cap in-flight tool calls per client with `MCP_MAX_CONCURRENT_CALLS_PER_CLIENT`
   (default 8). The account bulkhead is unchanged.
+- Clamp runtime anti-spam overrides to a default ceiling, refuse a shared-write
+  or corrupt overrides file at startup, and reject secret files that Everyone
+  or Authenticated Users can write on Windows.
 - Declare Gradle plugin versions in `settings.gradle.kts` so IntelliJ can
   resolve `org.jetbrains.kotlin.gradle.dsl.JvmTarget`. Reload the Gradle project
   after updating.

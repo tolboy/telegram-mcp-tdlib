@@ -54,25 +54,22 @@ class SecretResolver(
 
         val size = Files.size(path)
         require(size in 1..MAX_SECRET_BYTES) { "$settingName secret file must be between 1 and $MAX_SECRET_BYTES bytes" }
-        validatePosixPermissions(path, settingName)
+        LocalAccessChecks.rejectSharedWrite(path, settingName)
+        warnOnSharedRead(path, settingName)
 
         // A final line break is customary for Docker/Kubernetes secret mounts;
         // it is not part of the credential. Other whitespace is retained.
         return Files.readString(path, StandardCharsets.UTF_8).removeSuffix("\r\n").removeSuffix("\n")
     }
 
-    private fun validatePosixPermissions(path: Path, settingName: String) {
+    private fun warnOnSharedRead(path: Path, settingName: String) {
         val permissions = runCatching { Files.getPosixFilePermissions(path, LinkOption.NOFOLLOW_LINKS) }.getOrNull()
-            ?: return // Windows and some mounted volumes do not expose POSIX ACLs.
-        val writableByOthers = setOf(
-            PosixFilePermission.GROUP_WRITE,
-            PosixFilePermission.OTHERS_WRITE,
-        )
-        require(permissions.none { it in writableByOthers }) {
-            "$settingName secret file must not be writable by group or others"
-        }
+            ?: return
         if (permissions.any { it == PosixFilePermission.GROUP_READ || it == PosixFilePermission.OTHERS_READ }) {
-            log.warn("{} secret file is readable by group/others; use an owner-only file when your secret mount permits it", settingName)
+            log.warn(
+                "{} secret file is readable by group/others; use an owner-only file when your secret mount permits it",
+                settingName,
+            )
         }
     }
 
