@@ -4,6 +4,7 @@ import dev.telegrammcp.server.config.TdLibProperties
 import dev.telegrammcp.server.config.TelegramProperties
 import dev.telegrammcp.server.exception.TdLibAuthException
 import dev.telegrammcp.server.runtime.ServerShutdown
+import dev.telegrammcp.server.security.LocalAccessChecks
 import dev.telegrammcp.server.security.SecretResolver
 import dev.telegrammcp.server.service.PlatformPaths
 import dev.telegrammcp.server.util.StructuredLogger
@@ -88,6 +89,15 @@ class TdLibConfig(
         }
 
         validateDistinctStorage(accountConfigurations)
+        log.warn(
+            "TDLib does not encrypt these session directories. Protect them with volume encryption " +
+                "(BitLocker, FileVault, or LUKS): {}",
+            accountConfigurations.joinToString { it.databaseDirectory.toString() },
+        )
+        accountConfigurations.forEach { account ->
+            LocalAccessChecks.prepareOwnerDirectory(account.databaseDirectory)
+            LocalAccessChecks.prepareOwnerDirectory(account.downloadsDirectory)
+        }
         ensureNativeInitialized(accountConfigurations.maxOf { it.logVerbosityLevel })
 
         accountConfigurations.forEach { account ->
