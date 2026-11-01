@@ -9,8 +9,10 @@ Source and configuration examples live in `telegram-inbox-assistant/`.
 [Validation](VALIDATION.md) records the tested scope and client limitations.
 [Agensi listing copy](AGENSI_LISTING.md) is maintained separately from installed
 skill instructions. The [public listing](https://www.agensi.io/skills/telegram-inbox-assistant)
-was checked on 2026-11-01 and advertises version 0.1.1. The local 0.1.2 update
-must be uploaded separately; rebuilding a ZIP does not update Agensi.
+was updated on 2026-11-01 for version 0.1.2 after server 1.18.1 was published.
+Agensi accepted the replacement ZIP for security scan and review; the previous
+approved package stays available until approval. Listing text is already live.
+See [publication evidence](../docs/RELEASE_READINESS_1.18.1.md).
 
 Build the ZIP with Python 3.11 or newer:
 
