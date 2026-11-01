@@ -147,6 +147,15 @@ telegram:
 
 # ── MCP Security ──────────────────────────────────────────────────────────────
 mcp:
+  # MCP resources (telegram://{account}/chats, /chat/{chatId}, /chat/{chatId}/message/{messageId}).
+  # Off by default: a host may attach or prefetch resources without a tool call. Reads run the
+  # backing read tool with every grant, account and chat check. See docs/RESOURCES.md.
+  resources:
+    enabled: ${MCP_RESOURCES_ENABLED:false}
+    # resources/subscribe + notifications/resources/updated, driven by the change journal.
+    subscriptions: ${MCP_RESOURCE_SUBSCRIPTIONS:true}
+    debounce: ${MCP_RESOURCE_DEBOUNCE:1s}
+    max-subscriptions-per-session: ${MCP_RESOURCE_MAX_SUBSCRIPTIONS:50}
   # Curate tools for a common workflow: all, reader, inbox, community-admin, research.
   tool-profile: ${MCP_TOOL_PROFILE:reader}
   # Optional exact-name filters, evaluated profile -> allow -> deny -> read-only.
