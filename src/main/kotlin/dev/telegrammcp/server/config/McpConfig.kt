@@ -6,6 +6,7 @@ import dev.telegrammcp.server.exception.ReadOnlyModeException
 import dev.telegrammcp.server.model.AuditOutcome
 import dev.telegrammcp.server.security.AccountAccessPolicy
 import dev.telegrammcp.server.service.AuditService
+import dev.telegrammcp.server.service.ClientConcurrencyGate
 import dev.telegrammcp.server.service.DestructiveApprovalService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.service.ToolSurfacePolicy
@@ -46,6 +47,7 @@ class McpConfig {
         auditService: AuditService,
         approvalService: DestructiveApprovalService,
         permissions: dev.telegrammcp.server.security.AccessPermissionService? = null,
+        clientConcurrencyGate: ClientConcurrencyGate = ClientConcurrencyGate(8),
     ): List<SyncToolSpecification> {
         val definitions = handlers.map { handler -> handler to handler.definition() }
         val duplicateNames = definitions
@@ -70,6 +72,8 @@ class McpConfig {
             )
             log.info("Registering MCP tool: {} — {}", tool.name(), tool.description())
             SyncToolSpecification(tool) { exchange, request ->
+                try {
+                    clientConcurrencyGate.run {
                 val arguments = request.arguments() ?: emptyMap()
                 // The single place a tool call's deadline is opened: every
                 // registered handler runs under it, whether or not it goes
@@ -137,6 +141,10 @@ class McpConfig {
                     ToolSupport.errorResult(error)
                 } }
                 dev.telegrammcp.server.tool.ToolPagination.decorate(tool, result)
+                    }
+                } catch (error: Exception) {
+                    dev.telegrammcp.server.tool.ToolSupport.errorResult(error)
+                }
             }
         }.also {
             if (!serverMode.readOnly && toolSurfacePolicy.profile == McpToolProfile.ALL) {
@@ -159,6 +167,10 @@ class McpConfig {
             )
         }
     }
+
+    @Bean
+    fun clientConcurrencyGate(properties: McpSecurityProperties): ClientConcurrencyGate =
+        ClientConcurrencyGate(properties.maxConcurrentCallsPerClient)
 
     private fun requestedKnownAccount(
         arguments: Map<String, Any>,

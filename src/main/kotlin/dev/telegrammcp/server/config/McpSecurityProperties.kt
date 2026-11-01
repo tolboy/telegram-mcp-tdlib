@@ -17,6 +17,8 @@ data class McpSecurityProperties(
     val toolDeny: List<String> = emptyList(),
     /** Optional reviewed JSON grants; an empty path retains existing access policy. */
     val permissionsFile: String = "",
+    /** How many tool calls one authenticated client may hold in flight. */
+    val maxConcurrentCallsPerClient: Int = 8,
 ) {
     val authenticationConfigured: Boolean
         get() = security.apiKey.isNotBlank() ||

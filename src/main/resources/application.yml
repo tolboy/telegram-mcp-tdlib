@@ -148,6 +148,8 @@ mcp:
   tool-allow: ${MCP_TOOL_ALLOW:}
   tool-deny: ${MCP_TOOL_DENY:}
   permissions-file: ${MCP_PERMISSIONS_FILE:}
+  # One client's in-flight tool calls. The TDLib bulkhead stays per account.
+  max-concurrent-calls-per-client: ${MCP_MAX_CONCURRENT_CALLS_PER_CLIENT:8}
   security:
     mode: ${MCP_AUTH_MODE:api-key}
     api-key: ${MCP_API_KEY:}

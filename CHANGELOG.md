@@ -12,6 +12,8 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   already sets approval when writes are enabled.
 - Reject a present, non-loopback `Origin` on `/mcp` with HTTP 403 unless it is
   listed in `MCP_ALLOWED_ORIGINS`. Requests without `Origin` stay allowed.
+- Cap in-flight tool calls per client with `MCP_MAX_CONCURRENT_CALLS_PER_CLIENT`
+  (default 8). The account bulkhead is unchanged.
 - Declare Gradle plugin versions in `settings.gradle.kts` so IntelliJ can
   resolve `org.jetbrains.kotlin.gradle.dsl.JvmTarget`. Reload the Gradle project
   after updating.
