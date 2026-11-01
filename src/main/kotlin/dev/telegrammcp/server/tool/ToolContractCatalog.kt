@@ -44,6 +44,8 @@ object ToolContractCatalog {
             method("createChatFolder", "configure_chat_folder")
             method("getChatMembers", "get_participants", "get_admins", "get_banned_users")
             method("getChatEventLog", "get_recent_actions")
+            method("getChatJoinRequests", "list_join_requests")
+            method("getChatStatistics", "get_chat_statistics")
             method("listForumTopics", "list_topics")
             method("createForumTopic", "create_topic")
             method("createInviteLink", "get_invite_link")
@@ -65,8 +67,9 @@ object ToolContractCatalog {
             method("getUserProfilePhotos", "get_user_photos")
             method("getContacts", "list_contacts", "search_contacts")
             put("get_send_operation", ToolOutputSchemas.receipt)
-            listOf("send_message", "reply_to_message", "send_file", "send_voice", "send_sticker").forEach { put(it, ToolOutputSchemas.sendResult) }
-            put("forward_message", union(array(ToolOutputSchemas.message), ToolOutputSchemas.receipt))
+            listOf("send_message", "reply_to_message", "send_file", "send_voice", "send_sticker",
+                "send_location", "send_venue", "send_contact").forEach { put(it, ToolOutputSchemas.sendResult) }
+            listOf("forward_message", "send_album").forEach { put(it, union(array(ToolOutputSchemas.message), ToolOutputSchemas.receipt)) }
             put("schedule_message", union(dto<ScheduledMessage>(), ToolOutputSchemas.receipt))
             listOf("edit_message", "create_poll").forEach { put(it, ToolOutputSchemas.message) }
             put("export_chat_history", ToolOutputSchemas.export)
@@ -97,6 +100,10 @@ object ToolContractCatalog {
                 "reschedule_message" to "chat_id:i message_id:i previous_message_id:i send_at:date? repeat_period_seconds:i rescheduled:b",
                 "cancel_scheduled_message" to "chat_id:i message_id:i cancelled:b",
                 "register_internal_chat" to "chat_id:i internal:b",
+                "send_chat_action" to "chat_id:i action:s sent:b",
+                "process_join_request" to "chat_id:i user_id:i approved:b processed:b",
+                "unpin_all_messages" to "chat_id:i unpinned_all:b",
+                "delete_messages_by_sender" to "chat_id:i sender_id:i deleted:b",
                 "add_contact" to "added:b user_id:i", "block_user" to "blocked:b user_id:i",
                 "unblock_user" to "unblocked:b user_id:i", "delete_contact" to "deleted:b user_id:i",
                 "delete_profile_photo" to "deleted:b", "set_profile_photo" to "updated:b", "update_profile" to "updated:b",

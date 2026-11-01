@@ -131,6 +131,8 @@ class AccessPermissionService(props: McpSecurityProperties, paths: PlatformPaths
             "send_reaction", "register_internal_chat", "discover_public_chats", "export_chat_history", "search_public_messages",
             "get_common_chats", "get_send_operation", "list_scheduled_messages", "schedule_message", "reschedule_message",
             "cancel_scheduled_message", "get_group_permissions", "set_group_permissions", "set_member_permissions", "set_admin_rights",
+            "send_album", "send_chat_action", "send_location", "send_venue", "send_contact", "list_join_requests",
+            "process_join_request", "unpin_all_messages", "delete_messages_by_sender", "get_chat_statistics",
         )
     }
 }

@@ -31,7 +31,8 @@ class OperationGuardService(
         val WRITE_TOOLS = setOf(
             // Message write operations
             "send_message", "reply_to_message", "edit_message", "delete_message",
-            "forward_message", "pin_message", "unpin_message",
+            "forward_message", "pin_message", "unpin_message", "unpin_all_messages",
+            "send_chat_action", "send_location", "send_venue", "send_contact",
 
             // Chat management
             "create_group", "create_channel", "create_supergroup",
@@ -41,12 +42,13 @@ class OperationGuardService(
             "edit_chat_title", "edit_chat_photo", "delete_chat_photo",
             "set_chat_description", "set_slow_mode",
             "promote_admin", "demote_admin", "ban_user", "unban_user",
+            "process_join_request", "delete_messages_by_sender",
 
             // Contact management
             "add_contact", "delete_contact", "block_user", "unblock_user",
 
             // Local file writes and media upload
-            "download_media", "send_file", "send_voice", "send_sticker",
+            "download_media", "send_file", "send_voice", "send_sticker", "send_album",
 
             // Telegram's native transcription may consume Premium/trial quota.
             "transcribe_voice_note",
@@ -111,6 +113,9 @@ class OperationGuardService(
             "close_poll",
             "revoke_invite_link",
             "set_slow_mode",
+            // Pins cannot be restored in one step; per-sender deletion wipes a member's whole history.
+            "unpin_all_messages",
+            "delete_messages_by_sender",
             // Loosens anti-spam thresholds for the target chat; a prompt-injected
             // call must not silently weaken its own guardrails.
             "register_internal_chat",

@@ -128,12 +128,37 @@ class AntiSpamGuardService(
             maxOpsExternal = 5, windowMsExternal = 60_000L,
             keyField = "chat_id",
         ),
+        "send_album" to RuleProps(
+            maxOps = 5, windowMs = 60_000L,
+            maxOpsExternal = 2, windowMsExternal = 60_000L,
+            keyField = "chat_id",
+        ),
+        "send_location" to RuleProps(
+            maxOps = 10, windowMs = 60_000L,
+            maxOpsExternal = 3, windowMsExternal = 60_000L,
+            keyField = "chat_id",
+        ),
+        "send_venue" to RuleProps(
+            maxOps = 10, windowMs = 60_000L,
+            maxOpsExternal = 3, windowMsExternal = 60_000L,
+            keyField = "chat_id",
+        ),
+        "send_contact" to RuleProps(
+            maxOps = 10, windowMs = 60_000L,
+            maxOpsExternal = 3, windowMsExternal = 60_000L,
+            keyField = "chat_id",
+        ),
+        // A typing status sends no message and expires after about five seconds.
+        "send_chat_action" to RuleProps(maxOps = 30, windowMs = 60_000L, keyField = "chat_id"),
         "send_reaction" to RuleProps(maxOps = 30, windowMs = 60_000L, keyField = "chat_id"),
         "remove_reaction" to RuleProps(maxOps = 30, windowMs = 60_000L, keyField = "chat_id"),
         "create_poll" to RuleProps(maxOps = 5, windowMs = 60_000L, keyField = "chat_id"),
         "delete_message" to RuleProps(maxOps = 30, windowMs = 60_000L, keyField = "chat_id"),
         "pin_message" to RuleProps(maxOps = 5, windowMs = 60_000L, keyField = "chat_id"),
         "unpin_message" to RuleProps(maxOps = 5, windowMs = 60_000L, keyField = "chat_id"),
+        "unpin_all_messages" to RuleProps(maxOps = 2, windowMs = 60_000L, keyField = "chat_id", dailyMax = 20),
+        // Bulk history wipe of one member: kept far tighter than single deletes.
+        "delete_messages_by_sender" to RuleProps(maxOps = 3, windowMs = 60_000L, keyField = "chat_id", dailyMax = 30),
 
         // ─── Contact / user management ─────────────────────────────────────
         "add_contact" to RuleProps(maxOps = 5, windowMs = 60_000L, dailyMax = 50),
@@ -144,6 +169,7 @@ class AntiSpamGuardService(
         "unban_user" to RuleProps(maxOps = 5, windowMs = 60_000L, keyField = "chat_id", dailyMax = 50),
         "promote_admin" to RuleProps(maxOps = 5, windowMs = 60_000L, keyField = "chat_id", dailyMax = 50),
         "demote_admin" to RuleProps(maxOps = 5, windowMs = 60_000L, keyField = "chat_id", dailyMax = 50),
+        "process_join_request" to RuleProps(maxOps = 30, windowMs = 60_000L, keyField = "chat_id", dailyMax = 500),
 
         // ─── Cheap state toggles: loose ────────────────────────────────────
         "mark_as_read" to RuleProps(maxOps = 60, windowMs = 60_000L),
@@ -184,6 +210,8 @@ class AntiSpamGuardService(
         "get_blocked_users" to RuleProps(exempt = true),
         "get_user_photos" to RuleProps(exempt = true),
         "get_recent_actions" to RuleProps(exempt = true),
+        "list_join_requests" to RuleProps(exempt = true),
+        "get_chat_statistics" to RuleProps(exempt = true),
         "get_sticker_sets" to RuleProps(exempt = true),
         "get_media_info" to RuleProps(exempt = true),
         "download_media" to RuleProps(exempt = true),

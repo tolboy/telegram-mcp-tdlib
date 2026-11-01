@@ -8,7 +8,8 @@ import java.security.MessageDigest
 
 /** Common preflight and replay boundary for media, forwarding and scheduled sends. */
 object RecoverableSend {
-    val toolNames = setOf("send_file", "send_voice", "send_sticker", "forward_message", "schedule_message")
+    val toolNames = setOf("send_file", "send_voice", "send_sticker", "send_album", "send_location", "send_venue",
+        "send_contact", "forward_message", "schedule_message")
 
     fun check(guard: OperationGuardService, tool: String, arguments: Map<String, Any>) {
         if (SendOperationService.key(arguments) == null) guard.checkPermission(tool, arguments)
