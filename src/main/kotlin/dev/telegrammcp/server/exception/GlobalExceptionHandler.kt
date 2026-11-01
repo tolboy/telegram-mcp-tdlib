@@ -7,6 +7,7 @@ import org.springframework.http.ProblemDetail
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
+import org.springframework.web.servlet.resource.NoResourceFoundException
 
 /**
  * Translates domain exceptions into RFC-9457 Problem Detail responses.
@@ -138,6 +139,17 @@ class GlobalExceptionHandler {
     fun handleConfirmation(ex: ConfirmationRequiredException): ProblemDetail {
         log.info("Confirmation required: {}", ex.message)
         return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.message)
+    }
+
+    /**
+     * Unknown paths (`/mcp/`, `/.well-known/oauth-protected-resource` in
+     * API-key mode) are a client mistake, not a server fault: answer 404
+     * instead of letting the catch-all below log an error and return 500.
+     */
+    @ExceptionHandler(NoResourceFoundException::class)
+    fun handleNoResource(ex: NoResourceFoundException): ProblemDetail {
+        log.debug("No resource: {}", ex.resourcePath)
+        return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, "No such endpoint")
     }
 
     @ExceptionHandler(Exception::class)

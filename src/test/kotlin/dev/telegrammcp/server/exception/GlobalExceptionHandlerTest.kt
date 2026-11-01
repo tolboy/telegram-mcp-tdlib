@@ -13,6 +13,18 @@ class GlobalExceptionHandlerTest {
         handler.handleTelegramApi(TelegramApiException(code, message)).statusCode.value()
 
     @Test
+    fun `an unknown path is a 404, not a server error`() {
+        val problem = handler.handleNoResource(
+            org.springframework.web.servlet.resource.NoResourceFoundException(
+                org.springframework.http.HttpMethod.GET,
+                "/mcp/",
+                "mcp/",
+            ),
+        )
+        assertEquals(404, problem.status)
+    }
+
+    @Test
     fun `telegram errors map to REST statuses by kind`() {
         assertEquals(400, status(400, "Message text is empty"))
         assertEquals(403, status(400, "Not enough rights to send text messages to the chat"))
