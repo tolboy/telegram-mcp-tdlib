@@ -38,6 +38,22 @@ class CsrfSecurityFilterChainTest {
             assertEquals(204, request(chain, path, "X-MCP-API-Key" to "secret-key"))
             assertEquals(401, request(chain, path, "Authorization" to "Bearer wrong"))
             assertEquals(401, request(chain, path, "X-MCP-API-Key" to "wrong"))
+            assertEquals(
+                if (path == "/mcp") 403 else 204,
+                request(chain, path, "Authorization" to "Bearer secret-key", origin = "https://attacker.example"),
+            )
+            assertEquals(
+                204,
+                request(chain, path, "Authorization" to "Bearer secret-key", origin = "http://127.0.0.1:6274"),
+            )
+            assertEquals(
+                if (path == "/mcp") 403 else 204,
+                request(chain, path, "Authorization" to "Bearer secret-key", host = "attacker.example"),
+            )
+            assertEquals(
+                204,
+                request(chain, path, "Authorization" to "Bearer secret-key", host = "127.0.0.1:8080"),
+            )
             assertEquals(if (path == "/mcp") 401 else 403, request(chain, path, "X-Auth-Wizard-Nonce" to "forged"),
                 "A forged wizard nonce must not exempt an unauthenticated auth request")
         }
@@ -92,6 +108,7 @@ class CsrfSecurityFilterChainTest {
         header: Pair<String, String>? = null,
         method: String = "POST",
         origin: String? = null,
+        host: String? = null,
         csrfToken: Boolean = false,
     ): Int {
         val request = MockHttpServletRequest(method, path).also {
@@ -100,6 +117,7 @@ class CsrfSecurityFilterChainTest {
             it.contentType = "application/x-www-form-urlencoded"
             header?.let { (name, value) -> it.addHeader(name, value) }
             origin?.let { value -> it.addHeader("Origin", value) }
+            host?.let { value -> it.addHeader("Host", value) }
         }
         val response = MockHttpServletResponse()
         if (csrfToken) {

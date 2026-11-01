@@ -489,6 +489,8 @@ Docker, mount the secret file into the container and set the container path.
 | `MCP_CONFIRMATION_REQUIRED`| No       | `true`          | Require caller acknowledgement (`"confirmed": true`) for destructive tools; not proof of human approval |
 | `MCP_DESTRUCTIVE_APPROVAL`| No       | `off`           | Human approval before destructive tools: `auto`, `elicitation`, or `loopback`. With writes enabled, `off` refuses startup unless `MCP_ALLOW_MODEL_CONFIRMED_WRITES=true` |
 | `MCP_ALLOW_MODEL_CONFIRMED_WRITES` | No | `false` | Allow writes while approval is `off`. The model can then send `"confirmed": true` |
+| `MCP_ALLOWED_ORIGINS` | No | (loopback only) | Extra browser `Origin` values for `/mcp`. A missing Origin is allowed. Any other present Origin gets HTTP 403 |
+| `MCP_ALLOWED_HOSTS` | No | (loopback only) | Extra `Host` values for `/mcp`. A missing Host is allowed. Any other present Host gets HTTP 403 |
 | `MCP_DESTRUCTIVE_APPROVAL_TIMEOUT`| No | `120s`        | Loopback-page answer deadline; elicitation uses the MCP host/request deadline |
 | `MCP_FILE_ROOTS`           | No       | (deny all)      | Allowed root dirs for file operations    |
 | `MCP_AUDIT_ENABLED`        | No       | `true`          | Enable audit logging                     |

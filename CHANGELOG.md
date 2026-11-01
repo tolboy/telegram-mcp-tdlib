@@ -10,6 +10,8 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   argument the model can set. Set `auto`, `elicitation`, or `loopback`, or
   opt in with `MCP_ALLOW_MODEL_CONFIRMED_WRITES=true`. Generated client config
   already sets approval when writes are enabled.
+- Reject a present, non-loopback `Origin` on `/mcp` with HTTP 403 unless it is
+  listed in `MCP_ALLOWED_ORIGINS`. Requests without `Origin` stay allowed.
 - Declare Gradle plugin versions in `settings.gradle.kts` so IntelliJ can
   resolve `org.jetbrains.kotlin.gradle.dsl.JvmTarget`. Reload the Gradle project
   after updating.

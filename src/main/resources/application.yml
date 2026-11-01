@@ -154,6 +154,12 @@ mcp:
     api-key-file: ${MCP_API_KEY_FILE:}
     # Header name: "Authorization: Bearer <key>" or "X-MCP-API-Key: <key>"
     header-name: ${MCP_AUTH_HEADER:Authorization}
+    # Extra browser origins for /mcp. Loopback origins are always allowed.
+    # A missing Origin is allowed: desktop MCP clients do not send one.
+    allowed-origins: ${MCP_ALLOWED_ORIGINS:}
+    # Extra Host values for /mcp. Loopback hosts are always allowed.
+    # A missing Host is allowed. Any other present Host gets HTTP 403.
+    allowed-hosts: ${MCP_ALLOWED_HOSTS:}
     oauth:
       issuer-uri: ${MCP_OAUTH_ISSUER_URI:}
       jwk-set-uri: ${MCP_OAUTH_JWK_SET_URI:}

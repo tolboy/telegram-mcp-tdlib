@@ -46,6 +46,13 @@ class SecurityConfig(
                 })
             }
             .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
+            .addFilterBefore(
+                McpOriginFilter(
+                    properties.security.allowedOriginSet(),
+                    properties.security.allowedHostSet(),
+                ),
+                CsrfFilter::class.java,
+            )
             .authorizeHttpRequests { auth ->
                 auth
                     .requestMatchers(
