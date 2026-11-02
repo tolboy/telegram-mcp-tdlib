@@ -35,7 +35,7 @@ clients or **Streamable HTTP** at `/mcp` for managed deployments.
 
 ![Actual terminal recording: connect to Telegram MCP, verify read-only tools, and read a public channel post](docs/assets/live-demo.gif)
 
-> Screen recording of a live terminal session with server 1.18.1 and an authorized
+> Screen recording of a live terminal session with server 1.19.0 and an authorized
 > TDLib account, November 2, 2026. The command-line MCP client reads only the public
 > `@telegram` channel and prints selected response fields.
 > [MP4](docs/assets/live-demo.mp4) · [Still image](docs/assets/live-demo.png) · [How it was recorded](docs/LIVE_DEMO.md).

@@ -49,6 +49,8 @@ async def capture(args):
         async with stdio_client(params, errlog=stderr) as (read, write):
             async with ClientSession(read, write) as client:
                 initialized = await client.initialize()
+                if args.expect_version and initialized.serverInfo.version != args.expect_version:
+                    raise RuntimeError("Connected server version differs from --expect-version")
                 transcript["server"] = {"name": initialized.serverInfo.name,
                                         "version": initialized.serverInfo.version}
                 print(f"Connected: {initialized.serverInfo.name} {initialized.serverInfo.version}", flush=True)
@@ -127,6 +129,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--jar", required=True, help="Path to the server JAR")
     parser.add_argument("--java", default="java")
+    parser.add_argument("--expect-version", help="Fail if the MCP handshake reports another version")
     parser.add_argument("--account", default="default")
     parser.add_argument("--channel", default="@telegram")
     parser.add_argument("--output", type=Path, default=Path("build/readme-demo/capture"))

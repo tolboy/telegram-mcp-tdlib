@@ -3,13 +3,19 @@
 The [README GIF](assets/live-demo.gif) is a screen recording of an actual Windows
 console window, including its title bar. It was recorded on November 2, 2026
 with FFmpeg's `gdigrab` screen-capture input. The recording is approximately
-14 seconds long, at its original speed, with no cuts. GIF conversion reduces
+17 seconds long, at its original speed, with no cuts. GIF conversion reduces
 the frame rate from 12 to 8 fps. No frames or terminal output are redrawn.
 
 The terminal runs [scripts/readme-demo.py](../scripts/readme-demo.py), a small
-Python MCP SDK client, against the released server 1.18.1 and an existing
+Python MCP SDK client, against the released server 1.19.0 and an existing
 authorized TDLib user-account session. This demonstrates the real MCP protocol
 and Telegram connection. It does not include an AI assistant's conversation.
+
+The JAR was downloaded from the [v1.19.0 release](https://github.com/tolboy/telegram-mcp-tdlib/releases/tag/v1.19.0)
+and its SHA-256 matched the release asset digest:
+`93c5a6f98cf6ad5f3270618eef132b0185196bd170e28320c96dcec604d5f354`.
+The client was run with `--expect-version 1.19.0`, which verifies the version
+reported by the live MCP handshake before proceeding.
 
 The command runs these operations and prints their results as they complete:
 
@@ -57,7 +63,7 @@ starts one STDIO server and closes it when finished. It forces the `inbox`
 profile, read-only mode, and disabled downloads in its child server.
 
 ```powershell
-build/readme-demo/venv/Scripts/python.exe scripts/readme-demo.py --jar /absolute/path/to/telegram-mcp-server.jar --account default --channel '@telegram'
+build/readme-demo/venv/Scripts/python.exe scripts/readme-demo.py --jar /absolute/path/to/telegram-mcp-server.jar --account default --channel '@telegram' --expect-version 1.19.0
 ```
 
 Use your configured account label for `--account`. The public JSON transcript
