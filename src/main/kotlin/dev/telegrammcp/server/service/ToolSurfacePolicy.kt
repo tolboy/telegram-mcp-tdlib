@@ -65,11 +65,12 @@ class ToolSurfacePolicy(
             "get_message_context", "list_inline_buttons", "press_inline_button",
             "message_from_link", "get_message_link", "list_scheduled_messages", "schedule_message",
             "reschedule_message", "cancel_scheduled_message",
+            "unpin_all_messages", "send_chat_action", "send_location", "send_venue", "send_contact",
         )
 
         private val MEDIA_TOOLS = setOf(
             "get_media_info", "download_media", "send_file", "send_voice",
-            "transcribe_voice_note", "send_sticker", "get_sticker_sets",
+            "transcribe_voice_note", "send_sticker", "get_sticker_sets", "send_album",
         )
 
         private val INBOX_TOOL_NAMES = META_TOOLS + MESSAGE_TOOLS + MEDIA_TOOLS + setOf(
@@ -91,6 +92,7 @@ class ToolSurfacePolicy(
             "list_topics", "create_topic", "edit_forum_topic", "close_forum_topic",
             "reopen_forum_topic", "set_forum_topics_enabled", "get_invite_link", "join_chat_by_link",
             "list_invite_links", "revoke_invite_link",
+            "list_join_requests", "process_join_request", "delete_messages_by_sender", "get_chat_statistics",
             "subscribe_public_channel", "get_bot_commands", "set_bot_commands", "resolve_username", "get_me",
         )
 
@@ -101,6 +103,7 @@ class ToolSurfacePolicy(
             "get_banned_users", "get_recent_actions", "search_public_chats", "discover_public_chats",
             "search_public_messages", "export_chat_history", "export_job", "conversation_bundle", "changes_since", "wait_for_changes",
             "resolve_username", "get_user_status", "get_user_photos",
+            "list_join_requests", "get_chat_statistics",
         )
     }
 }

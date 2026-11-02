@@ -393,6 +393,17 @@ class ChatAllowListCoverageTest {
                 "unmuteChat",
                 "unpinMessage",
                 "viewMessages",
+                // Media and moderation tools: chat_id is resolved and validated in the tool.
+                "deleteMessagesBySender",
+                "getChatJoinRequests",
+                "getChatStatistics",
+                "processChatJoinRequest",
+                "sendAlbum",
+                "sendChatAction",
+                "sendContact",
+                "sendLocation",
+                "sendVenue",
+                "unpinAllMessages",
             ),
             ClientMethodPolicy.ACCOUNT_WIDE_FILTER to setOf(
                 "getChats",

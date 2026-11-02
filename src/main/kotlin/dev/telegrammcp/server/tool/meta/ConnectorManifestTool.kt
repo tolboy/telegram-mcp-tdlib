@@ -71,6 +71,7 @@ class ConnectorManifestTool(
             "mark_as_read",
             "pin_message",
             "unpin_message",
+            "unpin_all_messages",
             "get_pinned_messages",
             "get_message_context",
             "message_from_link",
@@ -87,6 +88,10 @@ class ConnectorManifestTool(
             "schedule_message",
             "reschedule_message",
             "cancel_scheduled_message",
+            "send_chat_action",
+            "send_location",
+            "send_venue",
+            "send_contact",
         )
 
         private val CHAT_TOOLS = setOf(
@@ -114,6 +119,10 @@ class ConnectorManifestTool(
             "get_admins",
             "get_banned_users",
             "get_recent_actions",
+            "get_chat_statistics",
+            "list_join_requests",
+            "process_join_request",
+            "delete_messages_by_sender",
             "get_invite_link",
             "list_invite_links",
             "revoke_invite_link",
@@ -138,6 +147,7 @@ class ConnectorManifestTool(
             "download_media",
             "get_media_info",
             "send_sticker",
+            "send_album",
             "send_voice",
             "transcribe_voice_note",
             "get_sticker_sets",

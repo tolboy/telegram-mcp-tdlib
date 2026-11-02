@@ -97,6 +97,11 @@ class AuditService(
             "delete_message" to AuditCategory.EDIT_MESSAGE,
             "pin_message" to AuditCategory.EDIT_MESSAGE,
             "unpin_message" to AuditCategory.EDIT_MESSAGE,
+            "unpin_all_messages" to AuditCategory.EDIT_MESSAGE,
+            "send_chat_action" to AuditCategory.SEND_MESSAGE,
+            "send_location" to AuditCategory.SEND_MESSAGE,
+            "send_venue" to AuditCategory.SEND_MESSAGE,
+            "send_contact" to AuditCategory.SEND_MESSAGE,
             "mark_as_read" to AuditCategory.EDIT_MESSAGE,
             "list_scheduled_messages" to AuditCategory.READ_MESSAGE,
             "schedule_message" to AuditCategory.SEND_MESSAGE,
@@ -114,6 +119,8 @@ class AuditService(
             "invite_to_group" to AuditCategory.MANAGE_CHAT,
             "leave_chat" to AuditCategory.MANAGE_CHAT,
             "ban_user" to AuditCategory.MANAGE_CHAT,
+            "process_join_request" to AuditCategory.MANAGE_CHAT,
+            "delete_messages_by_sender" to AuditCategory.MANAGE_CHAT,
             "unban_user" to AuditCategory.MANAGE_CHAT,
             "promote_admin" to AuditCategory.MANAGE_CHAT,
             "demote_admin" to AuditCategory.MANAGE_CHAT,
@@ -156,6 +163,7 @@ class AuditService(
             "download_media" to AuditCategory.MEDIA_DOWNLOAD,
             "get_media_info" to AuditCategory.MEDIA_DOWNLOAD,
             "send_file" to AuditCategory.MEDIA_UPLOAD,
+            "send_album" to AuditCategory.MEDIA_UPLOAD,
 
             // Reactions & polls
             "send_reaction" to AuditCategory.REACT_MESSAGE,
@@ -187,6 +195,7 @@ class AuditService(
             "register_internal_chat" to AuditCategory.MANAGE_CHAT,
             "get_admins" to AuditCategory.READ_CHAT,
             "get_banned_users" to AuditCategory.READ_CHAT,
+            "list_join_requests" to AuditCategory.READ_CHAT,
 
             // Voice, stickers & chat photo
             "send_voice" to AuditCategory.VOICE,
@@ -211,6 +220,7 @@ class AuditService(
             "get_blocked_users" to AuditCategory.READ_USER,
             "get_user_status" to AuditCategory.READ_USER,
             "get_recent_actions" to AuditCategory.ADMIN_LOG,
+            "get_chat_statistics" to AuditCategory.ADMIN_LOG,
 
             // Utilities
             "message_from_link" to AuditCategory.READ_MESSAGE,

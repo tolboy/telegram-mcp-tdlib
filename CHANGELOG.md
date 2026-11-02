@@ -56,6 +56,29 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 - Tests no longer pick up `TDLIB_*` or `TELEGRAM_*` variables from the
   developer's environment.
 
+- Add ten tools, bringing the catalog from 116 to 126:
+  - `send_album` sends 2-10 local files as one grouped album. Photos and
+    videos can be mixed; documents and audio files form their own albums.
+  - `send_location`, `send_venue` and `send_contact` send map points, places
+    and contact cards. Like `send_album`, they accept `idempotency_key`.
+  - `send_chat_action` shows a short-lived status such as typing.
+  - `list_join_requests` and `process_join_request` list and approve or
+    decline pending requests to join a chat, one user at a time.
+  - `unpin_all_messages` and `delete_messages_by_sender` are destructive and
+    need confirmation.
+  - `get_chat_statistics` returns summary statistics for a supergroup or
+    channel. Graphs are not included.
+- If an album send fails part-way, `send_album` reports the outcome as
+  unknown instead of retrying, so the album is never sent twice. Check the
+  chat, or call `get_send_operation` when you set an `idempotency_key`, before
+  sending again.
+- The new send tools apply the same input filter as `send_message` and
+  `send_file` (`MCP_GUARDRAILS_BLOCKEDPATTERNS` and
+  `MCP_GUARDRAILS_MAXTOOLINPUTLENGTH`) to every outgoing text field:
+  album captions, venue title, address and provider
+  fields, and contact phone, names and vCard. `list_join_requests` filters its
+  `query` and `invite_link` like the other search tools.
+
 ## 1.18.1 - 2026-11-01
 
 - **Behaviour change:** `MCP_READ_ONLY=false` with `MCP_DESTRUCTIVE_APPROVAL=off`

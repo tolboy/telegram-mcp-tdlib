@@ -408,3 +408,107 @@ data class AdminActionInfo(
     val action: String,
     val details: String? = null,
 )
+
+// ── Albums, rich sends and moderation ──────────────────────────────────────
+
+/** File kind of one media-album item. Telegram groups photos with videos, documents with documents and audio with audio. */
+enum class AlbumItemType { PHOTO, VIDEO, DOCUMENT, AUDIO }
+
+/** One local file in a media album, with an optional per-item caption. */
+data class AlbumItem(
+    val filePath: String,
+    val type: AlbumItemType,
+    val caption: String? = null,
+)
+
+/** Status shown to chat members while the account prepares a message. */
+enum class ChatActionType {
+    TYPING,
+    RECORDING_VOICE_NOTE,
+    UPLOADING_PHOTO,
+    UPLOADING_VIDEO,
+    UPLOADING_DOCUMENT,
+    CHOOSING_STICKER,
+    CHOOSING_LOCATION,
+    CHOOSING_CONTACT,
+    CANCEL,
+}
+
+/** A venue (place with a title and address) to send as a message. */
+data class VenueSpec(
+    val latitude: Double,
+    val longitude: Double,
+    val title: String,
+    val address: String,
+    val provider: String = "",
+    val providerVenueId: String = "",
+    val providerVenueType: String = "",
+)
+
+/** A contact card to send as a message. */
+data class ContactSpec(
+    val phoneNumber: String,
+    val firstName: String,
+    val lastName: String = "",
+    val vcard: String = "",
+    val userId: Long = 0,
+)
+
+/** A pending request to join a chat that needs administrator approval. */
+data class ChatJoinRequestInfo(
+    val userId: Long,
+    val date: Instant,
+    val bio: String,
+)
+
+/** One page of pending join requests for a chat. */
+data class ChatJoinRequestList(
+    val chatId: Long,
+    val totalCount: Int,
+    val requests: List<ChatJoinRequestInfo>,
+)
+
+/** A named statistic for the current period, compared with the previous one. */
+data class ChatStatisticValue(
+    val name: String,
+    val value: Double,
+    val previousValue: Double,
+    val growthRatePercentage: Double,
+)
+
+/** Most active message senders in a supergroup over the statistics period. */
+data class ChatStatisticsTopSender(
+    val userId: Long,
+    val sentMessageCount: Int,
+    val averageCharacterCount: Int,
+)
+
+/** Most active administrators in a supergroup over the statistics period. */
+data class ChatStatisticsTopAdministrator(
+    val userId: Long,
+    val deletedMessageCount: Int,
+    val bannedUserCount: Int,
+    val restrictedUserCount: Int,
+)
+
+/** Members who invited the most users into a supergroup over the statistics period. */
+data class ChatStatisticsTopInviter(
+    val userId: Long,
+    val addedMemberCount: Int,
+)
+
+/**
+ * Headline Telegram statistics for a supergroup or channel. Graphs are left
+ * out: TDLib loads them asynchronously and they are large JSON blobs.
+ */
+data class ChatStatisticsSummary(
+    val chatId: Long,
+    val type: String,
+    val periodStart: Instant,
+    val periodEnd: Instant,
+    val values: List<ChatStatisticValue>,
+    val enabledNotificationsPercentage: Double? = null,
+    val topSenders: List<ChatStatisticsTopSender> = emptyList(),
+    val topAdministrators: List<ChatStatisticsTopAdministrator> = emptyList(),
+    val topInviters: List<ChatStatisticsTopInviter> = emptyList(),
+)

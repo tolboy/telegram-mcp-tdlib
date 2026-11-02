@@ -163,5 +163,14 @@ private class NoOpTelegramClientService : TelegramClientService {
     override fun getMessageLink(chatId: Long, messageId: Long, forAlbum: Boolean, inMessageThread: Boolean) = unavailable()
     override fun getLastInteractionWithContact(contactId: Long) = unavailable()
     override fun getGroupsInCommon(userId: Long, limit: Int) = unavailable()
+    override fun sendAlbum(chatId: Long, items: List<AlbumItem>) = unavailable()
+    override fun sendChatAction(chatId: Long, action: ChatActionType) = unavailable()
+    override fun sendLocation(chatId: Long, latitude: Double, longitude: Double, horizontalAccuracy: Double) = unavailable()
+    override fun sendVenue(chatId: Long, venue: VenueSpec) = unavailable()
+    override fun sendContact(chatId: Long, contact: ContactSpec) = unavailable()
+    override fun getChatJoinRequests(chatId: Long, query: String, inviteLink: String, limit: Int) = unavailable()
+    override fun processChatJoinRequest(chatId: Long, userId: Long, approve: Boolean) = unavailable()
+    override fun unpinAllMessages(chatId: Long) = unavailable()
+    override fun deleteMessagesBySender(chatId: Long, senderId: Long) = unavailable()
+    override fun getChatStatistics(chatId: Long) = unavailable()
 }
-

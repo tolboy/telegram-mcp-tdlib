@@ -2037,6 +2037,120 @@ class TdLibClientService(
         }
     }
 
+    // ── Albums, rich sends and moderation ──────────────────────────────────
+
+    override fun sendAlbum(chatId: Long, items: List<AlbumItem>): List<TelegramMessage> {
+        log.info("Sending album of {} items to chat {}", items.size, chatId)
+
+        val request = TdLibRequestBuilders.albumRequest(chatId, items)
+        val delivered = holdingBulkhead("sendMessageAlbum") { albumAndAwait(request, chatId) }
+        val chatTitle = getChatTitleSafe(chatId)
+        return delivered.map { it.toTelegramMessage(chatTitle) }
+    }
+
+    private fun albumAndAwait(request: TdApi.SendMessageAlbum, chatId: Long): List<TdApi.Message> {
+        val priorWriteDispatched = ToolCallDeadline.writeDispatched()
+        val pending = withResilience("sendMessageAlbum") { send<TdApi.Messages>(request) }.messages.orEmpty().filterNotNull()
+        val delivered = ArrayList<TdApi.Message>(pending.size)
+        val failures = ArrayList<Exception>()
+        pending.forEach { message ->
+            // All items are dispatched together; after a failure, only poll the rest.
+            try {
+                delivered += awaitFinalMessage(message, request, priorWriteDispatched, pollOnly = failures.isNotEmpty())
+            } catch (error: TelegramApiException) {
+                failures += error
+            } catch (error: SendOutcomeUnknownException) {
+                failures += error
+            } catch (error: TelegramTimeoutException) {
+                failures += error
+            }
+        }
+        if (failures.isEmpty() && delivered.size == request.inputMessageContents.size) return delivered
+        // Only a definite rejection of every item proves the album safe to repeat.
+        if (delivered.isEmpty() && failures.isNotEmpty() && failures.all { it is TelegramApiException }) throw failures.first()
+        throw SendOutcomeUnknownException(
+            chatId, delivered.firstOrNull()?.id,
+            failures.firstOrNull() ?: IllegalStateException(
+                "Telegram accepted ${delivered.size} of ${request.inputMessageContents.size} album items",
+            ),
+        )
+    }
+
+    override fun sendChatAction(chatId: Long, action: ChatActionType): Boolean {
+        log.info("Sending chat action {} to chat {}", action, chatId)
+        withResilience("sendChatAction") {
+            send<TdApi.Ok>(TdApi.SendChatAction(chatId, null, "", TdLibRequestBuilders.chatAction(action)))
+        }
+        return true
+    }
+
+    override fun sendLocation(chatId: Long, latitude: Double, longitude: Double, horizontalAccuracy: Double): TelegramMessage {
+        log.info("Sending location to chat {}", chatId)
+        return sendContent(chatId, TdLibRequestBuilders.locationContent(latitude, longitude, horizontalAccuracy))
+    }
+
+    override fun sendVenue(chatId: Long, venue: VenueSpec): TelegramMessage {
+        log.info("Sending venue to chat {}", chatId)
+        return sendContent(chatId, TdLibRequestBuilders.venueContent(venue))
+    }
+
+    override fun sendContact(chatId: Long, contact: ContactSpec): TelegramMessage {
+        log.info("Sending contact card to chat {}", chatId)
+        return sendContent(chatId, TdLibRequestBuilders.contactContent(contact))
+    }
+
+    private fun sendContent(chatId: Long, content: TdApi.InputMessageContent): TelegramMessage {
+        val request = TdApi.SendMessage().apply {
+            this.chatId = chatId
+            this.inputMessageContent = content
+        }
+        return sendAndAwaitFinal("sendMessage", request).toTelegramMessage(getChatTitleSafe(chatId))
+    }
+
+    override fun getChatJoinRequests(chatId: Long, query: String, inviteLink: String, limit: Int): ChatJoinRequestList {
+        log.info("Listing join requests of chat {} (limit={})", chatId, limit)
+        val result = withResilience("getChatJoinRequests") {
+            send<TdApi.ChatJoinRequests>(TdApi.GetChatJoinRequests(chatId, inviteLink, query, null, limit.coerceIn(1, 100)))
+        }
+        return ChatJoinRequestList(
+            chatId = chatId,
+            totalCount = result.totalCount,
+            requests = result.requests.orEmpty().map {
+                ChatJoinRequestInfo(it.userId, Instant.ofEpochSecond(it.date.toLong()), it.bio.orEmpty())
+            },
+        )
+    }
+
+    override fun processChatJoinRequest(chatId: Long, userId: Long, approve: Boolean): Boolean {
+        log.info("{} join request of user {} in chat {}", if (approve) "Approving" else "Declining", userId, chatId)
+        withResilience("processChatJoinRequest") {
+            send<TdApi.Ok>(TdApi.ProcessChatJoinRequest(chatId, userId, approve))
+        }
+        return true
+    }
+
+    override fun unpinAllMessages(chatId: Long): Boolean {
+        log.info("Unpinning all messages in chat {}", chatId)
+        withResilience("unpinAllChatMessages") { send<TdApi.Ok>(TdApi.UnpinAllChatMessages(chatId)) }
+        return true
+    }
+
+    override fun deleteMessagesBySender(chatId: Long, senderId: Long): Boolean {
+        log.info("Deleting all messages of sender {} in chat {}", senderId, chatId)
+        withResilience("deleteChatMessagesBySender") {
+            send<TdApi.Ok>(TdApi.DeleteChatMessagesBySender(chatId, TdLibRequestBuilders.messageSender(senderId)))
+        }
+        return true
+    }
+
+    override fun getChatStatistics(chatId: Long): ChatStatisticsSummary {
+        log.info("Loading statistics of chat {}", chatId)
+        val statistics = withResilience("getChatStatistics") {
+            send<TdApi.ChatStatistics>(TdApi.GetChatStatistics(chatId, false))
+        }
+        return TdLibRequestBuilders.chatStatistics(chatId, statistics)
+    }
+
     // ── Internal helpers ────────────────────────────────────────────────────
 
     private fun tdPrivacySetting(setting: PrivacySetting): TdApi.UserPrivacySetting = when (setting) {
@@ -2160,7 +2274,7 @@ class TdLibClientService(
         val timeout = if (function is TdApi.DownloadFile) requestSettings.downloadTimeout else requestSettings.timeout
         val wait = TdLibRequestAwaiter.waitFor(function, timeout)
         val future = CompletableFuture<TdApi.Object>()
-        val observer = if (function is TdApi.SendMessage || function is TdApi.ForwardMessages)
+        val observer = if (function is TdApi.SendMessage || function is TdApi.SendMessageAlbum || function is TdApi.ForwardMessages)
             SendObservationContext.capture() else null
         if (!TdLibRequestAwaiter.isReadOnly(function)) ToolCallDeadline.markWriteDispatched()
         timeoutHealth.onDispatch()
