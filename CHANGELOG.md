@@ -3,7 +3,15 @@
 Notable changes to Telegram MCP Server are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased (1.18.2)
+## Unreleased
+
+## 1.19.0 - 2026-11-02
+
+This release adds ten tools (116 to 126), opt-in MCP resources with
+subscriptions, and a round of security hardening. Callers should review the
+behaviour changes below: configured destructive tools now add to the
+defaults, high-risk writes need approval by default, and the loopback
+approval link is no longer printed to agent-visible stderr.
 
 - **Behaviour change:** `server-mode.confirmation.destructive-tools` now adds to the built-in
   destructive set instead of replacing it, so listing one extra tool can no
@@ -97,6 +105,9 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   only for changes in chats its `list_chats` view includes. While
   subscriptions are active, `/mcp` POST bodies over 1 MiB (declared or
   chunked) are refused with HTTP 413. See `docs/RESOURCES.md`.
+- Update Spring Boot from 4.1.1 to 4.1.2, Spring AI MCP from 2.0.1 to 2.0.2,
+  and pinned GitHub Actions `gradle/actions/setup-gradle` 6.4.1 and
+  `docker/login-action` 4.7.0 (#45, #46).
 
 ## 1.18.1 - 2026-11-01
 
