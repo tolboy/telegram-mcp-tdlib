@@ -51,9 +51,18 @@ class ResourceSubscriptionRegistry(
         if (session.uris.isEmpty()) sessions -= sessionId
     }
 
+    /**
+     * Marks the session active. A newer [authentication] for the same principal
+     * (a refreshed bearer token) replaces the stored one, so notifications keep
+     * being authorized after the token the client subscribed with expires.
+     */
     @Synchronized
-    fun touch(sessionId: String, now: Instant = Instant.now()) {
-        sessions[sessionId]?.lastSeen = now
+    fun touch(sessionId: String, authentication: Authentication? = null, now: Instant = Instant.now()) {
+        val session = sessions[sessionId] ?: return
+        session.lastSeen = now
+        if (authentication != null && authentication.name == session.authentication.name) {
+            session.authentication = authentication
+        }
     }
 
     @Synchronized

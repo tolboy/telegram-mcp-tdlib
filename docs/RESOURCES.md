@@ -54,7 +54,10 @@ exposes. The capability is advertised with `listChanged: false`.
   requests are refused (`-32600`).
 - Each subscription is recorded with the caller's authentication. Before every
   notification the server re-checks that identity; a revoked grant, a changed
-  permissions file or an expired OAuth token stops notifications.
+  permissions file or an expired OAuth token stops notifications. Any later
+  authenticated request on the session from the same principal (for example
+  with a refreshed OAuth token) replaces the stored authentication, so a
+  client that keeps refreshing its token keeps receiving notifications.
 - Sessions stay bound to the principal that created them (the existing
   session-principal filter); the subscription registry also never moves a
   session's subscriptions to another principal.

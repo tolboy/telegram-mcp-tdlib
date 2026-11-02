@@ -13,6 +13,9 @@ import org.springframework.mock.web.MockHttpServletRequest
 import org.springframework.mock.web.MockHttpServletResponse
 import org.springframework.security.authentication.TestingAuthenticationToken
 import org.springframework.security.core.context.SecurityContextHolder
+import org.springframework.security.oauth2.jwt.Jwt
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken
+import java.time.Instant
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -135,6 +138,25 @@ class McpResourceSubscriptionFilterTest {
         post(padded)
         assertEquals(padded, forwardedBody)
         assertTrue(registry.isSubscribed("telegram://default/chat/42"))
+    }
+
+    @Test fun `any request with a refreshed token updates the identity notifications are checked with`() {
+        val now = Instant.now()
+        fun jwt(token: String, subject: String, expiry: Instant) = JwtAuthenticationToken(
+            Jwt.withTokenValue(token).header("alg", "none").subject(subject)
+                .issuedAt(now.minusSeconds(120)).expiresAt(expiry).build(),
+            emptyList(),
+        )
+        val uri = "telegram://default/chats"
+        registry.add("s1", jwt("old", "alice", now.minusSeconds(1)), uri)
+        SecurityContextHolder.getContext().authentication = jwt("fresh", "alice", now.plusSeconds(3600))
+        post("""{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"$uri"}}""")
+        assertEquals("fresh", (registry.subscribers(uri).single().authentication as JwtAuthenticationToken).token.tokenValue)
+
+        // A different principal on the same session id never takes the subscription over.
+        SecurityContextHolder.getContext().authentication = jwt("other", "mallory", now.plusSeconds(3600))
+        post("""{"jsonrpc":"2.0","id":2,"method":"tools/list"}""")
+        assertEquals("fresh", (registry.subscribers(uri).single().authentication as JwtAuthenticationToken).token.tokenValue)
     }
 
     @Test fun `requests without a session are untouched`() {

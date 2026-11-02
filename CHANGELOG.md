@@ -16,7 +16,8 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   when resources are enabled). HTTP subscriptions are authorized before the
   SDK records them, capped per session (`MCP_RESOURCE_MAX_SUBSCRIPTIONS`,
   default 50) and re-authorized with the subscriber's identity before every
-  notification. New, edited, changed and deleted messages and journal coverage
+  notification; a refreshed token on any later request from the same
+  principal replaces that identity. New, edited, changed and deleted messages and journal coverage
   gaps send `notifications/resources/updated`, coalesced per URI
   (`MCP_RESOURCE_DEBOUNCE`, default `1s`). A `chats` subscriber is notified
   only for changes in chats its `list_chats` view includes. While

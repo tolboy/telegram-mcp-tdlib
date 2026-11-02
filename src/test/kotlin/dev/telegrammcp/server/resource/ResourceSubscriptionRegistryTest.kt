@@ -40,7 +40,7 @@ class ResourceSubscriptionRegistryTest {
         val registry = ResourceSubscriptionRegistry(idleTimeout = Duration.ofMinutes(10))
         registry.add("s1", alice, "telegram://a/chat/1", t0)
         registry.add("s2", bob, "telegram://a/chat/1", t0)
-        registry.touch("s1", t0.plus(Duration.ofMinutes(8)))
+        registry.touch("s1", now = t0.plus(Duration.ofMinutes(8)))
         assertEquals(listOf("s1"), registry.subscribers("telegram://a/chat/1", t0.plus(Duration.ofMinutes(12))).map { it.sessionId })
     }
 

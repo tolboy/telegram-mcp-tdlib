@@ -40,7 +40,7 @@ class McpResourceSubscriptionFilter(
             filterChain.doFilter(request, response)
             return
         }
-        registry.touch(session)
+        registry.touch(session, authentication)
         if (!isMcpPost(request)) {
             filterChain.doFilter(request, response)
             forgetClosed(request, response, session)
