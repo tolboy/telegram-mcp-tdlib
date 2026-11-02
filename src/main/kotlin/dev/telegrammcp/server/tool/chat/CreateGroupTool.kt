@@ -77,6 +77,7 @@ class CreateGroupTool(
             val title = arguments["title"]?.toString()
                 ?: throw InvalidToolInputException("title is required")
             if (title.isBlank()) throw InvalidToolInputException("title must not be blank")
+            guardrailService.validateInput(title)
 
             val userIds = (arguments["user_ids"] as? List<*>)
                 ?.mapNotNull { (it as? Number)?.toLong() }
