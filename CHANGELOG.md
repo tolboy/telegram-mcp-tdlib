@@ -21,6 +21,11 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   unknown instead of retrying, so the album is never sent twice. Check the
   chat, or call `get_send_operation` when you set an `idempotency_key`, before
   sending again.
+- The new send tools apply the same input filter as `send_message` and
+  `send_file` (`MCP_BLOCKED_PATTERNS` and `MCP_MAX_TOOL_INPUT_LENGTH`) to
+  every outgoing text field: album captions, venue title, address and provider
+  fields, and contact phone, names and vCard. `list_join_requests` filters its
+  `query` and `invite_link` like the other search tools.
 
 ## 1.18.1 - 2026-11-01
 

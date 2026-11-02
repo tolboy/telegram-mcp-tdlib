@@ -85,6 +85,8 @@ class ListJoinRequestsTool(
             val query = arguments["query"]?.toString()?.trim().orEmpty()
             val inviteLink = arguments["invite_link"]?.toString()?.trim().orEmpty()
             guardrailService.validateChatAccess(chatId)
+            // Same input filter as the other search tools.
+            listOf(query, inviteLink).filter(String::isNotEmpty).forEach(guardrailService::validateInput)
             log.withTool(TOOL_NAME).info("Listing join requests for chat {}", chatId)
             telegramClient.getChatJoinRequests(chatId, query, inviteLink, limit)
         }

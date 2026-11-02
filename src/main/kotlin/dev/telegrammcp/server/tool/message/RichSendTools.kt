@@ -42,6 +42,11 @@ internal object RichSendArguments {
         if (value.length > maxLength) throw InvalidToolInputException("$key must be at most $maxLength characters")
         return value
     }
+
+    /** Runs every non-empty outgoing text field through the configured input filter. */
+    fun validateText(guardrailService: GuardrailService, vararg values: String?) {
+        values.filterNot { it.isNullOrEmpty() }.forEach { guardrailService.validateInput(it!!) }
+    }
 }
 
 /**
@@ -154,6 +159,8 @@ class SendVenueTool(
                 providerVenueType = RichSendArguments.text(arguments, "provider_venue_type", 256),
             )
             guardrailService.validateChatAccess(chatId)
+            RichSendArguments.validateText(guardrailService, venue.title, venue.address, venue.provider,
+                venue.providerVenueId, venue.providerVenueType)
             log.withTool(TOOL_NAME).info("Sending venue to chat {}", chatId)
             RecoverableSend.execute(sendOperations, operationGuardService, TOOL_NAME, arguments, chatId, listOf(venue)) {
                 telegramClient.sendVenue(chatId, venue)
@@ -217,6 +224,8 @@ class SendContactTool(
                 userId = userId,
             )
             guardrailService.validateChatAccess(chatId)
+            RichSendArguments.validateText(guardrailService, contact.phoneNumber, contact.firstName,
+                contact.lastName, contact.vcard)
             log.withTool(TOOL_NAME).info("Sending contact card to chat {}", chatId)
             RecoverableSend.execute(sendOperations, operationGuardService, TOOL_NAME, arguments, chatId, listOf(contact)) {
                 telegramClient.sendContact(chatId, contact)

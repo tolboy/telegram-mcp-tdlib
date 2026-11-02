@@ -112,6 +112,8 @@ class SendAlbumTool(
             val items = validated.map { (item, path) -> item.copy(filePath = path.toString()) }
 
             guardrailService.validateChatAccess(chatId)
+            // Captions are outgoing text: same input filter as send_file.
+            items.mapNotNull { it.caption }.forEach(guardrailService::validateInput)
             log.withTool(TOOL_NAME).info("Sending album of {} items to chat {}", items.size, chatId)
             val canonical = validated.map { (item, path) ->
                 listOf(path.toString(), item.type.name, item.caption, RecoverableSend.fileFingerprint(arguments, path))
