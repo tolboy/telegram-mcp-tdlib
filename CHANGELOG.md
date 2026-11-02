@@ -26,8 +26,8 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   terminal does not print the link; if this cannot be determined, the link is
   not printed.
 - `create_group` titles and `set_bot_commands` descriptions go through the
-  input filter (`MCP_BLOCKED_PATTERNS`, `MCP_MAX_TOOL_INPUT_LENGTH`) like
-  other outgoing text.
+  input filter (`MCP_GUARDRAILS_BLOCKEDPATTERNS`,
+  `MCP_GUARDRAILS_MAXTOOLINPUTLENGTH`) like other outgoing text.
 - The loopback approval page accepts a decision only as a same-origin form
   POST carrying the page's form token; forged requests get 403 and leave the
   approval pending.
