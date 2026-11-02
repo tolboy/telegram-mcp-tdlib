@@ -18,7 +18,8 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   default 50) and re-authorized with the subscriber's identity before every
   notification. New, edited, changed and deleted messages and journal coverage
   gaps send `notifications/resources/updated`, coalesced per URI
-  (`MCP_RESOURCE_DEBOUNCE`, default `1s`). See `docs/RESOURCES.md`.
+  (`MCP_RESOURCE_DEBOUNCE`, default `1s`). A `chats` subscriber is notified
+  only for changes in chats it may read. See `docs/RESOURCES.md`.
 
 ## 1.18.1 - 2026-11-01
 

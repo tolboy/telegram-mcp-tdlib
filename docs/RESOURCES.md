@@ -60,6 +60,12 @@ exposes. The capability is advertised with `listChanged: false`.
   session's subscriptions to another principal.
 - Notifications carry only the URI. The client must read the resource again,
   which goes through the checks above.
+- A `chats` subscriber is notified only when at least one chat that changed in
+  the debounce window is readable by that subscriber, so a client limited to
+  some chats learns nothing about activity elsewhere. Up to 256 distinct
+  changed chats are remembered per pending URI; later ones in the same window
+  are ignored for this check (fails closed). Coverage gaps are not
+  chat-specific and reach every permitted `chats` subscriber.
 
 ## Change mapping
 
@@ -83,9 +89,11 @@ changes are dropped with one warning until the backlog drains.
 - **HTTP (Streamable HTTP):** notifications go over the session's GET SSE
   stream. Subscriptions are forgotten on a successful `DELETE`, when the
   transport answers 404 for the session, and after 24 hours without requests.
-  At most 4,096 sessions hold subscriptions. A session that disappears without
-  either signal keeps its entries until the idle timeout; the SDK drops
-  notifications to unknown sessions silently.
+  At most 4,096 sessions hold subscriptions. Requests for an unknown session
+  are normally answered 404 (and a foreign session 403) by the session-principal
+  filter before they reach subscription tracking, so in practice a session that
+  disappears without a `DELETE` keeps its entries until the idle timeout; the
+  SDK drops notifications to unknown sessions silently.
 - **stdio:** the SDK tracks subscriptions itself. The single local identity is
   re-checked before each notification. A coverage gap refreshes only the chats
   URI because the SDK's subscription list is not readable.

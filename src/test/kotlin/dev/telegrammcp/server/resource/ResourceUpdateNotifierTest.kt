@@ -15,9 +15,10 @@ import kotlin.test.assertTrue
 class ResourceUpdateNotifierTest {
     private class RecordingSink(val watched: Set<String>? = null, val gapUris: Set<String> = emptySet()) : ResourceUpdateSink {
         val delivered = mutableListOf<String>()
+        val sources = mutableMapOf<String, Set<Long>?>()
         override fun isWatched(uri: String) = watched == null || uri in watched
         override fun watchedForAccount(account: String) = gapUris
-        override fun deliver(uri: String) { delivered += uri }
+        override fun deliver(uri: String, sourceChats: Set<Long>?) { delivered += uri; sources[uri] = sourceChats }
     }
 
     private val second = TimeUnit.SECONDS.toNanos(1)
@@ -62,7 +63,7 @@ class ResourceUpdateNotifierTest {
         val notifier = ResourceUpdateNotifier(object : ResourceUpdateSink {
             override fun isWatched(uri: String) = true
             override fun watchedForAccount(account: String) = emptySet<String>()
-            override fun deliver(uri: String) { if (uri.endsWith("/1")) error("boom"); delivered += uri }
+            override fun deliver(uri: String, sourceChats: Set<Long>?) { if (uri.endsWith("/1")) error("boom"); delivered += uri }
         }, 0)
         notifier.enqueue(listOf("telegram://a/chat/1", "telegram://a/chat/2"), 0)
         notifier.flush(0)
@@ -101,5 +102,69 @@ class ResourceUpdateNotifierTest {
         sink.deliver("not-a-uri")
         verify(exactly = 1) { server.notifyResourcesUpdated(any()) }
         verify { server.notifyResourcesUpdated(McpSchema.ResourcesUpdatedNotification("telegram://a/chat/42")) }
+    }
+
+    @Test fun `pending URIs remember which chats changed and a gap widens them to everyone`() {
+        val sink = RecordingSink()
+        val notifier = ResourceUpdateNotifier(sink, 0)
+        notifier.enqueue(listOf("telegram://a/chats"), 0, 42)
+        notifier.enqueue(listOf("telegram://a/chats"), 0, 43)
+        notifier.flush(0)
+        assertEquals(setOf(42L, 43L), sink.sources["telegram://a/chats"])
+        notifier.enqueue(listOf("telegram://a/chats"), 1, 42)
+        notifier.enqueue(listOf("telegram://a/chats"), 1, null)
+        notifier.enqueue(listOf("telegram://a/chats"), 1, 44)
+        notifier.flush(1)
+        assertEquals(null, sink.sources["telegram://a/chats"])
+    }
+
+    @Test fun `source chats are capped and a change without a chat is not queued`() {
+        val sink = RecordingSink()
+        val notifier = ResourceUpdateNotifier(sink, 0)
+        (1L..(ResourceUpdateNotifier.MAX_SOURCE_CHATS + 10L)).forEach { notifier.enqueue(listOf("telegram://a/chats"), 0, it) }
+        notifier.onChange("a", "new", null, null)
+        notifier.flush(0)
+        assertEquals(ResourceUpdateNotifier.MAX_SOURCE_CHATS, sink.sources["telegram://a/chats"]!!.size)
+        assertEquals(listOf("telegram://a/chats"), sink.delivered)
+    }
+
+    @Test fun `HTTP chat-list updates reach only sessions that may read a chat that changed`() {
+        val registry = ResourceSubscriptionRegistry()
+        val owner = TestingAuthenticationToken("owner", null, "ROLE_X")
+        val scoped = TestingAuthenticationToken("scoped", null, "ROLE_X")
+        registry.add("s-owner", owner, "telegram://a/chats")
+        registry.add("s-scoped", scoped, "telegram://a/chats")
+        val access = mockk<TelegramResourceAccess>()
+        every { access.permits(any(), owner, any()) } returns true
+        every { access.permits(TelegramResourceUri.Chats("a"), scoped, any()) } returns true
+        every { access.permits(TelegramResourceUri.Chat("a", 42), scoped, any()) } returns true
+        every { access.permits(TelegramResourceUri.Chat("a", 43), scoped, any()) } returns false
+        val transport = mockk<McpStreamableServerTransportProvider>()
+        every { transport.notifyClient(any(), any(), any()) } returns Mono.empty()
+        val sink = HttpResourceUpdateSink(registry, access) { transport }
+
+        sink.deliver("telegram://a/chats", setOf(43))
+        verify(exactly = 1) { transport.notifyClient("s-owner", any(), any()) }
+        verify(exactly = 0) { transport.notifyClient("s-scoped", any(), any()) }
+
+        sink.deliver("telegram://a/chats", setOf(43, 42))
+        verify(exactly = 1) { transport.notifyClient("s-scoped", any(), any()) }
+
+        sink.deliver("telegram://a/chats", null) // coverage gap: not chat-specific
+        verify(exactly = 2) { transport.notifyClient("s-scoped", any(), any()) }
+        verify(exactly = 3) { transport.notifyClient("s-owner", any(), any()) }
+    }
+
+    @Test fun `stdio chat-list updates need a readable source chat`() {
+        val access = mockk<TelegramResourceAccess>()
+        every { access.permits(TelegramResourceUri.Chats("a"), null, any()) } returns true
+        every { access.permits(TelegramResourceUri.Chat("a", 42), null, any()) } returns true
+        every { access.permits(TelegramResourceUri.Chat("a", 43), null, any()) } returns false
+        val server = mockk<io.modelcontextprotocol.server.McpSyncServer>(relaxed = true)
+        val sink = StdioResourceUpdateSink(access) { server }
+        sink.deliver("telegram://a/chats", setOf(43))
+        verify(exactly = 0) { server.notifyResourcesUpdated(any()) }
+        sink.deliver("telegram://a/chats", setOf(42))
+        verify(exactly = 1) { server.notifyResourcesUpdated(McpSchema.ResourcesUpdatedNotification("telegram://a/chats")) }
     }
 }

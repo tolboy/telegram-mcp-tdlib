@@ -23,8 +23,19 @@ interface ResourceUpdateSink {
     /** URIs a coverage gap for [account] invalidates. */
     fun watchedForAccount(account: String): Set<String>
 
-    fun deliver(uri: String)
+    /**
+     * Sends [uri] to its permitted subscribers. [sourceChats] names the chats whose
+     * changes touched an account-wide `chats` URI; such a URI reaches only subscribers
+     * that may read at least one of them. Null means the change is not chat-specific
+     * (a coverage gap) or the URI names its chat itself.
+     */
+    fun deliver(uri: String, sourceChats: Set<Long>? = null)
 }
+
+/** True unless [resource] is a `chats` list and none of [sourceChats] is readable by the caller. */
+internal fun sourcePermitted(resource: TelegramResourceUri, sourceChats: Set<Long>?, permits: (TelegramResourceUri) -> Boolean): Boolean =
+    resource !is TelegramResourceUri.Chats || sourceChats == null ||
+        sourceChats.any { permits(TelegramResourceUri.Chat(resource.account, it)) }
 
 /** Each subscribed session is re-authorized with the identity that subscribed before it is told anything. */
 class HttpResourceUpdateSink(
@@ -38,11 +49,13 @@ class HttpResourceUpdateSink(
 
     override fun watchedForAccount(account: String) = registry.urisForAccount(account)
 
-    override fun deliver(uri: String) {
+    override fun deliver(uri: String, sourceChats: Set<Long>?) {
         val resource = TelegramResourceUri.parse(uri) ?: return
         val provider = transport() ?: return
         registry.subscribers(uri).forEach { subscriber ->
             if (!access.permits(resource, subscriber.authentication)) return@forEach
+            // A chat-list update caused only by chats outside the grant would leak their activity.
+            if (!sourcePermitted(resource, sourceChats) { access.permits(it, subscriber.authentication) }) return@forEach
             provider.notifyClient(subscriber.sessionId, McpSchema.METHOD_NOTIFICATION_RESOURCES_UPDATED,
                 McpSchema.ResourcesUpdatedNotification(uri))
                 .subscribe({}, { failure -> log.debug("Resource update was not delivered: {}", failure.javaClass.simpleName) })
@@ -66,9 +79,10 @@ class StdioResourceUpdateSink(
     // The SDK's subscription list is private; a gap refreshes the chat list only.
     override fun watchedForAccount(account: String) = setOf(TelegramResourceUri.Chats(account).toString())
 
-    override fun deliver(uri: String) {
+    override fun deliver(uri: String, sourceChats: Set<Long>?) {
         val resource = TelegramResourceUri.parse(uri) ?: return
         if (!access.permits(resource, null)) return
+        if (!sourcePermitted(resource, sourceChats) { access.permits(it, null) }) return
         try {
             server()?.notifyResourcesUpdated(McpSchema.ResourcesUpdatedNotification(uri))
         } catch (failure: Exception) {
@@ -90,11 +104,15 @@ class ResourceUpdateNotifier(
     private val maxPending: Int = MAX_PENDING,
 ) : ChangeJournal.Listener {
     private val log = StructuredLogger.forClass<ResourceUpdateNotifier>()
-    private val pending = LinkedHashMap<String, Long>()
+    /** First change time and the chats that caused it; null chats once a non-chat-specific change joined. */
+    private class Pending(val since: Long, var sourceChats: MutableSet<Long>?)
+
+    private val pending = LinkedHashMap<String, Pending>()
     private var droppedSinceLastFlush = false
 
     override fun onChange(account: String, kind: String, chatId: Long?, messageId: Long?) {
-        enqueue(urisFor(account, kind, chatId, messageId), System.nanoTime())
+        if (kind != ChangeJournal.GAP && chatId == null) return // no source chat to authorize against
+        enqueue(urisFor(account, kind, chatId, messageId), System.nanoTime(), chatId)
     }
 
     internal fun urisFor(account: String, kind: String, chatId: Long?, messageId: Long?): Set<String> {
@@ -112,25 +130,33 @@ class ResourceUpdateNotifier(
         }
     }
 
+    /** Queues [uris]; [sourceChat] is the chat that changed, or null for a non-chat-specific change. */
     @Synchronized
-    internal fun enqueue(uris: Collection<String>, now: Long) {
+    internal fun enqueue(uris: Collection<String>, now: Long, sourceChat: Long? = null) {
         uris.forEach { uri ->
-            if (uri in pending || !sink.isWatched(uri)) return@forEach
+            val queued = pending[uri]
+            if (queued != null) {
+                val chats = queued.sourceChats ?: return@forEach
+                if (sourceChat == null) queued.sourceChats = null
+                else if (chats.size < MAX_SOURCE_CHATS) chats += sourceChat // beyond the cap, fail closed
+                return@forEach
+            }
+            if (!sink.isWatched(uri)) return@forEach
             if (pending.size >= maxPending) { droppedSinceLastFlush = true; return@forEach }
-            pending[uri] = now
+            pending[uri] = Pending(now, sourceChat?.let { mutableSetOf(it) })
         }
     }
 
     /** Delivers URIs whose debounce window has closed. */
     internal fun flush(now: Long) {
         val due = synchronized(this) {
-            val ready = pending.filterValues { now - it >= debounceNanos }.keys.toList()
-            ready.forEach(pending::remove)
+            val ready = pending.filterValues { now - it.since >= debounceNanos }.map { (uri, entry) -> uri to entry.sourceChats?.toSet() }
+            ready.forEach { pending.remove(it.first) }
             if (droppedSinceLastFlush) { droppedSinceLastFlush = false; log.warn("Resource update backlog was full; some updates were dropped") }
             ready
         }
-        due.forEach { uri ->
-            try { sink.deliver(uri) } catch (failure: Exception) {
+        due.forEach { (uri, sourceChats) ->
+            try { sink.deliver(uri, sourceChats) } catch (failure: Exception) {
                 log.debug("Resource update delivery failed: {}", failure.javaClass.simpleName)
             }
         }
@@ -141,6 +167,9 @@ class ResourceUpdateNotifier(
 
     companion object {
         const val MAX_PENDING = 10_000
+
+        /** Distinct source chats remembered per pending URI; later ones are not considered (fail closed). */
+        const val MAX_SOURCE_CHATS = 256
         const val FLUSH_INTERVAL_MILLIS = 200L
     }
 }

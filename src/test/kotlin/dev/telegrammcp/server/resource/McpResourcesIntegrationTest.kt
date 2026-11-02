@@ -143,6 +143,28 @@ class McpResourcesIntegrationTest {
         } finally { scoped.closeGracefully(); owner.closeGracefully() }
     }
 
+    @Test fun `chat-list updates do not reveal activity in chats outside the grant`() {
+        val scopedUpdates = LinkedBlockingQueue<String>()
+        val ownerUpdates = LinkedBlockingQueue<String>()
+        val scoped = client("scoped-key", scopedUpdates)
+        val owner = client("owner-key", ownerUpdates)
+        try {
+            scoped.initialize()
+            owner.initialize()
+            scoped.subscribeResource(McpSchema.SubscribeRequest("telegram://personal/chats"))
+            owner.subscribeResource(McpSchema.SubscribeRequest("telegram://personal/chats"))
+            Thread.sleep(300) // let both GET streams attach before the first event
+
+            journal.append("personal", "new", 43, 900)
+            assertEquals("telegram://personal/chats", ownerUpdates.poll(10, TimeUnit.SECONDS))
+            assertNull(scopedUpdates.poll(500, TimeUnit.MILLISECONDS), "activity in chat 43 stays invisible to the scoped client")
+
+            journal.append("personal", "new", 42, 901)
+            assertEquals("telegram://personal/chats", scopedUpdates.poll(10, TimeUnit.SECONDS))
+            assertEquals("telegram://personal/chats", ownerUpdates.poll(10, TimeUnit.SECONDS))
+        } finally { scoped.closeGracefully(); owner.closeGracefully() }
+    }
+
     @Test fun `subscribe on an unknown session keeps the session filter's 404`() {
         val response = java.net.http.HttpClient.newHttpClient().send(
             HttpRequest.newBuilder(java.net.URI.create("$baseUrl/mcp"))
