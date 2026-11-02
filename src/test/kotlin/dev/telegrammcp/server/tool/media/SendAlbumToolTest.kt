@@ -74,8 +74,8 @@ class SendAlbumToolTest {
         verify { operationGuardService.checkPermission("send_album", any()) }
         verify {
             telegramClient.sendAlbum(42L, listOf(
-                AlbumItem("/safe/tmp/a.jpg", AlbumItemType.PHOTO, "hi"),
-                AlbumItem("/safe/tmp/b.mp4", AlbumItemType.VIDEO, null),
+                AlbumItem(Path.of("/safe/tmp/a.jpg").toString(), AlbumItemType.PHOTO, "hi"),
+                AlbumItem(Path.of("/safe/tmp/b.mp4").toString(), AlbumItemType.VIDEO, null),
             ))
         }
         verify { fileSecurityService.validateForUpload("/tmp/a.jpg") }
