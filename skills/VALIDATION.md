@@ -114,6 +114,32 @@ review normally takes 24–48 hours. Approval and actual marketplace-delivered
 package contents have not been verified. Fresh-account authorization remains
 unverified. See [release evidence](../docs/RELEASE_READINESS_1.18.1.md).
 
+### Marketplace update, 2026-11-02
+
+Skill **0.1.3** recommends server **1.19.0** and retains minimum compatibility
+with **1.17.2**. Source review against `docs/RESOURCES.md` covered the new
+optional resources/subscriptions, unchanged account/read budgets, URI-only
+notifications, unsubscription after monitoring, and HTTP 413 handling. The
+skill remains read-only and does not enable resources or expand permissions.
+
+Skill-creator `quick_validate.py`, the existing package regression test and
+`git diff --check` passed. The versioned ZIP contains exactly eight public
+files. Its SHA-256 is
+`b72ca97514bc5a1962bad54c965a7081a10614797257c6e4e3730dcde23b4d75`.
+This is a separate marketplace package; the already-published GitHub 1.19.0
+release ZIP was not replaced.
+
+Agensi accepted the replacement submission. Reopening its editor confirmed the
+saved 0.1.3 ZIP filename and updated description. Approval of the replacement
+file and delivered contents remain unverified. MCPRush accepted the same eight
+files through folder upload; its final receipt and Skills table confirm **in
+review**, **v0.1.3**, **Free**, with an estimate of up to two working days. See
+the [Agensi record](AGENSI_LISTING.md) and [MCPRush record](MCPRUSH_LISTING.md).
+
+No live client walkthrough, subscription monitoring, marketplace-delivered
+installation or fresh-account authorization was repeated for this instruction
+update. Historical client validation above is not a new 1.19.0 runtime test.
+
 ## Manual instruction review
 
 These are source walkthroughs, not independent model evaluations:

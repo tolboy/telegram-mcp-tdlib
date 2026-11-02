@@ -14,6 +14,14 @@ Agensi accepted the replacement ZIP for security scan and review; the previous
 approved package stays available until approval. Listing text is already live.
 See [publication evidence](../docs/RELEASE_READINESS_1.18.1.md).
 
+Skill 0.1.3 recommends server 1.19.0 and keeps minimum compatibility at 1.17.2.
+It adds scoped guidance for optional resources/subscriptions and HTTP 413.
+The same eight-file skill bundle was submitted to Agensi as a ZIP and to
+MCPRush as a folder on 2026-11-02. Approval and marketplace-delivered installation
+remain unverified. See the shared [marketplace description](MARKETPLACE_DESCRIPTION.md),
+[MCPRush listing record](MCPRUSH_LISTING.md), and [validation](VALIDATION.md).
+Either delivery still requires a separately configured local Telegram server.
+
 Build the ZIP with Python 3.11 or newer:
 
 ```sh

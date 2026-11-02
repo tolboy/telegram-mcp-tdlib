@@ -1,6 +1,19 @@
 # Agensi listing copy
 
-Skill version: **0.1.2**, recommended server **1.18.1**, minimum server **1.17.2**.
+Skill version: **0.1.3**, recommended server **1.19.0**, minimum server **1.17.2**.
+The shared current description is in [MARKETPLACE_DESCRIPTION.md](MARKETPLACE_DESCRIPTION.md).
+Version 0.1.3 adds optional resource/subscription guidance and HTTP 413 handling,
+while preserving the skill's bounded read-only scope. It uses the same source
+instructions for Agensi and MCPRush; marketplace delivery formats may differ.
+
+On 2026-11-02, the 0.1.3 ZIP and shared description were submitted through the
+existing listing. Reopening the editor confirmed the saved replacement filename
+ends in `telegram-inbox-assistant-0.1.3.zip` and the description recommends
+server 1.19.0. Replacement approval and marketplace-delivered contents have not
+been verified; the dashboard's existing Live badge does not establish approval
+of the replacement file. See [validation](VALIDATION.md) for the package digest.
+
+Previous publication:
 The [public listing](https://www.agensi.io/skills/telegram-inbox-assistant) was
 updated on 2026-11-01. Agensi accepted the official release ZIP for security
 scan and review. Listing changes are live; the new file becomes available only
