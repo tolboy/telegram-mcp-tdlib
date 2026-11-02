@@ -143,6 +143,22 @@ class McpResourcesIntegrationTest {
         } finally { scoped.closeGracefully(); owner.closeGracefully() }
     }
 
+    @Test fun `subscribe on an unknown session keeps the session filter's 404`() {
+        val response = java.net.http.HttpClient.newHttpClient().send(
+            HttpRequest.newBuilder(java.net.URI.create("$baseUrl/mcp"))
+                .header("Authorization", "Bearer owner-key")
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json, text/event-stream")
+                .header("Mcp-Session-Id", "unknown-session")
+                .POST(HttpRequest.BodyPublishers.ofString(
+                    """{"jsonrpc":"2.0","id":1,"method":"resources/subscribe","params":{"uri":"telegram://personal/chat/42"}}""",
+                )).build(),
+            java.net.http.HttpResponse.BodyHandlers.ofString(),
+        )
+        assertEquals(404, response.statusCode())
+        assertFalse(response.body().contains("Resource"), "the subscription filter must not answer for unknown sessions")
+    }
+
     companion object {
         private val telegram = mockk<TelegramClientService>(relaxed = true)
         private val permissions = Files.createTempFile("mcp-resource-permissions-", ".json").also {
