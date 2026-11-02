@@ -1,10 +1,13 @@
 # Live terminal recording
 
-The [README GIF](assets/live-demo.gif) is a screen recording of an actual Windows
+The [README GIF](assets/live-demo-v1.19.0.gif) is a screen recording of an actual Windows
 console window, including its title bar. It was recorded on November 2, 2026
 with FFmpeg's `gdigrab` screen-capture input. The recording is approximately
 17 seconds long, at its original speed, with no cuts. GIF conversion reduces
 the frame rate from 12 to 8 fps. No frames or terminal output are redrawn.
+
+Published asset filenames include the recorded server version so a new recording
+gets a new URL and does not reuse an earlier recording's browser cache.
 
 The terminal runs [scripts/readme-demo.py](../scripts/readme-demo.py), a small
 Python MCP SDK client, against the released server 1.19.0 and an existing
@@ -30,9 +33,9 @@ to the returned message, independently of the date of this recording. The
 visible `demo.py` and `server.jar` are local short names for the repository's
 demo script and the released JAR.
 
-- [MP4 screen recording](assets/live-demo.mp4)
-- [PNG frame extracted from the recording](assets/live-demo.png)
-- [Public response transcript from this run](assets/live-demo.json)
+- [MP4 screen recording](assets/live-demo-v1.19.0.mp4)
+- [PNG frame extracted from the recording](assets/live-demo-v1.19.0.png)
+- [Public response transcript from this run](assets/live-demo-v1.19.0.json)
 
 ## Keep personal data out of the recording
 
