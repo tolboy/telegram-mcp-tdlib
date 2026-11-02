@@ -5,6 +5,11 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+## 1.19.1 - 2026-11-02
+
+Patch release for orderly termination during startup. The tool inventory and
+configuration schema are unchanged from 1.19.0; no migration is required.
+
 - A termination signal that lands while the server is still starting now ends
   in an orderly shutdown instead of `IllegalStateException: Shutdown in
   progress` and "Application run failed" from Spring Boot. The server's own
@@ -15,6 +20,11 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 - The STDIO smoke sends the startup signal at six delays from 0.5 s to 2 s
   instead of once at 1.5 s, and fails on "Application run failed" as well as
   "Shutdown in progress".
+- Bundle Telegram Inbox Assistant 0.1.3, with optional resources/subscriptions
+  and HTTP 413 guidance. The skill remains read-only and retains minimum
+  server compatibility at 1.17.2.
+- Add a real terminal recording and a reviewed architecture diagram to the
+  README, plus publication and marketplace documentation.
 
 ## 1.19.0 - 2026-11-02
 
