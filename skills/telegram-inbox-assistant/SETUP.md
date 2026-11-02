@@ -2,8 +2,9 @@
 
 This free skill requires a separately installed local
 [Telegram MCP server](https://github.com/tolboy/telegram-mcp-tdlib), a supported
-MCP client, and a Telegram account that you authorize yourself. Agensi distributes
-the instructions; it does not host the server or log in to Telegram for you.
+MCP client, and a Telegram account that you authorize yourself. The marketplace
+distributes skill instructions; installing them does not start a server or log
+in to Telegram for you. The same package can be used through Agensi or MCPRush.
 The server uses Telegram application credentials from
 [my.telegram.org](https://my.telegram.org/apps). Keep credentials and TDLib
 session files on your own computer, outside the skill folder.
@@ -15,10 +16,17 @@ Use the runtime-inclusive package for your OS from the project's
 The packaged server needs no separately installed JDK. Check the installed
 version with `telegram-mcp version`.
 
-Use **telegram-mcp-tdlib 1.17.2 or later** for this skill. This includes the
+Use **telegram-mcp-tdlib 1.19.0 (recommended), minimum 1.17.2** for this skill. This includes the
 Codex result-annotation compatibility fix and independent Windows daemon task
 ownership, so closing the launching app does not terminate a shared daemon.
 Installing the skill does not update an older server.
+
+Version 1.19.0 adds media/moderation tools and optional MCP resources, but this
+skill remains read-only. Resources are off by default and are not required for
+inbox triage. Keep that default unless you deliberately want resource access;
+the skill does not turn it on. With resource subscriptions enabled, HTTP MCP
+POST bodies larger than 1 MiB return 413; use smaller requests rather than
+raising the limit automatically.
 
 With other processes using the same TDLib session stopped, run:
 
@@ -125,7 +133,7 @@ For Codex, copy this directory to `~/.codex/skills/telegram-inbox-assistant`
 (or your configured Codex home's `skills/` directory) and reload skill discovery
 if necessary. Keep `SKILL.md`, this guide and `templates/` together. For other
 agents, use their supported skill installation flow. When acquired through
-Agensi, use its delivery flow; this open-source copy is also available in the
+Agensi or MCPRush, use that marketplace's delivery flow; this open-source copy is also available in the
 project repository under Apache-2.0.
 
 ## 4. Verify before reading an inbox
