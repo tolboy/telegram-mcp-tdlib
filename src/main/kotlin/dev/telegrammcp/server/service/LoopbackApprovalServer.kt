@@ -447,8 +447,14 @@ internal fun openInBrowser(url: String): Boolean {
     }
 }
 
-/** True when stderr is an interactive terminal a person is presumably watching. */
-internal fun stderrIsTerminal(): Boolean = runCatching { System.console()?.isTerminal == true }.getOrDefault(false)
+/**
+ * True when stderr itself is an interactive terminal a person is presumably watching.
+ *
+ * Not `System.console()`: that reflects stdin/stdout, so `2> file` from a
+ * terminal would still count as a terminal and the link would land in the file.
+ * Undeterminable cases answer false (the link is then not printed).
+ */
+internal fun stderrIsTerminal(): Boolean = dev.telegrammcp.server.security.NativeTerminal.stderrIsTerminal()
 
 /** Thrown when the approval listener cannot be started at all. */
 class ApprovalEndpointException(cause: Exception) :

@@ -21,7 +21,10 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   stderr, which MCP hosts often show to the agent. The server opens it in the
   browser instead; set `MCP_APPROVAL_LINK_ON_STDERR=true` (or run in a
   terminal) to print it. If neither is possible the operation is refused
-  instead of waiting for a link nobody sees.
+  instead of waiting for a link nobody sees. "Terminal" means stderr itself
+  (`isatty(2)` on POSIX, `GetConsoleMode` on Windows), so `2> file` from a
+  terminal does not print the link; if this cannot be determined, the link is
+  not printed.
 - The loopback approval page accepts a decision only as a same-origin form
   POST carrying the page's form token; forged requests get 403 and leave the
   approval pending.
