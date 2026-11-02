@@ -1,7 +1,10 @@
 package dev.telegrammcp.server.security
 
 import dev.telegrammcp.server.config.McpAuthMode
+import dev.telegrammcp.server.config.McpResourceProperties
 import dev.telegrammcp.server.config.McpSecurityProperties
+import dev.telegrammcp.server.resource.ResourceSubscriptionRegistry
+import dev.telegrammcp.server.resource.TelegramResourceAccess
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import org.springframework.context.annotation.Bean
@@ -31,6 +34,10 @@ import java.net.URI
 class SecurityConfig(
     private val apiKeyAuthFilter: ApiKeyAuthFilter,
     private val properties: McpSecurityProperties,
+    // Optional so security-only contexts (tests, tooling) need no resource beans.
+    private val resourceProperties: McpResourceProperties?,
+    private val resourceSubscriptions: ResourceSubscriptionRegistry?,
+    private val resourceAccess: TelegramResourceAccess?,
 ) {
 
     @Bean
@@ -98,6 +105,13 @@ class SecurityConfig(
                 }
         }
         configured.addFilterAfter(McpRoutingHeaderFilter(), McpOriginFilter::class.java)
+        if (resourceProperties?.subscriptionsActive == true && resourceSubscriptions != null && resourceAccess != null) {
+            // After session ownership is checked, so a subscription is recorded for its owner only.
+            configured.addFilterAfter(
+                McpResourceSubscriptionFilter(resourceSubscriptions, resourceAccess),
+                McpSessionPrincipalFilter::class.java,
+            )
+        }
         return configured.build()
     }
 

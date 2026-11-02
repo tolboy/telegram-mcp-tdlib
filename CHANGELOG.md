@@ -79,6 +79,25 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   fields, and contact phone, names and vCard. `list_join_requests` filters its
   `query` and `invite_link` like the other search tools.
 
+- Add opt-in MCP resources (`MCP_RESOURCES_ENABLED`, default `false`):
+  `telegram://{account}/chats`, `telegram://{account}/chat/{chatId}` and
+  `telegram://{account}/chat/{chatId}/message/{messageId}`. A read runs the
+  backing `list_chats`, `conversation_bundle` or `get_messages` handler, so
+  profiles, read-only mode, key account scopes, permission grants and chat
+  allow-lists all apply. Denied, hidden and malformed URIs return the same
+  `-32002 Resource not found`. Contents are JSON marked as untrusted.
+- Add resource subscriptions (`MCP_RESOURCE_SUBSCRIPTIONS`, default `true`
+  when resources are enabled). HTTP subscriptions are authorized before the
+  SDK records them, capped per session (`MCP_RESOURCE_MAX_SUBSCRIPTIONS`,
+  default 50) and re-authorized with the subscriber's identity before every
+  notification; a refreshed token on any later request from the same
+  principal replaces that identity. New, edited, changed and deleted messages and journal coverage
+  gaps send `notifications/resources/updated`, coalesced per URI
+  (`MCP_RESOURCE_DEBOUNCE`, default `1s`). A `chats` subscriber is notified
+  only for changes in chats its `list_chats` view includes. While
+  subscriptions are active, `/mcp` POST bodies over 1 MiB (declared or
+  chunked) are refused with HTTP 413. See `docs/RESOURCES.md`.
+
 ## 1.18.1 - 2026-11-01
 
 - **Behaviour change:** `MCP_READ_ONLY=false` with `MCP_DESTRUCTIVE_APPROVAL=off`

@@ -152,6 +152,41 @@ class ChangeJournalTest {
         } finally { release.countDown(); journal.close(); unmockkObject(DurableFiles) }
     }
 
+    @Test fun `listeners see accepted updates after they are committed and survive listener failures`() {
+        val journal = journal()
+        val seen = java.util.concurrent.LinkedBlockingQueue<String>()
+        journal.addListener { _, _, _, _ -> error("broken listener") }
+        journal.addListener { account, kind, chatId, messageId -> seen += "$account:$kind:$chatId:$messageId" }
+        journal.append("Default", "new", 42, 1)
+        journal.append("default", "deleted", 42, 1)
+        assertEquals("default:new:42:1", seen.poll(5, TimeUnit.SECONDS))
+        assertEquals("default:deleted:42:1", seen.poll(5, TimeUnit.SECONDS))
+        // A listener runs after the lock: committed entries are already readable.
+        assertEquals(2, journal.page("default", null, 10) { true }.entries.count { it.chatId == 42L })
+    }
+
+    @Test fun `listeners learn about overflow once as a coverage gap`() {
+        val journal = journal(queueCapacity = 10)
+        val gaps = java.util.concurrent.atomic.AtomicInteger()
+        val delivered = java.util.concurrent.atomic.AtomicInteger()
+        journal.addListener { _, kind, _, _ -> if (kind == "coverage_gap") gaps.incrementAndGet() else delivered.incrementAndGet() }
+        val release = CountDownLatch(1)
+        val writing = CountDownLatch(1)
+        mockkObject(DurableFiles)
+        try {
+            every { DurableFiles.append(any(), any()) } answers { writing.countDown(); release.await(); callOriginal() }
+            journal.append("default", "new", 42, 1)
+            assertTrue(writing.await(10, TimeUnit.SECONDS))
+            repeat(50) { journal.append("default", "new", 42, it + 2L) }
+            release.countDown()
+            journal.page("default", null, 1) { true }
+            assertTimeoutPreemptively(Duration.ofSeconds(5)) { while (delivered.get() < 11 || gaps.get() < 1) Thread.sleep(10) }
+            journal.append("default", "new", 42, 999)
+            assertTimeoutPreemptively(Duration.ofSeconds(5)) { while (delivered.get() < 12) Thread.sleep(10) }
+            assertEquals(1, gaps.get())
+        } finally { release.countDown(); journal.close(); unmockkObject(DurableFiles) }
+    }
+
     @Test fun `interrupted final append is dropped while malformed history fails closed`() {
         val first = journal().page("default", null, 10) { true }
         val file = root.resolve("changes/default.jsonl")
