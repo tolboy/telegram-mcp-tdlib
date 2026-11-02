@@ -1,0 +1,51 @@
+{
+  "recorded_at": "2026-11-02T19:26:59.247442+00:00",
+  "transport": "stdio",
+  "read_only": true,
+  "profile": "inbox",
+  "channel": "@telegram",
+  "calls": [
+    {
+      "method": "tools/call",
+      "name": "resolve_username",
+      "arguments": {
+        "account": "demo",
+        "identifier": "@telegram"
+      },
+      "elapsed_ms": 600,
+      "response_fields": {
+        "chatId": -1001005640892,
+        "title": "Telegram News",
+        "type": "CHANNEL"
+      }
+    },
+    {
+      "method": "tools/call",
+      "name": "get_history",
+      "arguments": {
+        "account": "demo",
+        "chat_id": "@telegram",
+        "limit": 1
+      },
+      "elapsed_ms": 78,
+      "response_fields": {
+        "messageId": 482344960,
+        "chatId": -1001005640892,
+        "date": 1787771554
+      },
+      "text_excerpt": "For all the info from today's update and a look back at 13 years of Telegram features — check out our blog:",
+      "text_truncated": true,
+      "returned_count": 1,
+      "public_link": "https://t.me/telegram/460"
+    }
+  ],
+  "server": {
+    "name": "telegram-mcp-server",
+    "version": "1.18.1"
+  },
+  "discovery": {
+    "tool_count": 36,
+    "all_read_only": true,
+    "send_message_exposed": false
+  }
+}
