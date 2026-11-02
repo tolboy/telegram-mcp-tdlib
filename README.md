@@ -270,6 +270,16 @@ See [TOOL_PROFILES.md](docs/TOOL_PROFILES.md) for the exact intent of each surfa
 
 </details>
 
+## Architecture
+
+![Telegram MCP architecture: clients connect over STDIO or Streamable HTTP to a server with read-only defaults, human approval, idempotent sends and account isolation, then access Telegram through TDLib](docs/assets/architecture-v1.19.0.png)
+
+STDIO clients own their server process. The [shared local daemon](docs/LOCAL_DAEMON.md)
+serves clients over HTTP; [client compatibility](docs/MCP_CLIENT_COMPATIBILITY.md)
+describes the available transports and the optional STDIO-to-HTTP bridge.
+The diagram summarizes server 1.19.0; the default profile exposes a focused
+read-only subset of the full tool inventory.
+
 ## Tech Stack
 
 | Component        | Version          |
