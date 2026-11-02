@@ -101,8 +101,11 @@ changes are dropped with one warning until the backlog drains.
 - **stdio:** the SDK tracks subscriptions itself. The single local identity is
   re-checked before each notification. A coverage gap refreshes only the chats
   URI because the SDK's subscription list is not readable.
-- Request bodies over 1 MiB are passed through without subscription tracking,
-  so such a subscribe is never notified (fails closed).
+- While subscriptions are active, an authenticated `/mcp` POST with a body
+  over 1 MiB is refused with HTTP 413 and a JSON-RPC `-32600` error before it
+  reaches the SDK, whether it declares a `Content-Length` or is chunked. A
+  body the filter cannot read whole could otherwise carry an unchecked
+  subscribe past the authorization check and the per-session limit.
 
 ## Not covered
 

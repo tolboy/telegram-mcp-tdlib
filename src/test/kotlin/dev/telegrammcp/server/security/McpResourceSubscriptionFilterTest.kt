@@ -107,6 +107,36 @@ class McpResourceSubscriptionFilterTest {
         assertFalse(registry.isSubscribed("telegram://default/chat/42"))
     }
 
+    @Test fun `bodies over 1 MiB are refused before the SDK, with or without Content-Length`() {
+        val padded = subscribe("telegram://default/chat/43") + " ".repeat(1_048_576)
+        for (chunked in listOf(false, true)) {
+            val request = object : MockHttpServletRequest("POST", "/mcp") {
+                override fun getContentLengthLong(): Long = if (chunked) -1 else super.getContentLengthLong()
+                override fun getContentLength(): Int = if (chunked) -1 else super.getContentLength()
+            }.apply {
+                setContent(padded.toByteArray())
+                contentType = "application/json"
+                addHeader("Mcp-Session-Id", "s1")
+            }
+            forwardedBody = null
+            val response = MockHttpServletResponse().also { filter.doFilter(request, it, chain) }
+            assertEquals(null, forwardedBody, "chunked=$chunked")
+            assertEquals(413, response.status, "chunked=$chunked")
+            val json = mapper.readTree(response.contentAsString)
+            assertEquals(-32600, json.path("error").path("code").asInt())
+            assertTrue(json.path("id").isNull)
+        }
+        assertFalse(registry.isSubscribed("telegram://default/chat/43"))
+    }
+
+    @Test fun `a body of exactly 1 MiB is still read and authorized`() {
+        val body = subscribe("telegram://default/chat/42")
+        val padded = body + " ".repeat(1_048_576 - body.length)
+        post(padded)
+        assertEquals(padded, forwardedBody)
+        assertTrue(registry.isSubscribed("telegram://default/chat/42"))
+    }
+
     @Test fun `requests without a session are untouched`() {
         val body = subscribe("telegram://default/chat/43")
         post(body, session = null)

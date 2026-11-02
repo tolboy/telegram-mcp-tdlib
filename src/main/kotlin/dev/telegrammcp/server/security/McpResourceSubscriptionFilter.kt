@@ -41,15 +41,20 @@ class McpResourceSubscriptionFilter(
             return
         }
         registry.touch(session)
-        if (!isMcpPost(request) || request.contentLengthLong > McpRoutingHeaderPolicy.MAX_BODY_BYTES) {
-            // Oversized bodies pass untracked: the SDK may subscribe, but nothing is ever sent to them.
+        if (!isMcpPost(request)) {
             filterChain.doFilter(request, response)
             forgetClosed(request, response, session)
             return
         }
+        // A body this filter cannot read whole could hide an unauthorized subscribe, so it never
+        // reaches the SDK. Content-Length is checked first; chunked bodies are bounded by the read.
+        if (request.contentLengthLong > McpRoutingHeaderPolicy.MAX_BODY_BYTES) {
+            reject(response, null, McpSchema.ErrorCodes.INVALID_REQUEST, TOO_LARGE, HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE)
+            return
+        }
         val body = request.inputStream.readNBytes(McpRoutingHeaderPolicy.MAX_BODY_BYTES + 1)
         if (body.size > McpRoutingHeaderPolicy.MAX_BODY_BYTES) {
-            filterChain.doFilter(PrefixedBodyRequest(request, body, request.inputStream), response)
+            reject(response, null, McpSchema.ErrorCodes.INVALID_REQUEST, TOO_LARGE, HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE)
             return
         }
         val message = try { mapper.readTree(body) } catch (_: Exception) { null }
@@ -92,13 +97,19 @@ class McpResourceSubscriptionFilter(
 
     private fun method(node: JsonNode): String? = node.path("method").takeIf { it.isTextual }?.asText()
 
-    private fun reject(response: HttpServletResponse, id: JsonNode?, code: Int, message: String) {
+    private fun reject(
+        response: HttpServletResponse,
+        id: JsonNode?,
+        code: Int,
+        message: String,
+        status: Int = HttpServletResponse.SC_OK,
+    ) {
         val body = mapper.createObjectNode()
         body.put("jsonrpc", "2.0")
         if (id == null || id.isNull || id.isMissingNode) body.putNull("id") else body.set<JsonNode>("id", id)
         body.putObject("error").put("code", code).put("message", message)
         val bytes = mapper.writeValueAsBytes(body)
-        response.status = HttpServletResponse.SC_OK
+        response.status = status
         response.contentType = "application/json"
         response.characterEncoding = "UTF-8"
         response.setContentLength(bytes.size)
@@ -106,6 +117,7 @@ class McpResourceSubscriptionFilter(
     }
 
     companion object {
+        private const val TOO_LARGE = "Request body exceeds 1 MiB"
         private val SUBSCRIPTION_METHODS = setOf(McpSchema.METHOD_RESOURCES_SUBSCRIBE, McpSchema.METHOD_RESOURCES_UNSUBSCRIBE)
     }
 }

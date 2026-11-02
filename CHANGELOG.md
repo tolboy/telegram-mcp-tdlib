@@ -19,7 +19,9 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   notification. New, edited, changed and deleted messages and journal coverage
   gaps send `notifications/resources/updated`, coalesced per URI
   (`MCP_RESOURCE_DEBOUNCE`, default `1s`). A `chats` subscriber is notified
-  only for changes in chats its `list_chats` view includes. See `docs/RESOURCES.md`.
+  only for changes in chats its `list_chats` view includes. While
+  subscriptions are active, `/mcp` POST bodies over 1 MiB (declared or
+  chunked) are refused with HTTP 413. See `docs/RESOURCES.md`.
 
 ## 1.18.1 - 2026-11-01
 
