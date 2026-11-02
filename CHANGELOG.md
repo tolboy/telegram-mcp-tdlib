@@ -22,8 +22,9 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   chat, or call `get_send_operation` when you set an `idempotency_key`, before
   sending again.
 - The new send tools apply the same input filter as `send_message` and
-  `send_file` (`MCP_BLOCKED_PATTERNS` and `MCP_MAX_TOOL_INPUT_LENGTH`) to
-  every outgoing text field: album captions, venue title, address and provider
+  `send_file` (`MCP_GUARDRAILS_BLOCKEDPATTERNS` and
+  `MCP_GUARDRAILS_MAXTOOLINPUTLENGTH`) to every outgoing text field:
+  album captions, venue title, address and provider
   fields, and contact phone, names and vCard. `list_join_requests` filters its
   `query` and `invite_link` like the other search tools.
 
