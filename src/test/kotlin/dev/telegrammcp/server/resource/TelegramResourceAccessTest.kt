@@ -47,6 +47,14 @@ class TelegramResourceAccessTest {
         assertFalse(access.permits(TelegramResourceUri.Chats("a")))
     }
 
+    @Test fun `a chat inside a chat list is judged with list_chats, not the chat resource tool`() {
+        every { surface.isVisible("conversation_bundle", any(), any()) } returns false
+        assertTrue(access.permitsChatWithin(TelegramResourceUri.Chats("a"), 42, null))
+        assertFalse(access.permitsChatWithin(TelegramResourceUri.Chats("a"), 43, null))
+        every { surface.isVisible("list_chats", any(), any()) } returns false
+        assertFalse(access.permitsChatWithin(TelegramResourceUri.Chats("a"), 42, null))
+    }
+
     @Test fun `stored identities are restored for the check and expired tokens deny`() {
         val alice = TestingAuthenticationToken("alice", null, "ROLE_X")
         var seen: String? = null

@@ -32,10 +32,13 @@ interface ResourceUpdateSink {
     fun deliver(uri: String, sourceChats: Set<Long>? = null)
 }
 
-/** True unless [resource] is a `chats` list and none of [sourceChats] is readable by the caller. */
-internal fun sourcePermitted(resource: TelegramResourceUri, sourceChats: Set<Long>?, permits: (TelegramResourceUri) -> Boolean): Boolean =
-    resource !is TelegramResourceUri.Chats || sourceChats == null ||
-        sourceChats.any { permits(TelegramResourceUri.Chat(resource.account, it)) }
+/**
+ * True unless [resource] is a `chats` list and none of [sourceChats] would appear
+ * in it for the caller. [permitsChat] judges a chat in the list's own context
+ * (`list_chats`), see [TelegramResourceAccess.permitsChatWithin].
+ */
+internal fun sourcePermitted(resource: TelegramResourceUri, sourceChats: Set<Long>?, permitsChat: (Long) -> Boolean): Boolean =
+    resource !is TelegramResourceUri.Chats || sourceChats == null || sourceChats.any(permitsChat)
 
 /** Each subscribed session is re-authorized with the identity that subscribed before it is told anything. */
 class HttpResourceUpdateSink(
@@ -55,7 +58,7 @@ class HttpResourceUpdateSink(
         registry.subscribers(uri).forEach { subscriber ->
             if (!access.permits(resource, subscriber.authentication)) return@forEach
             // A chat-list update caused only by chats outside the grant would leak their activity.
-            if (!sourcePermitted(resource, sourceChats) { access.permits(it, subscriber.authentication) }) return@forEach
+            if (!sourcePermitted(resource, sourceChats) { access.permitsChatWithin(resource, it, subscriber.authentication) }) return@forEach
             provider.notifyClient(subscriber.sessionId, McpSchema.METHOD_NOTIFICATION_RESOURCES_UPDATED,
                 McpSchema.ResourcesUpdatedNotification(uri))
                 .subscribe({}, { failure -> log.debug("Resource update was not delivered: {}", failure.javaClass.simpleName) })
@@ -82,7 +85,7 @@ class StdioResourceUpdateSink(
     override fun deliver(uri: String, sourceChats: Set<Long>?) {
         val resource = TelegramResourceUri.parse(uri) ?: return
         if (!access.permits(resource, null)) return
-        if (!sourcePermitted(resource, sourceChats) { access.permits(it, null) }) return
+        if (!sourcePermitted(resource, sourceChats) { access.permitsChatWithin(resource, it, null) }) return
         try {
             server()?.notifyResourcesUpdated(McpSchema.ResourcesUpdatedNotification(uri))
         } catch (failure: Exception) {

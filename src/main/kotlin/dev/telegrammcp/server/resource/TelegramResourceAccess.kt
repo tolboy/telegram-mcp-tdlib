@@ -29,12 +29,24 @@ class TelegramResourceAccess(
     private val permissions: AccessPermissionService? = null,
 ) {
     /** Uses the caller's current SecurityContext; STDIO has none and uses its process identity. */
-    fun permits(uri: TelegramResourceUri): Boolean = try {
-        surface.isVisible(uri.backingTool, serverMode.readOnly, serverMode.readOnlyAllowDownloads) &&
-            accounts.selectAccount(mapOf(AccountAccessPolicy.ACCOUNT_ARGUMENT to uri.account)) == uri.account &&
+    fun permits(uri: TelegramResourceUri): Boolean = permits(uri.backingTool, uri.account, uri.chatId)
+
+    /**
+     * Whether [chatId] would appear in [uri]'s own result, judged with [uri]'s
+     * backing tool: for a `chats` list that is `list_chats` and its chat scope,
+     * not the tool behind the chat's own URI, which may be hidden.
+     */
+    fun permitsChatWithin(uri: TelegramResourceUri, chatId: Long, authentication: Authentication?, now: Instant = Instant.now()): Boolean {
+        if (authentication != null && !isCurrent(authentication, now)) return false
+        return asAuthentication(authentication) { permits(uri.backingTool, uri.account, chatId) }
+    }
+
+    private fun permits(tool: String, account: String, chatId: Long?): Boolean = try {
+        surface.isVisible(tool, serverMode.readOnly, serverMode.readOnlyAllowDownloads) &&
+            accounts.selectAccount(mapOf(AccountAccessPolicy.ACCOUNT_ARGUMENT to account)) == account &&
             run {
-                val chatAllowed = { uri.chatId?.let(guard::isChatAllowed) ?: true }
-                permissions?.withPermission(uri.backingTool, uri.account, chatAllowed) ?: chatAllowed()
+                val chatAllowed = { chatId?.let(guard::isChatAllowed) ?: true }
+                permissions?.withPermission(tool, account, chatAllowed) ?: chatAllowed()
             }
     } catch (_: Exception) {
         // Unknown accounts, denied grants and malformed state all fail closed.

@@ -61,8 +61,12 @@ exposes. The capability is advertised with `listChanged: false`.
 - Notifications carry only the URI. The client must read the resource again,
   which goes through the checks above.
 - A `chats` subscriber is notified only when at least one chat that changed in
-  the debounce window is readable by that subscriber, so a client limited to
-  some chats learns nothing about activity elsewhere. Up to 256 distinct
+  the debounce window would appear in that subscriber's `chats` list, so a
+  client limited to some chats learns nothing about activity elsewhere. The
+  check uses the list's own tool, `list_chats` (its visibility, `list_chats`
+  grant scope and the chat allow-list); a client allowed only `list_chats`
+  still gets `chats` notifications. `chat` and `message` notifications are
+  checked against `conversation_bundle` and `get_messages`. Up to 256 distinct
   changed chats are remembered per pending URI; later ones in the same window
   are ignored for this check (fails closed). Coverage gaps are not
   chat-specific and reach every permitted `chats` subscriber.

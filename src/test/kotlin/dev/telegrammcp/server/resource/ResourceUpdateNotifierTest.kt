@@ -136,9 +136,10 @@ class ResourceUpdateNotifierTest {
         registry.add("s-scoped", scoped, "telegram://a/chats")
         val access = mockk<TelegramResourceAccess>()
         every { access.permits(any(), owner, any()) } returns true
+        every { access.permitsChatWithin(any(), any(), owner, any()) } returns true
         every { access.permits(TelegramResourceUri.Chats("a"), scoped, any()) } returns true
-        every { access.permits(TelegramResourceUri.Chat("a", 42), scoped, any()) } returns true
-        every { access.permits(TelegramResourceUri.Chat("a", 43), scoped, any()) } returns false
+        every { access.permitsChatWithin(TelegramResourceUri.Chats("a"), 42, scoped, any()) } returns true
+        every { access.permitsChatWithin(TelegramResourceUri.Chats("a"), 43, scoped, any()) } returns false
         val transport = mockk<McpStreamableServerTransportProvider>()
         every { transport.notifyClient(any(), any(), any()) } returns Mono.empty()
         val sink = HttpResourceUpdateSink(registry, access) { transport }
@@ -158,8 +159,8 @@ class ResourceUpdateNotifierTest {
     @Test fun `stdio chat-list updates need a readable source chat`() {
         val access = mockk<TelegramResourceAccess>()
         every { access.permits(TelegramResourceUri.Chats("a"), null, any()) } returns true
-        every { access.permits(TelegramResourceUri.Chat("a", 42), null, any()) } returns true
-        every { access.permits(TelegramResourceUri.Chat("a", 43), null, any()) } returns false
+        every { access.permitsChatWithin(TelegramResourceUri.Chats("a"), 42, null, any()) } returns true
+        every { access.permitsChatWithin(TelegramResourceUri.Chats("a"), 43, null, any()) } returns false
         val server = mockk<io.modelcontextprotocol.server.McpSyncServer>(relaxed = true)
         val sink = StdioResourceUpdateSink(access) { server }
         sink.deliver("telegram://a/chats", setOf(43))
