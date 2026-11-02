@@ -52,4 +52,47 @@ On `9f882d3` plus this release commit, with Temurin 25 and
 
 Cross-platform app images, container images, signatures, the MCP Registry
 entry and the GitHub Release are produced and gated by the `v1.19.0` tag
-workflow.
+workflow. The follow-up below records the actual publication results.
+
+## Published verification, 2026-11-02
+
+- [PR #52](https://github.com/tolboy/telegram-mcp-tdlib/pull/52) was squash-merged
+  after all checks passed. The annotated tag `v1.19.0` points to
+  `105d7e0c606bc841a4fce44bd3fd497fa8087507`.
+- The [release workflow](https://github.com/tolboy/telegram-mcp-tdlib/actions/runs/41446953950)
+  succeeded on attempt 2. Attempt 1 failed only in the STDIO smoke's
+  startup-signal check: Spring Boot threw `Shutdown in progress` when the
+  1.5 s signal landed during startup. Only the failed jobs were re-run; no
+  artifact was published by attempt 1. The race predates 1.19.0 and is fixed
+  separately in [PR #53](https://github.com/tolboy/telegram-mcp-tdlib/pull/53).
+- The [GitHub Release](https://github.com/tolboy/telegram-mcp-tdlib/releases/tag/v1.19.0)
+  is public, not a draft and marked latest, with 12 assets. Upgrade notes were
+  added to the release description. The official MCP Registry API returns
+  1.19.0 as active and latest.
+- Downloaded artifact hashes match `release-manifest.json`. The JAR, the
+  Windows ZIP and the Linux x64 archive pass
+  `gh attestation verify --repo tolboy/telegram-mcp-tdlib`.
+- The published JAR passes the independent result smoke over STDIO, HTTP and
+  bridge plus daemon restart, reporting server 1.19.0 and 36 read-only
+  inbox-profile tools. The downloaded Linux x64 runtime reports `1.19.0` and
+  passes the STDIO smoke with its bundled Java. No Telegram credentials were
+  used.
+- Final OCI indices: `1.19.0` and `latest` resolve to
+  `sha256:bf49c80b55cea19996b850ded86bef0a01d96581a7481c2f1f7b352af7a4d267`;
+  `1.19.0-stdio` and `latest-stdio` resolve to
+  `sha256:238c751a3d9d27c687d62f3e753ac2440fa2615eb784c8221a71319b43bc28ed`.
+  Signing was verified by the release runner, not re-run locally.
+
+| Downloaded artifact | SHA-256 |
+|---|---|
+| `telegram-mcp-server-1.19.0.jar` | `93c5a6f98cf6ad5f3270618eef132b0185196bd170e28320c96dcec604d5f354` |
+| `telegram-mcp-server-1.19.0-linux-x64.tar.gz` | `5b920320091a28aa0e0c35f7c15d00185f163a23b9adb1398add5f506f796775` |
+| `telegram-mcp-server-1.19.0-linux-arm64.tar.gz` | `644a4e603d1899c416fd297c30f788a2fb3844a775a0539ab6c4a95f84b29ff8` |
+| `telegram-mcp-server-1.19.0-macos-arm64.tar.gz` | `3c384809b0c706b6854e2627f747daa1839b0ad9d090fec14e2515a303963300` |
+| `telegram-mcp-server-1.19.0-windows-x64.zip` | `c73806b46996ad89338cc777111eecd54f440a275b1a3d251dabc786d49c201c` |
+| `telegram-inbox-assistant.zip` | `8263aa81e5f2bc4855846e133c77d490f77a1920c7b47613a55e7a28b1273edd` |
+
+The skill ZIP is byte-identical to the one published with 1.18.1, so the
+Inbox Assistant (0.1.2) and its Agensi listing are unchanged by this release.
+The Linux arm64, macOS and Windows runtimes were not executed locally; CI
+covers them.
