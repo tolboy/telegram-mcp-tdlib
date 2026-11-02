@@ -1,5 +1,5 @@
 {
-  "recorded_at": "2026-11-02T19:26:59.247442+00:00",
+  "recorded_at": "2026-11-02T19:47:47.253514+00:00",
   "transport": "stdio",
   "read_only": true,
   "profile": "inbox",
@@ -12,7 +12,7 @@
         "account": "demo",
         "identifier": "@telegram"
       },
-      "elapsed_ms": 600,
+      "elapsed_ms": 741,
       "response_fields": {
         "chatId": -1001005640892,
         "title": "Telegram News",
@@ -27,7 +27,7 @@
         "chat_id": "@telegram",
         "limit": 1
       },
-      "elapsed_ms": 78,
+      "elapsed_ms": 110,
       "response_fields": {
         "messageId": 482344960,
         "chatId": -1001005640892,
@@ -41,7 +41,7 @@
   ],
   "server": {
     "name": "telegram-mcp-server",
-    "version": "1.18.1"
+    "version": "1.19.0"
   },
   "discovery": {
     "tool_count": 36,
