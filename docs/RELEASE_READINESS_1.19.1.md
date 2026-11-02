@@ -72,8 +72,8 @@ must be verified from the completed workflow and downloadable artifacts.
   `sha256:694c768d2abcb70501b40b7229a96d2b7c2f0cf214e5ba63036e00a8400dd9ac`;
   `1.19.1-stdio` and `latest-stdio` point to
   `sha256:78d786e7974265cc4bc022ecd0dced09daefb01f56256cf2fe08989e4add9f5e`.
-  Cryptographic container signature verification was performed by the release
-  runner; it was not repeated locally.
+  The release runner completed container signing and provenance attestation.
+  Independent local verification of container signatures is not claimed.
 
 | Downloaded artifact | SHA-256 |
 |---|---|
