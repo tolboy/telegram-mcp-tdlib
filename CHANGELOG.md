@@ -3,7 +3,58 @@
 Notable changes to Telegram MCP Server are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## Unreleased (1.18.2)
+
+- **Behaviour change:** `server-mode.confirmation.destructive-tools` now adds to the built-in
+  destructive set instead of replacing it, so listing one extra tool can no
+  longer drop `delete_message` or `leave_chat` from confirmation. A configured
+  name that is not a write tool fails startup. Configured destructive tools
+  advertise `destructiveHint` and a `confirmed` argument.
+- **Behaviour change:** high-risk writes (`forward_message`, `send_file`,
+  `promote_admin`, `demote_admin`, `set_privacy_settings`, `invite_to_group`,
+  `update_profile`, `configure_chat_folder`, `unban_user`, `unblock_user`,
+  `press_inline_button`, plus `server-mode.confirmation.high-risk-tools`) need
+  human approval when `MCP_DESTRUCTIVE_APPROVAL` is on, like destructive tools.
+  `MCP_APPROVAL_SCOPE=destructive` restores the 1.18.1 behaviour;
+  `all-writes` gates every write.
+- **Behaviour change:** the loopback approval link is no longer written to
+  stderr, which MCP hosts often show to the agent. The server opens it in the
+  browser instead; set `MCP_APPROVAL_LINK_ON_STDERR=true` (or run in a
+  terminal) to print it. If neither is possible the operation is refused
+  instead of waiting for a link nobody sees. "Terminal" means stderr itself
+  (`isatty(2)` on POSIX, `GetConsoleMode` on Windows), so `2> file` from a
+  terminal does not print the link; if this cannot be determined, the link is
+  not printed.
+- `create_group` titles and `set_bot_commands` descriptions go through the
+  input filter (`MCP_GUARDRAILS_BLOCKEDPATTERNS`,
+  `MCP_GUARDRAILS_MAXTOOLINPUTLENGTH`) like other outgoing text.
+- The loopback approval page accepts a decision only as a same-origin form
+  POST carrying the page's form token; forged requests get 403 and leave the
+  approval pending.
+- On Windows, secret, overrides and permissions files are checked by SID, so
+  shared-write grants are caught on non-English Windows too, and a parent
+  folder that lets broad groups replace the file is rejected. On POSIX, a
+  parent directory writable by others without the sticky bit is rejected.
+- `MCP_PERMISSIONS_FILE` must be a regular file (not a symlink) that other
+  local users cannot write, like the anti-spam overrides file.
+- Fix the `safe-draft-reply` recipe, which enabled writes without
+  `MCP_DESTRUCTIVE_APPROVAL` and so failed the 1.18.1 startup check. A test now
+  runs every recipe env block through the startup guards.
+- `docker-compose.yml` allows its own `telegram-mcp` Host by default and passes
+  through the approval settings; the Inspector instructions are corrected.
+  `docs/OAUTH.md` and `docs/DEPLOYMENT_MODES.md` explain `MCP_ALLOWED_HOSTS`
+  and `MCP_ALLOWED_ORIGINS` for reverse-proxy deployments upgrading from 1.18.0.
+  The first rejection of each Host or Origin value is logged with the setting
+  to change.
+- Unknown paths such as `/mcp/` return 404 instead of 500, and a missing or
+  wrong API key returns 401 with `WWW-Authenticate: Bearer realm="telegram-mcp"`
+  instead of a 403 from the error page.
+- `server-mode.read-only` defaults to `true` in code as well as in
+  `application.yml`, so a configuration that drops the property stays
+  read-only.
+- CI runs the ACL and secret-file unit tests on Windows.
+- Tests no longer pick up `TDLIB_*` or `TELEGRAM_*` variables from the
+  developer's environment.
 
 ## 1.18.1 - 2026-11-01
 

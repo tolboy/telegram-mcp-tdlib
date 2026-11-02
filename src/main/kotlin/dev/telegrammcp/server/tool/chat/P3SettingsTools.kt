@@ -132,6 +132,8 @@ class SetBotCommandsTool(
             val scope = P3ToolInputs.botCommandScope(arguments, entityResolver, guardrailService)
             val language = P3ToolInputs.languageCode(arguments)
             val commands = P3ToolInputs.botCommands(arguments)
+            // Command descriptions are public text shown to every user of the bot.
+            commands.forEach { guardrailService.validateInput(it.description) }
             telegramClient.setBotCommands(scope, language, commands)
             mapOf("updated" to true, "scope" to scope, "language_code" to language, "commands" to commands)
         }

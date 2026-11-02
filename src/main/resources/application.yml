@@ -202,8 +202,19 @@ server-mode:
     # Caller acknowledgement for destructive tools. This does not prove that
     # a human supplied "confirmed": true; MCP hosts own human-approval UX.
     enabled: ${MCP_CONFIRMATION_REQUIRED:true}
-    # Override default destructive tool list (empty = use built-in defaults)
+    # Extra write tools to treat as destructive. Added to the built-in
+    # defaults (delete_message, ban_user, leave_chat, ...); never replaces them.
     destructive-tools: []
+    # Extra write tools to treat as high-risk, added to the built-in defaults
+    # (forward_message, send_file, promote_admin, demote_admin,
+    # set_privacy_settings, invite_to_group, update_profile,
+    # configure_chat_folder, unban_user, unblock_user, press_inline_button).
+    high-risk-tools: []
+    # Which tools ask for human approval when `approval` is not off:
+    #   destructive - destructive tools only (1.18.1 behaviour)
+    #   high-risk   - destructive and high-risk tools
+    #   all-writes  - every write tool
+    approval-scope: ${MCP_APPROVAL_SCOPE:high-risk}
     # Where approval for a destructive operation comes from. Every mode except
     # `off` gets the answer over a channel the model cannot write to.
     #   off         - only the caller-asserted "confirmed": true above
@@ -219,6 +230,10 @@ server-mode:
     # Loopback-page answer deadline. Host elicitation uses the MCP request
     # deadline negotiated by the SDK/client instead.
     approval-timeout: ${MCP_DESTRUCTIVE_APPROVAL_TIMEOUT:120s}
+    # The loopback page opens in your browser. Its link goes to stderr only when
+    # stderr is a terminal, or when this is true (only if no agent can read the
+    # server's output or log files).
+    approval-link-on-stderr: ${MCP_APPROVAL_LINK_ON_STDERR:false}
   file-security:
     # Allowed root directories for file operations (empty = deny all file ops)
     allowed-roots: ${MCP_FILE_ROOTS:}

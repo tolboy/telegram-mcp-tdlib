@@ -71,7 +71,7 @@ class ConnectorManifestToolTest {
     fun `definition exposes manifest tool without arguments`() {
         val tool = ConnectorManifestTool(
             handlersProvider = handlersProvider(emptyList()),
-            serverMode = ServerModeProperties(),
+            serverMode = ServerModeProperties(readOnly = false),
             toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.ALL)),
             auditService = mockk<AuditService>(relaxed = true),
             objectMapper = objectMapper,
@@ -104,7 +104,7 @@ class ConnectorManifestToolTest {
         )
         val manifestTool = ConnectorManifestTool(
             handlersProvider = handlersProvider(listOf(sendMessage, listChats, createTopic, setForumTopicsEnabled)),
-            serverMode = ServerModeProperties(),
+            serverMode = ServerModeProperties(readOnly = false),
             toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.ALL)),
             auditService = mockk<AuditService>(relaxed = true),
             objectMapper = objectMapper,
@@ -151,7 +151,7 @@ class ConnectorManifestToolTest {
     fun `manifest reports profile and filters absent tools`() {
         val manifestTool = ConnectorManifestTool(
             handlersProvider = handlersProvider(listOf(fakeTool("get_history", "Read"), fakeTool("send_message", "Send"), fakeTool("create_group", "Create"))),
-            serverMode = ServerModeProperties(),
+            serverMode = ServerModeProperties(readOnly = false),
             toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.INBOX)),
             auditService = mockk<AuditService>(relaxed = true),
             objectMapper = objectMapper,
@@ -169,7 +169,7 @@ class ConnectorManifestToolTest {
     fun `manifest reports the build version so a caller can tell releases apart`() {
         val manifestTool = ConnectorManifestTool(
             handlersProvider = handlersProvider(listOf(fakeTool("get_history", "Read history"))),
-            serverMode = ServerModeProperties(),
+            serverMode = ServerModeProperties(readOnly = false),
             toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.READER)),
             auditService = mockk<AuditService>(relaxed = true),
             objectMapper = objectMapper,

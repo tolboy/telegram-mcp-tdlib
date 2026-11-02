@@ -125,7 +125,8 @@ refuses writes while approval stays `off`). `-RequiredTool` and `-ForbiddenTool`
 make it suitable for profile or policy smoke checks.
 
 Every registered tool also publishes MCP behavior annotations. Read operations
-set `readOnlyHint=true`; known destructive operations set
+set `readOnlyHint=true`; operations covered by human approval under the
+configured `MCP_APPROVAL_SCOPE` (destructive and high-risk tools by default) set
 `destructiveHint=true`; Telegram access is marked open-world. Write operations
 conservatively set `idempotentHint=false`, so clients should not retry them
 automatically after an ambiguous transport failure.

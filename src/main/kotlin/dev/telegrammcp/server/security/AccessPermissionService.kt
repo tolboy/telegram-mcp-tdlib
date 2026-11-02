@@ -10,6 +10,7 @@ import kotlinx.coroutines.asContextElement
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.stereotype.Service
 import java.nio.file.Files
+import java.nio.file.LinkOption
 
 class PermissionDeniedException : RuntimeException("The client is not permitted to perform this operation in the selected scope")
 
@@ -40,6 +41,12 @@ object AccessPermissionContext {
 class AccessPermissionService(props: McpSecurityProperties, paths: PlatformPaths, mapper: ObjectMapper) {
     private val document: PermissionDocument? = props.permissionsFile.takeIf(String::isNotBlank)?.let { raw ->
         val path = paths.resolveApplicationPath(raw, "MCP_PERMISSIONS_FILE")
+        // Same bar as the anti-spam overrides: whoever can rewrite this file
+        // can grant themselves every account and chat.
+        require(!Files.isSymbolicLink(path) && Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
+            "MCP_PERMISSIONS_FILE must be a regular file, not a symbolic link"
+        }
+        LocalAccessChecks.rejectSharedWrite(path, "MCP_PERMISSIONS_FILE")
         require(Files.size(path) <= 1_048_576) { "Permission file exceeds 1 MiB" }
         val strictMapper = mapper.copy().enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
         val tree = strictMapper.readTree(Files.readAllBytes(path))

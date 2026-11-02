@@ -72,10 +72,11 @@ class McpConfig {
         }
         val hiddenCount = definitions.size - visibleDefinitions.size
 
+        val riskPolicy = OperationGuardService.RiskPolicy(serverMode.confirmation)
         return visibleDefinitions.map { (handler, definition) ->
             val tool = withBehaviorAnnotations(
                 withAccountSelector(definition, handler is AccountAgnosticMcpToolHandler, registry),
-                serverMode,
+                riskPolicy,
             )
             log.info("Registering MCP tool: {} — {}", tool.name(), tool.description())
             SyncToolSpecification(tool) { exchange, request ->
@@ -143,7 +144,12 @@ class McpConfig {
             }
             if (approvalService.isEnabled()) {
                 log.info(
-                    "Destructive operations require human approval ({} mode): {}",
+                    "{} operations require human approval ({} mode): {}",
+                    when (riskPolicy.scope) {
+                        ServerModeProperties.ApprovalScope.DESTRUCTIVE -> "Destructive"
+                        ServerModeProperties.ApprovalScope.HIGH_RISK -> "Destructive and high-risk"
+                        ServerModeProperties.ApprovalScope.ALL_WRITES -> "All write"
+                    },
                     serverMode.confirmation.approval.name.lowercase(),
                     approvalService.describeApprovalRoute(),
                 )
@@ -207,20 +213,45 @@ class McpConfig {
 
     private fun withBehaviorAnnotations(
         tool: McpSchema.Tool,
-        serverMode: ServerModeProperties,
+        riskPolicy: OperationGuardService.RiskPolicy,
     ): McpSchema.Tool = McpSchema.Tool(
         tool.name(),
         tool.title(),
         tool.description(),
-        tool.inputSchema(),
+        withConfirmedArgument(tool, riskPolicy),
         tool.outputSchema(),
-        OperationGuardService.annotationsFor(
-            tool.name(),
-            serverMode.confirmation.destructiveTools,
-        ),
+        OperationGuardService.annotationsFor(tool.name(), riskPolicy),
         tool.meta(),
         tool.icons(),
     )
+
+    /**
+     * A tool added through `destructive-tools` must be able to receive the
+     * `confirmed` acknowledgement it now requires; otherwise strict clients
+     * drop the unknown argument and the tool can never run.
+     */
+    private fun withConfirmedArgument(
+        tool: McpSchema.Tool,
+        riskPolicy: OperationGuardService.RiskPolicy,
+    ): Map<String, Any> {
+        val schema = tool.inputSchema()
+        if (tool.name() !in riskPolicy.destructiveTools) return schema
+        @Suppress("UNCHECKED_CAST")
+        val properties = (schema["properties"] as? Map<String, Any>).orEmpty()
+        if (CONFIRMED_ARGUMENT in properties) return schema
+        return schema + (
+            "properties" to properties + (
+                CONFIRMED_ARGUMENT to mapOf(
+                    "type" to "boolean",
+                    "description" to "Set to true to confirm this destructive operation",
+                )
+            )
+        )
+    }
+
+    private companion object {
+        private const val CONFIRMED_ARGUMENT = "confirmed"
+    }
 
     private fun withAccountSelector(
         tool: McpSchema.Tool,

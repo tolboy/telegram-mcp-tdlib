@@ -35,6 +35,14 @@
       MCP_READ_ONLY: ${MCP_READ_ONLY:-true}
       MCP_TOOL_PROFILE: ${MCP_TOOL_PROFILE:-reader}
       MCP_CONFIRMATION_REQUIRED: ${MCP_CONFIRMATION_REQUIRED:-true}
+      # Writes need a human-approval route; inside Docker use elicitation (the
+      # loopback page would be on the container's 127.0.0.1).
+      MCP_DESTRUCTIVE_APPROVAL: ${MCP_DESTRUCTIVE_APPROVAL:-off}
+      MCP_APPROVAL_SCOPE: ${MCP_APPROVAL_SCOPE:-high-risk}
+      # Hosts other than loopback get HTTP 403 on /mcp. The service name is
+      # what other containers (the Inspector below) send.
+      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-telegram-mcp:8080}
+      MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS:-}
       MCP_FILE_ROOTS: /data/uploads
       MCP_AUDIT_ENABLED: ${MCP_AUDIT_ENABLED:-true}
       MCP_AUDIT_LOG_ARGS: ${MCP_AUDIT_LOG_ARGS:-false}
@@ -66,9 +74,13 @@
 
   # ── MCP Inspector (optional — interactive tool browser) ─────────────────
   # Start with: docker compose --profile inspector up
-  # Open http://localhost:6274, choose "Streamable HTTP", enter
+  # Open the http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=... link printed by
+  # `docker compose logs inspector` (the proxy refuses requests without it).
+  # Choose "Streamable HTTP" with connection type "Via Proxy", enter
   # http://telegram-mcp:8080/mcp and the Authorization: Bearer <MCP_API_KEY>
-  # header. The Inspector prints its own session token to the container log.
+  # header. The proxy runs in this compose network, so that service name
+  # resolves; the server accepts the `telegram-mcp` Host because
+  # MCP_ALLOWED_HOSTS above lists it (non-loopback Hosts get HTTP 403).
   inspector:
     image: ghcr.io/modelcontextprotocol/inspector:latest
     container_name: telegram-mcp-inspector
@@ -133,6 +145,10 @@
       MCP_READ_ONLY: ${MCP_READ_ONLY:-true}
       MCP_TOOL_PROFILE: ${MCP_TOOL_PROFILE:-reader}
       MCP_CONFIRMATION_REQUIRED: ${MCP_CONFIRMATION_REQUIRED:-true}
+      MCP_DESTRUCTIVE_APPROVAL: ${MCP_DESTRUCTIVE_APPROVAL:-off}
+      MCP_APPROVAL_SCOPE: ${MCP_APPROVAL_SCOPE:-high-risk}
+      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-telegram-mcp-dev:8080}
+      MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS:-}
       MCP_FILE_ROOTS: /app/docker-data/uploads
       MCP_AUDIT_ENABLED: ${MCP_AUDIT_ENABLED:-true}
       MCP_AUDIT_LOG_ARGS: ${MCP_AUDIT_LOG_ARGS:-false}

@@ -77,6 +77,27 @@ class McpHttpIdentityIntegrationTest {
         } finally { reader.closeGracefully(); writer.closeGracefully() }
     }
 
+    @Test fun `unknown paths are 404 and a missing key is a 401 challenge over real HTTP`() {
+        val http = HttpClient.newHttpClient()
+        fun get(path: String, key: String?): HttpResponse<String> = http.send(
+            HttpRequest.newBuilder(URI.create("$baseUrl$path")).GET()
+                .apply { if (key != null) header("Authorization", "Bearer $key") }.build(),
+            HttpResponse.BodyHandlers.ofString(),
+        )
+        assertEquals(404, get("/mcp/", "reader-key").statusCode(), "a trailing slash is not a server fault")
+        assertEquals(404, get("/.well-known/oauth-protected-resource", "reader-key").statusCode(),
+            "API-key mode publishes no protected-resource metadata")
+        val unauthenticated = http.send(
+            HttpRequest.newBuilder(URI.create("$baseUrl/mcp"))
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json, text/event-stream")
+                .POST(HttpRequest.BodyPublishers.ofString("{}")).build(),
+            HttpResponse.BodyHandlers.ofString(),
+        )
+        assertEquals(401, unauthenticated.statusCode())
+        assertEquals("Bearer realm=\"telegram-mcp\"", unauthenticated.headers().firstValue("WWW-Authenticate").orElse(null))
+    }
+
     @Test fun `initialize immediately owns session and foreign DELETE never reaches transport`() {
         HttpClient.newHttpClient().use { http ->
             val initialized = http.send(HttpRequest.newBuilder(URI("$baseUrl/mcp"))

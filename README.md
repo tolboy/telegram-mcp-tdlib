@@ -489,7 +489,9 @@ Docker, mount the secret file into the container and set the container path.
 | `MCP_TOOL_DENY`            | No       | —               | Exact comma-separated names to hide after the allow-list |
 | `MCP_TRANSPORT`            | No       | `streamable-http` | `streamable-http` or `stdio`; CLI `--transport` wins |
 | `MCP_CONFIRMATION_REQUIRED`| No       | `true`          | Require caller acknowledgement (`"confirmed": true`) for destructive tools; not proof of human approval |
-| `MCP_DESTRUCTIVE_APPROVAL`| No       | `off`           | Human approval before destructive tools: `auto`, `elicitation`, or `loopback`. With writes enabled, `off` refuses startup unless `MCP_ALLOW_MODEL_CONFIRMED_WRITES=true` |
+| `MCP_DESTRUCTIVE_APPROVAL`| No       | `off`           | Human approval before destructive and high-risk tools (see `MCP_APPROVAL_SCOPE`): `auto`, `elicitation`, or `loopback`. With writes enabled, `off` refuses startup unless `MCP_ALLOW_MODEL_CONFIRMED_WRITES=true` |
+| `MCP_APPROVAL_SCOPE` | No | `high-risk` | Which tools human approval covers: `destructive` (delete, ban, leave, ...), `high-risk` (also forward, file upload, admin rights, privacy, invites, profile, folders, unban/unblock, inline buttons), or `all-writes` |
+| `MCP_APPROVAL_LINK_ON_STDERR` | No | `false` | Print the loopback approval link on stderr even when it is not a terminal. Enable only when no agent can read the server's output or log files |
 | `MCP_ALLOW_MODEL_CONFIRMED_WRITES` | No | `false` | Allow writes while approval is `off`. The model can then send `"confirmed": true` |
 | `MCP_ALLOWED_ORIGINS` | No | (loopback only) | Extra browser `Origin` values for `/mcp`. A missing Origin is allowed. Any other present Origin gets HTTP 403 |
 | `MCP_ALLOWED_HOSTS` | No | (loopback only) | Extra `Host` values for `/mcp`. A missing Host is allowed. Any other present Host gets HTTP 403 |
@@ -621,7 +623,9 @@ Telegram account credentials and TDLib session data are sensitive. Start with a 
 
 `MCP_DESTRUCTIVE_APPROVAL=auto` closes that gap. Before each destructive tool a person is asked, and the answer comes back over a channel the model does not write to — so an injected instruction can make the model *request* a ban, but not approve one. The check runs before any Telegram call.
 
-Where the question appears depends on the client. Hosts that implement MCP elicitation show their own prompt. Most do not — Claude Desktop advertises no elicitation capability — so `auto` falls back to a page this server hosts on `127.0.0.1`, announcing the link on stderr where your client shows server output. That is not a weaker answer: the link is single use, nonce-protected, reachable only from your machine, and expires into a refusal. Force one route with `elicitation` or `loopback` if you would rather fail than fall back. This is the setting to enable on an account you care about.
+Approval also covers high-risk tools by default (`MCP_APPROVAL_SCOPE=high-risk`): writes that are not deletes but move data out of the account or change who can do what — `forward_message`, `send_file`, `promote_admin`, `demote_admin`, `set_privacy_settings`, `invite_to_group`, `update_profile`, `configure_chat_folder`, `unban_user`, `unblock_user`, and `press_inline_button` (a bot button can trigger anything the bot implements). High-risk tools do not take a `"confirmed"` argument; only the human answer gates them. `MCP_APPROVAL_SCOPE=destructive` restores the 1.18.1 set, and `all-writes` asks before every write, including plain sends and reactions. `server-mode.confirmation.destructive-tools` and `high-risk-tools` add tools to the built-in lists and never remove one; each name must be a write tool or the server refuses to start. The `destructiveHint` annotation is true exactly for the tools approval covers.
+
+Where the question appears depends on the client. Hosts that implement MCP elicitation show their own prompt. Most do not — Claude Desktop advertises no elicitation capability — so `auto` falls back to a page this server hosts on `127.0.0.1` and opens it in your default browser. That is not a weaker answer: the link is single use, nonce-protected, reachable only from your machine, and expires into a refusal. The decision must be submitted from that page (same-origin POST with a per-request form token), so fetching the link is not enough to approve. The link itself goes to stderr only when stderr is a terminal or `MCP_APPROVAL_LINK_ON_STDERR=true`: host log files and process output are often readable by coding agents, and a printed link would let one approve its own request. When no browser can be opened and the link may not be printed, the operation is refused at once. Force one route with `elicitation` or `loopback` if you would rather fail than fall back. This is the setting to enable on an account you care about.
 
 The loopback page belongs to the server process. Inside an un-published Docker
 network namespace, its `127.0.0.1` is the container's, not yours, so no host
@@ -701,13 +705,13 @@ The full inventory is grouped below. In practice you start with a
 | `reply_to_message` | Reply to a specific message |
 | `edit_message` | Edit an existing message |
 | `delete_message` | Delete messages (destructive, requires confirmation) |
-| `forward_message` | Forward messages between chats |
+| `forward_message` | Forward messages between chats (high-risk: human approval when enabled) |
 | `pin_message` | Pin a message in a chat |
 | `unpin_message` | Unpin a message |
 | `get_pinned_messages` | Get all pinned messages in a chat |
 | `mark_as_read` | Mark messages as read |
-| `send_reaction` | Add an emoji reaction to a message (requires confirmation) |
-| `remove_reaction` | Remove an emoji reaction from a message (requires confirmation) |
+| `send_reaction` | Add an emoji reaction to a message |
+| `remove_reaction` | Remove an emoji reaction from a message |
 | `get_message_reactions` | Get reaction counts and list senders when Telegram permits it |
 | `create_poll` | Send a poll (anonymous or public, single or multi-answer) |
 | `vote_poll` | Vote in a poll by 0-based option indexes |
@@ -715,7 +719,7 @@ The full inventory is grouped below. In practice you start with a
 | `get_message_viewers` | List read receipts for an outgoing message in small groups |
 | `get_message_context` | Get N messages surrounding a target message |
 | `list_inline_buttons` | Inspect inline keyboard buttons on a message |
-| `press_inline_button` | Click an inline button by index or label (requires confirmation) |
+| `press_inline_button` | Click an inline button by index or label (high-risk: human approval when enabled) |
 | `message_from_link` | Resolve a t.me message link to the actual message |
 | `get_message_link` | Create a shareable t.me link for a message or media album |
 | `list_scheduled_messages` | List queued messages for a chat |

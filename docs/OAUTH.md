@@ -13,6 +13,27 @@ MCP_OAUTH_RESOURCE_URI=https://telegram-mcp.example.com/mcp
 MCP_OAUTH_JWK_SET_URI=https://identity.example.com/.well-known/jwks.json
 ```
 
+## Host and Origin allow-lists (upgrading to 1.18.1+)
+
+Since 1.18.1, `/mcp` rejects a present `Host` header that is not loopback, and a
+present browser `Origin` that is not loopback, with HTTP 403 (DNS-rebinding
+protection required by Streamable HTTP). A public endpoint must list its own
+name, otherwise every request through the reverse proxy is refused:
+
+```dotenv
+# Host values the proxy forwards (port optional; compared by host name)
+MCP_ALLOWED_HOSTS=telegram-mcp.example.com
+# Only needed for browser-based clients; exact origins, comma-separated
+MCP_ALLOWED_ORIGINS=https://inspector.example.com
+```
+
+If the proxy rewrites `Host` to the upstream address (for example
+`proxy_set_header Host $proxy_host` in nginx), list that value instead, or
+forward the public host with `proxy_set_header Host $host`. Desktop MCP clients
+send no `Origin`, so `MCP_ALLOWED_ORIGINS` can stay empty for them.
+
+## Tokens
+
 The JWT `aud` claim must contain `MCP_OAUTH_RESOURCE_URI`. The server publishes
 RFC 9728 metadata at `/.well-known/oauth-protected-resource` and returns its URL
 in the `WWW-Authenticate` challenge.

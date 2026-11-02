@@ -41,7 +41,12 @@ class DestructiveApprovalService(
      */
     private val loopbackServer: Lazy<LoopbackApprovalServer> = injectedLoopbackServer
         ?.let { lazyOf(it) }
-        ?: lazy { LoopbackApprovalServer(props.confirmation.approvalTimeout) }
+        ?: lazy {
+            LoopbackApprovalServer(
+                props.confirmation.approvalTimeout,
+                printLink = props.confirmation.approvalLinkOnStderr || stderrIsTerminal(),
+            )
+        }
 
     private val log = StructuredLogger.forClass<DestructiveApprovalService>()
 
@@ -58,15 +63,22 @@ class DestructiveApprovalService(
      * to watch a host prompt that never appears will read the resulting refusals
      * as a Telegram fault.
      */
+    private fun loopbackDelivery(): String =
+        if (props.confirmation.approvalLinkOnStderr || stderrIsTerminal()) {
+            "whose link is written to stderr"
+        } else {
+            "opened in the default browser (the link is not printed)"
+        }
+
     fun describeApprovalRoute(): String = when (props.confirmation.approval) {
         ApprovalMode.OFF -> "no approval is requested"
         ApprovalMode.ELICITATION ->
             "asked through the MCP host; clients without the elicitation capability cannot run them"
         ApprovalMode.LOOPBACK ->
-            "asked on a loopback page, with the link written to stderr"
+            "asked on a loopback page ${loopbackDelivery()}"
         ApprovalMode.AUTO ->
             "asked through the MCP host when it supports elicitation, otherwise on a loopback page " +
-                "whose link is written to stderr"
+                loopbackDelivery()
     }
 
     /**
@@ -101,12 +113,14 @@ class DestructiveApprovalService(
         arguments: Map<String, Any>,
     ) {
         if (!isEnabled()) return
-        if (!operationGuardService.isDestructiveTool(toolName)) return
+        // Scope-based, not destructive-only: forwarding a chat out or granting
+        // admin rights needs a person's answer as much as a delete does.
+        if (!operationGuardService.requiresHumanApproval(toolName)) return
 
         val description = describe(arguments)
         // Waiting for a human must not use up the Telegram request budget of the call.
         dev.telegrammcp.server.client.ToolCallDeadline.excluding { requireMode(exchange, toolName, description) }
-        log.info("Destructive tool '{}' approved by the operator", toolName)
+        log.info("{} tool '{}' approved by the operator", riskWord(toolName), toolName)
     }
 
     private fun requireMode(exchange: McpSyncServerExchange?, toolName: String, description: String) {
@@ -129,7 +143,7 @@ class DestructiveApprovalService(
         description: String,
     ) {
         if (exchange == null || !supportsElicitation(exchange)) {
-            log.warn("Destructive tool '{}' blocked — client cannot be asked for approval", toolName)
+            log.warn("{} tool '{}' blocked — client cannot be asked for approval", riskWord(toolName), toolName)
             throw ApprovalUnavailableException(toolName)
         }
 
@@ -169,7 +183,7 @@ class DestructiveApprovalService(
         val result = try {
             loopbackServer.value.requestApproval(toolName, description)
         } catch (error: ApprovalEndpointException) {
-            log.warn("Destructive tool '{}' blocked — loopback approval is unavailable: {}", toolName, error.message)
+            log.warn("{} tool '{}' blocked — loopback approval is unavailable: {}", riskWord(toolName), toolName, error.message)
             throw ApprovalUnavailableException(
                 toolName,
                 "the local loopback approval endpoint could not be started",
@@ -193,6 +207,13 @@ class DestructiveApprovalService(
                     "the local loopback approval endpoint is closed or shutting down",
                     "Retry only after the server has restarted cleanly.",
                 )
+            LoopbackApprovalServer.ApprovalResult.UNDELIVERABLE ->
+                throw ApprovalUnavailableException(
+                    toolName,
+                    "no browser could be opened for the loopback approval page",
+                    "Run the server where a browser can open, set MCP_APPROVAL_LINK_ON_STDERR=true " +
+                        "if only the operator can read server output, or use MCP_DESTRUCTIVE_APPROVAL=elicitation.",
+                )
         }
     }
 
@@ -200,8 +221,11 @@ class DestructiveApprovalService(
         runCatching { exchange.clientCapabilities?.elicitation() != null }.getOrDefault(false)
 
     private fun approvalPrompt(toolName: String, description: String): String =
-        "Approve destructive Telegram operation: $toolName ($description). " +
+        "Approve ${operationGuardService.riskLabel(toolName)} Telegram operation: $toolName ($description). " +
             "This was requested by an AI assistant and cannot be undone by this server."
+
+    private fun riskWord(toolName: String): String =
+        operationGuardService.riskLabel(toolName).replaceFirstChar(Char::uppercase)
 
     /**
      * Describes the target in the terms the person will be deciding about.
@@ -286,6 +310,19 @@ class DestructiveApprovalService(
             "title",
             "link",
             "invite_link",
+            // High-risk tools: where data goes and what changes.
+            "from_chat_id",
+            "to_chat_id",
+            "message_ids",
+            "user_ids",
+            "file_path",
+            "button_index",
+            "button_text",
+            "setting",
+            "base_rule",
+            "first_name",
+            "last_name",
+            "bio",
         )
 
         /** Values that identify a chat and authorise joining it in one string. */

@@ -131,7 +131,13 @@ class ApiKeyAuthFilter(
         } else {
             SecurityContextHolder.clearContext()
             log.warn("Rejected request to {} — invalid or missing API key", request.requestURI)
-            response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Invalid or missing API key")
+            // sendError would re-dispatch to /error, which the deny-all
+            // policy answers with 403; clients then never see the 401 and its
+            // challenge, so write both directly.
+            response.status = HttpServletResponse.SC_UNAUTHORIZED
+            response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer realm=\"telegram-mcp\"")
+            response.contentType = "text/plain;charset=UTF-8"
+            response.writer.write("Invalid or missing API key")
         }
     }
 

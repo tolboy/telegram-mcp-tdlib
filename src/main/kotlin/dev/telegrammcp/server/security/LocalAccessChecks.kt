@@ -1,20 +1,48 @@
 package dev.telegrammcp.server.security
 
+import org.slf4j.LoggerFactory
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
+import java.nio.file.attribute.AclEntry
+import java.nio.file.attribute.AclEntryFlag
 import java.nio.file.attribute.AclEntryPermission
 import java.nio.file.attribute.AclEntryType
 import java.nio.file.attribute.AclFileAttributeView
 import java.nio.file.attribute.PosixFilePermission
+import java.nio.file.attribute.UserPrincipal
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Rejects secret and policy files that other local users can rewrite, and
  * tightens a session directory to the owner when the filesystem allows it.
+ *
+ * Windows principals are classified by SID, not by account name: Windows
+ * reports localized names ("Jeder", "Пользователи"), so a name list only
+ * worked on English installations.
  */
 object LocalAccessChecks {
 
+    private val log = LoggerFactory.getLogger(LocalAccessChecks::class.java)
+
+    /** Resolves an ACL principal to its string SID, or null when it cannot. */
+    fun interface SidResolver {
+        fun sidOf(principal: UserPrincipal): String?
+    }
+
+    /** Result of classifying the ALLOW entries that grant a dangerous permission. */
+    data class AclFindings(
+        /** Broad groups (Everyone, Users, Authenticated Users, …) that may write. */
+        val broad: List<String>,
+        /** Specific principals other than the owner, SYSTEM, and Administrators. */
+        val other: List<String>,
+    )
+
     fun rejectSharedWrite(path: Path, settingName: String) {
+        rejectSharedWrite(path, settingName, defaultSidResolver)
+    }
+
+    internal fun rejectSharedWrite(path: Path, settingName: String, sidResolver: SidResolver) {
         val posix = runCatching { Files.getPosixFilePermissions(path, LinkOption.NOFOLLOW_LINKS) }.getOrNull()
         if (posix != null) {
             val writableByOthers = setOf(
@@ -24,16 +52,92 @@ object LocalAccessChecks {
             require(posix.none { it in writableByOthers }) {
                 "$settingName must not be writable by group or others"
             }
+            rejectReplaceablePosixParent(path, settingName)
             return
         }
         val view = Files.getFileAttributeView(path, AclFileAttributeView::class.java, LinkOption.NOFOLLOW_LINKS)
             ?: return
-        val sharedWrite = view.acl.any { entry ->
-            entry.type() == AclEntryType.ALLOW && isSharedPrincipal(entry.principal()?.name) &&
-                entry.permissions().any { it in WRITE_PERMISSIONS }
+        checkWindowsAcl(view.acl, view.owner, sidResolver, FILE_WRITE_PERMISSIONS, settingName, "file")
+        val parent = path.toAbsolutePath().parent ?: return
+        val parentView = Files.getFileAttributeView(parent, AclFileAttributeView::class.java) ?: return
+        checkWindowsAcl(
+            parentView.acl,
+            parentView.owner,
+            sidResolver,
+            DIRECTORY_REPLACE_PERMISSIONS,
+            settingName,
+            "parent folder",
+        )
+    }
+
+    /**
+     * Fails when a broad group may write; logs specific non-owner principals.
+     * Pure over its inputs so the Windows policy is unit-testable on any OS.
+     */
+    internal fun checkWindowsAcl(
+        acl: List<AclEntry>,
+        owner: UserPrincipal?,
+        sidResolver: SidResolver,
+        dangerous: Set<AclEntryPermission>,
+        settingName: String,
+        subject: String,
+    ) {
+        val findings = classify(acl, owner, sidResolver, dangerous)
+        require(findings.broad.isEmpty()) {
+            "$settingName $subject must not be writable by shared Windows groups " +
+                "(Everyone, Authenticated Users, Users, or similar); found: ${findings.broad.joinToString()}. " +
+                "Remove those entries (icacls) so only you, SYSTEM, and Administrators can change it"
         }
-        require(!sharedWrite) {
-            "$settingName must not be writable by shared Windows groups (Everyone, Authenticated Users, or Users)"
+        if (findings.other.isNotEmpty()) {
+            log.warn(
+                "{} {} is writable by other Windows principals: {}; restrict it to your account when possible",
+                settingName,
+                subject,
+                findings.other.joinToString(),
+            )
+        }
+    }
+
+    internal fun classify(
+        acl: List<AclEntry>,
+        owner: UserPrincipal?,
+        sidResolver: SidResolver,
+        dangerous: Set<AclEntryPermission>,
+    ): AclFindings {
+        val ownerSid = owner?.let { runCatching { sidResolver.sidOf(it) }.getOrNull() }?.uppercase()
+        val broad = mutableListOf<String>()
+        val other = mutableListOf<String>()
+        acl.asSequence()
+            .filter { it.type() == AclEntryType.ALLOW }
+            // INHERIT_ONLY entries only seed children; they grant nothing on this object.
+            .filterNot { AclEntryFlag.INHERIT_ONLY in it.flags() }
+            .filter { entry -> entry.permissions().any { it in dangerous } }
+            .forEach { entry ->
+                val principal = entry.principal() ?: return@forEach
+                val label = principal.name ?: "<unnamed>"
+                val sid = runCatching { sidResolver.sidOf(principal) }.getOrNull()?.uppercase()
+                when {
+                    sid == null -> if (isSharedPrincipal(principal.name)) broad += label
+                    isBroadSid(sid) -> broad += "$label ($sid)"
+                    principal == owner || sid == ownerSid || sid in TRUSTED_SIDS -> Unit
+                    else -> other += "$label ($sid)"
+                }
+            }
+        return AclFindings(broad.distinct(), other.distinct())
+    }
+
+    /**
+     * A world-writable parent without the sticky bit lets anyone rename the
+     * file away and drop in their own. Group-writable parents are common with
+     * user-private groups (umask 002), so they are not rejected.
+     */
+    private fun rejectReplaceablePosixParent(path: Path, settingName: String) {
+        val parent = path.toAbsolutePath().parent ?: return
+        val mode = runCatching { Files.getAttribute(parent, "unix:mode") as Int }.getOrNull() ?: return
+        val othersWrite = mode and 0b000_000_010 != 0
+        val sticky = mode and 0b001_000_000_000 != 0
+        require(!othersWrite || sticky) {
+            "$settingName parent folder must not be writable by others (or must have the sticky bit set)"
         }
     }
 
@@ -55,22 +159,73 @@ object LocalAccessChecks {
         }
     }
 
+    /**
+     * English-name fallback, used only when a principal's SID cannot be
+     * resolved. Localized installations rely on [isBroadSid].
+     */
     fun isSharedPrincipal(name: String?): Boolean {
         val simple = name.orEmpty().substringAfterLast('\\').substringAfterLast('/').trim()
-        return simple.lowercase() in SHARED_PRINCIPALS
+        val lower = simple.lowercase()
+        return lower in SHARED_PRINCIPAL_NAMES || (looksLikeSid(simple) && isBroadSid(simple))
     }
 
-    private val SHARED_PRINCIPALS = setOf(
+    /** Well-known and domain-relative SIDs that cover more than one ordinary account. */
+    fun isBroadSid(sid: String): Boolean {
+        val normalized = sid.uppercase()
+        if (normalized in BROAD_SIDS) return true
+        // Domain Users (513), Domain Guests (514), Domain Computers (515).
+        return DOMAIN_SID.matchEntire(normalized)?.groupValues?.get(1) in BROAD_DOMAIN_RIDS
+    }
+
+    fun looksLikeSid(value: String): Boolean = SID_PATTERN.matches(value)
+
+    private val SID_PATTERN = Regex("(?i)S-1-\\d+(-\\d+)+")
+    private val DOMAIN_SID = Regex("S-1-5-21-\\d+-\\d+-\\d+-(\\d+)")
+    private val BROAD_DOMAIN_RIDS = setOf("513", "514", "515")
+
+    private val BROAD_SIDS = setOf(
+        "S-1-1-0", // Everyone
+        "S-1-2-0", // LOCAL
+        "S-1-2-1", // CONSOLE LOGON
+        "S-1-5-1", // DIALUP
+        "S-1-5-2", // NETWORK
+        "S-1-5-3", // BATCH
+        "S-1-5-4", // INTERACTIVE
+        "S-1-5-6", // SERVICE
+        "S-1-5-7", // ANONYMOUS LOGON
+        "S-1-5-11", // Authenticated Users
+        "S-1-5-13", // TERMINAL SERVER USER
+        "S-1-5-14", // REMOTE INTERACTIVE LOGON
+        "S-1-5-15", // This Organization
+        "S-1-5-113", // Local account
+        "S-1-5-32-545", // BUILTIN\Users
+        "S-1-5-32-546", // BUILTIN\Guests
+        "S-1-5-32-547", // BUILTIN\Power Users
+        "S-1-5-32-555", // BUILTIN\Remote Desktop Users
+        "S-1-15-2-1", // ALL APPLICATION PACKAGES
+        "S-1-15-2-2", // ALL RESTRICTED APPLICATION PACKAGES
+    )
+
+    private val TRUSTED_SIDS = setOf(
+        "S-1-5-18", // SYSTEM
+        "S-1-5-32-544", // BUILTIN\Administrators
+        "S-1-3-4", // OWNER RIGHTS
+        "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464", // TrustedInstaller
+    )
+
+    private val SHARED_PRINCIPAL_NAMES = setOf(
         "everyone",
         "authenticated users",
         "unauthenticated users",
+        "anonymous logon",
+        "interactive",
         "users",
-        "s-1-1-0",
-        "s-1-5-11",
-        "s-1-5-32-545",
+        "guests",
+        "domain users",
+        "all application packages",
     )
 
-    private val WRITE_PERMISSIONS = setOf(
+    private val FILE_WRITE_PERMISSIONS = setOf(
         AclEntryPermission.WRITE_DATA,
         AclEntryPermission.WRITE_ATTRIBUTES,
         AclEntryPermission.WRITE_NAMED_ATTRS,
@@ -80,4 +235,30 @@ object LocalAccessChecks {
         AclEntryPermission.WRITE_ACL,
         AclEntryPermission.WRITE_OWNER,
     )
+
+    /**
+     * Folder rights that let another account replace the file: delete or
+     * rename its entries, or take over the folder ACL. ADD_FILE alone cannot
+     * overwrite an existing file, so ProgramData-style "create files" grants pass.
+     */
+    private val DIRECTORY_REPLACE_PERMISSIONS = setOf(
+        AclEntryPermission.DELETE,
+        AclEntryPermission.DELETE_CHILD,
+        AclEntryPermission.WRITE_ACL,
+        AclEntryPermission.WRITE_OWNER,
+    )
+
+    private val sidCache = ConcurrentHashMap<String, String>()
+
+    /**
+     * SID strings pass through. Other names are round-tripped through
+     * `LookupAccountNameW` on Windows, which accepts the same localized names
+     * that `UserPrincipal.getName()` returned.
+     */
+    private val defaultSidResolver = SidResolver { principal ->
+        val name = principal.name ?: return@SidResolver null
+        if (looksLikeSid(name)) return@SidResolver name.uppercase()
+        if (!WindowsSids.available) return@SidResolver null
+        sidCache[name] ?: WindowsSids.lookup(name)?.also { sidCache[name] = it }
+    }
 }
