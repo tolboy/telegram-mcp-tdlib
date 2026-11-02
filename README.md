@@ -33,9 +33,12 @@ clients or **Streamable HTTP** at `/mcp` for managed deployments.
 - **No JDK to install** — runtime-inclusive release bundles for Windows, Linux x64/ARM64, and
   Apple-silicon macOS, with checksums, an SBOM, and signed container digests.
 
-![Telegram MCP — read-only inbox summary in an AI client](docs/assets/hero.svg)
+![Actual terminal recording: connect to Telegram MCP, verify read-only tools, and read a public channel post](docs/assets/live-demo.gif)
 
-> The image is an illustrative mockup; a real screencast is on the way.
+> Screen recording of a live terminal session with server 1.18.1 and an authorized
+> TDLib account, November 2, 2026. The command-line MCP client reads only the public
+> `@telegram` channel and prints selected response fields.
+> [MP4](docs/assets/live-demo.mp4) · [Still image](docs/assets/live-demo.png) · [How it was recorded](docs/LIVE_DEMO.md).
 
 ## Safe first run
 
