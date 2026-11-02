@@ -368,56 +368,96 @@ try:
     # ready. 1.11.0 shipped a signal path that worked once running and threw
     # `IllegalStateException: Shutdown in progress` out of main when the signal
     # landed first, leaving the close unbounded until the supervisor gave up.
-    startup_process = subprocess.Popen(
-        command,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        env=environment,
-    )
-    startup_stderr = []
-    startup_drain = threading.Thread(
-        target=lambda: startup_stderr.extend(startup_process.stderr),
-        daemon=True,
-    )
-    startup_drain.start()
-    try:
-        # Long enough for the JVM to install its signal handler, far short of a
-        # finished Spring context.
-        time.sleep(1.5)
-        if startup_process.poll() is not None:
-            raise RuntimeError(
-                f"STDIO server exited before the startup signal: {startup_process.returncode}"
-            )
-        startup_process.terminate()
+    # Until 1.19.0 the same exception still escaped when the signal beat
+    # Spring's own late hook registration: the exit was bounded and clean, but
+    # main died with "Application run failed".
+    #
+    # Nothing on the wire marks the narrow stretch between the server's signal
+    # hook and Spring's first log line, and where it falls depends on the
+    # runner's speed, so the signal is swept across several delays instead of
+    # one. A signal that beats the JVM to the server's own hook ends the process
+    # with the default 128+SIGTERM before Spring logs anything; that run proves
+    # nothing either way and is tolerated, but at least one run must reach the
+    # hook.
+    startup_delays = (0.5, 0.75, 1.0, 1.25, 1.5, 2.0)
+    startup_signal_exits = []
+    startup_signal_reached_hook = 0
+    for startup_delay in startup_delays:
+        startup_process = subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=environment,
+        )
+        startup_stderr = []
+        startup_drain = threading.Thread(
+            target=lambda process=startup_process, sink=startup_stderr: sink.extend(process.stderr),
+            daemon=True,
+        )
+        startup_drain.start()
         try:
-            startup_signal_exit = startup_process.wait(timeout=30)
-        except subprocess.TimeoutExpired as exc:
-            startup_process.kill()
-            startup_process.wait(timeout=5)
-            raise RuntimeError(
-                "STDIO server did not exit within 30000ms of a termination signal "
-                "delivered during startup. A supervisor would escalate to SIGKILL."
-            ) from exc
-        startup_drain.join(timeout=2)
-        startup_stderr_text = "".join(startup_stderr)
-        if "Shutdown in progress" in startup_stderr_text:
-            raise RuntimeError(
-                "STDIO server failed to register its shutdown path during startup: "
-                "the JVM refused the hook and the close was left unbounded."
-            )
-        if os.name != "nt" and startup_signal_exit != 0:
-            raise RuntimeError(
-                f"STDIO server exited with code {startup_signal_exit} after a startup "
-                "termination signal; expected a clean Unix exit code of 0."
-            )
-    finally:
-        if startup_process.poll() is None:
-            startup_process.kill()
-            startup_process.wait(timeout=5)
+            time.sleep(startup_delay)
+            if startup_process.poll() is not None:
+                raise RuntimeError(
+                    f"STDIO server exited before the startup signal at {startup_delay}s: "
+                    f"{startup_process.returncode}"
+                )
+            startup_process.terminate()
+            try:
+                startup_signal_exit = startup_process.wait(timeout=30)
+            except subprocess.TimeoutExpired as exc:
+                startup_process.kill()
+                startup_process.wait(timeout=5)
+                raise RuntimeError(
+                    "STDIO server did not exit within 30000ms of a termination signal "
+                    f"delivered {startup_delay}s into startup. A supervisor would "
+                    "escalate to SIGKILL."
+                ) from exc
+            startup_drain.join(timeout=2)
+            startup_stderr_text = "".join(startup_stderr)
+            if "Shutdown in progress" in startup_stderr_text:
+                raise RuntimeError(
+                    f"STDIO server stopped {startup_delay}s into startup threw "
+                    "'Shutdown in progress': a shutdown hook was registered after the "
+                    "JVM had started shutting down."
+                )
+            if "Application run failed" in startup_stderr_text:
+                raise RuntimeError(
+                    f"STDIO server stopped {startup_delay}s into startup reported "
+                    "'Application run failed' instead of an orderly shutdown."
+                )
+            if os.name != "nt":
+                if "TELEGRAM_MCP_SHUTDOWN exit_code=0" in startup_stderr_text:
+                    startup_signal_reached_hook += 1
+                    if startup_signal_exit != 0:
+                        raise RuntimeError(
+                            f"STDIO server exited with code {startup_signal_exit} after a "
+                            f"termination signal {startup_delay}s into startup; expected a "
+                            "clean Unix exit code of 0."
+                        )
+                elif startup_signal_exit != 128 + 15 or "SpringApplication" in startup_stderr_text:
+                    # Spring starts only after the hook is installed, so a run
+                    # that got that far must end through the hook.
+                    raise RuntimeError(
+                        f"STDIO server exited with code {startup_signal_exit} after a "
+                        f"termination signal {startup_delay}s into startup without its "
+                        "final shutdown line."
+                    )
+            startup_signal_exits.append(startup_signal_exit)
+        finally:
+            if startup_process.poll() is None:
+                startup_process.kill()
+                startup_process.wait(timeout=5)
+    if os.name != "nt" and startup_signal_reached_hook == 0:
+        raise RuntimeError(
+            "No startup termination signal reached the server's shutdown hook; "
+            f"every run in {startup_delays} ended before the hook was installed."
+        )
+    startup_signal_exit = startup_signal_exits[-1]
 
     print(json.dumps({
         "transport": "stdio",
@@ -431,6 +471,7 @@ try:
         "signalExitCode": signal_exit,
         "startupSignalExit": True,
         "startupSignalExitCode": startup_signal_exit,
+        "startupSignalExitCodes": startup_signal_exits,
     }, separators=(",", ":")))
 finally:
     if process.stdin and not process.stdin.closed:

@@ -5,6 +5,17 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- A termination signal that lands while the server is still starting now ends
+  in an orderly shutdown instead of `IllegalStateException: Shutdown in
+  progress` and "Application run failed" from Spring Boot. The server's own
+  signal hook is now the only JVM shutdown hook: Spring's context and logging
+  hooks, which Spring registered part-way through startup, are off for
+  `serve` and the default entrypoint. The exit was already bounded and clean;
+  the error and stack trace were not.
+- The STDIO smoke sends the startup signal at six delays from 0.5 s to 2 s
+  instead of once at 1.5 s, and fails on "Application run failed" as well as
+  "Shutdown in progress".
+
 ## 1.19.0 - 2026-11-02
 
 This release adds ten tools (116 to 126), opt-in MCP resources with
