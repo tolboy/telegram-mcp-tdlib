@@ -3,9 +3,9 @@ package dev.telegrammcp.server.runtime
 /**
  * Routes JVM termination signals into [ServerShutdown].
  *
- * Spring registers its own shutdown hook, but that hook has no deadline. The
- * context close runs TDLib's `@PreDestroy`, and closing a TDLib factory can
- * block, so the JVM waits on the hook for as long as it takes. A supervisor
+ * Spring's own shutdown hook has no deadline. The context close runs TDLib's
+ * `@PreDestroy`, and closing a TDLib factory can block, so the JVM would wait
+ * on that hook for as long as it takes. A supervisor
  * that expects the process to end gives up and escalates: `docker stop`,
  * `compose down`, systemd and Kubernetes all send SIGTERM and then SIGKILL,
  * which kills TDLib mid-write instead of letting it flush.
@@ -17,7 +17,10 @@ package dev.telegrammcp.server.runtime
  *
  * Registration happens before Spring startup so a signal received during a
  * blocked initializer is still bounded. Callers remove the hook if startup
- * fails normally, preserving the original startup exit code.
+ * fails normally, preserving the original startup exit code. This hook is the
+ * only one: [serverApplicationBuilder] turns Spring's hooks off, because Spring
+ * registers them part-way through startup and a signal that lands first makes
+ * that registration fail with "Shutdown in progress".
  *
  * Returns the registered hook, or null when the JVM was already shutting down.
  * A shutdown hook is not a live thread until the JVM starts it, so it cannot be

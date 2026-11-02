@@ -11,6 +11,7 @@ import dev.telegrammcp.server.runtime.ServerShutdown
 import dev.telegrammcp.server.runtime.installSignalShutdownHook
 import dev.telegrammcp.server.runtime.installStdinCloseWatcher
 import dev.telegrammcp.server.runtime.removeSignalShutdownHook
+import dev.telegrammcp.server.runtime.serverApplicationBuilder
 import org.springframework.boot.WebApplicationType
 import org.springframework.boot.builder.SpringApplicationBuilder
 import org.springframework.context.ConfigurableApplicationContext
@@ -86,7 +87,9 @@ object TelegramMcpCli {
         } catch (invalid: IllegalStateException) {
             failUsage(invalid.message)
         }
-        val builder = SpringApplicationBuilder(TelegramMcpApplication::class.java)
+        // Termination belongs to ServerShutdown alone; Spring's late hook
+        // registration would fail if a signal lands during startup.
+        val builder = serverApplicationBuilder(TelegramMcpApplication::class.java)
         if (invocation.transport == Transport.STDIO) {
             builder
                 .web(WebApplicationType.NONE)

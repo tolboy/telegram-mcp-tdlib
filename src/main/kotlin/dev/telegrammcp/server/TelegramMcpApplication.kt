@@ -5,9 +5,9 @@ import dev.telegrammcp.server.cli.TelegramMcpCli
 import dev.telegrammcp.server.runtime.ServerShutdown
 import dev.telegrammcp.server.runtime.installSignalShutdownHook
 import dev.telegrammcp.server.runtime.removeSignalShutdownHook
+import dev.telegrammcp.server.runtime.serverApplicationBuilder
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan
-import org.springframework.boot.runApplication
 
 /**
  * Entry point for the Telegram MCP Server.
@@ -25,9 +25,10 @@ fun main(args: Array<String>) {
     // Install before the blocking Spring startup so SIGTERM is bounded even
     // while an initializer is stuck. On an ordinary startup failure the hook is
     // removed and the original exception keeps its non-zero process exit code.
+    // Spring's own hooks stay off: see serverApplicationBuilder.
     val signalHook = installSignalShutdownHook(ServerShutdown.INSTANCE)
     try {
-        ServerShutdown.INSTANCE.attach(runApplication<TelegramMcpApplication>(*args))
+        ServerShutdown.INSTANCE.attach(serverApplicationBuilder(TelegramMcpApplication::class.java).run(*args))
     } catch (startupFailure: Throwable) {
         removeSignalShutdownHook(signalHook)
         throw startupFailure
