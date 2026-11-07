@@ -5,6 +5,11 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- Add an offline native lifecycle check for Linux x64, Linux ARM64, Windows,
+  and macOS ARM64. It loads the packaged JNI runtime, keeps two clients
+  independent across close, accepts a repeated close, restarts after the
+  common receiver is released, and starts again after a failed client.
+
 - Closing a TDLib session releases every local send waiter and late observer
   as UNKNOWN. The release does not record a flood gate, does not open the
   circuit breaker, and does not authorize another send.

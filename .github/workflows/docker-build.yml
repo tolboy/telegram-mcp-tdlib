@@ -14,6 +14,11 @@ env:
   IMAGE_NAME: telegram-mcp-tdlib
 
 jobs:
+  native-lifecycle:
+    uses: ./.github/workflows/native-lifecycle.yml
+    permissions:
+      contents: read
+
   platform-smoke:
     name: Cross-platform MCP surface smoke
     uses: ./.github/workflows/platform-smoke.yml
@@ -71,6 +76,7 @@ jobs:
     name: Runtime app image — ${{ matrix.target }}
     needs:
       - platform-smoke
+      - native-lifecycle
       - verify-release
     runs-on: ${{ matrix.runner }}
     permissions:
@@ -86,7 +92,7 @@ jobs:
           - target: linux-arm64
             runner: ubuntu-24.04-arm
           - target: macos-arm64
-            runner: macos-14
+            runner: macos-15
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

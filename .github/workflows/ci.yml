@@ -14,6 +14,11 @@ permissions:
   contents: read
 
 jobs:
+  native-lifecycle:
+    uses: ./.github/workflows/native-lifecycle.yml
+    permissions:
+      contents: read
+
   build-and-test:
     runs-on: ubuntu-latest
 

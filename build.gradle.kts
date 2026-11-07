@@ -1,5 +1,6 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.nio.file.Path
+import java.time.Duration
 import java.util.zip.ZipFile
 
 plugins {
@@ -192,6 +193,24 @@ tasks.withType<Test> {
     environment.keys
         .filter { it.startsWith("TDLIB_") || it.startsWith("TELEGRAM_") }
         .forEach { environment.remove(it) }
+}
+
+// Native lifecycle checks use a separate JVM and opt-in task. The ordinary
+// suite remains hermetic and never initializes TDLib's native receiver.
+tasks.test {
+    useJUnitPlatform { excludeTags("native") }
+}
+
+tasks.register<Test>("nativeTest") {
+    group = "verification"
+    description = "Runs offline TDLib native loading and client lifecycle checks"
+    dependsOn(tasks.testClasses)
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    useJUnitPlatform { includeTags("native") }
+    maxParallelForks = 1
+    timeout.set(Duration.ofMinutes(2))
+    shouldRunAfter(tasks.test)
 }
 
 tasks.bootJar {
