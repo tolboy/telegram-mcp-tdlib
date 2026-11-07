@@ -280,7 +280,10 @@ private object P3ToolInputs {
             if (allowUsers.isNotEmpty()) add(PrivacyRule(PrivacyRuleKind.ALLOW_USERS, userIds = allowUsers))
             if (restrictChats.isNotEmpty()) add(PrivacyRule(PrivacyRuleKind.RESTRICT_CHAT_MEMBERS, chatIds = restrictChats))
             if (allowChats.isNotEmpty()) add(PrivacyRule(PrivacyRuleKind.ALLOW_CHAT_MEMBERS, chatIds = allowChats))
-            arguments["allow_bots"]?.let { add(PrivacyRule(if (booleanValue(it, "allow_bots")) PrivacyRuleKind.ALLOW_BOTS else PrivacyRuleKind.RESTRICT_BOTS)) }
+            if (arguments.containsKey("allow_bots")) {
+                val raw = arguments["allow_bots"] ?: throw InvalidToolInputException("allow_bots must be a boolean")
+                add(PrivacyRule(if (booleanValue(raw, "allow_bots")) PrivacyRuleKind.ALLOW_BOTS else PrivacyRuleKind.RESTRICT_BOTS))
+            }
             if (optionalBoolean(arguments, "allow_premium_users", false)) add(PrivacyRule(PrivacyRuleKind.ALLOW_PREMIUM_USERS))
             add(PrivacyRule(base))
         }
@@ -396,7 +399,11 @@ private object P3ToolInputs {
         return seconds.toInt()
     }
 
-    fun optionalBoolean(arguments: Map<String, Any>, name: String, default: Boolean): Boolean = arguments[name]?.let { booleanValue(it, name) } ?: default
+    fun optionalBoolean(arguments: Map<String, Any>, name: String, default: Boolean): Boolean {
+        if (!arguments.containsKey(name)) return default
+        val raw = arguments[name] ?: throw InvalidToolInputException("$name must be a boolean")
+        return booleanValue(raw, name)
+    }
 
     private fun userIds(arguments: Map<String, Any>, name: String): List<Long> = arrayArgument(arguments, name).mapIndexed { index, value ->
         number(value, "$name[$index]", positive = true)
@@ -407,10 +414,9 @@ private object P3ToolInputs {
             entityResolver.resolve(value ?: throw InvalidToolInputException("$name[$index] must be a chat identifier"))
         }.distinct().onEach(guardrailService::validateChatAccess)
 
-    private fun arrayArgument(arguments: Map<String, Any>, name: String): List<*> = when (val raw = arguments[name]) {
-        null -> emptyList<Any>()
-        is List<*> -> raw
-        else -> throw InvalidToolInputException("$name must be an array")
+    private fun arrayArgument(arguments: Map<String, Any>, name: String): List<*> {
+        if (!arguments.containsKey(name)) return emptyList<Any>()
+        return arguments[name] as? List<*> ?: throw InvalidToolInputException("$name must be an array")
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -418,7 +424,11 @@ private object P3ToolInputs {
         (arguments[name] as? Map<*, *>)?.entries?.associate { (key, value) -> key?.toString().orEmpty() to (value ?: throw InvalidToolInputException("$name values must not be null")) }
             ?: throw InvalidToolInputException("$name must be an object")
 
-    private fun flag(values: Map<String, Any>, name: String, default: Boolean): Boolean = values[name]?.let { booleanValue(it, name) } ?: default
+    private fun flag(values: Map<String, Any>, name: String, default: Boolean): Boolean {
+        if (!values.containsKey(name)) return default
+        val raw = values[name] ?: throw InvalidToolInputException("$name must be a boolean")
+        return booleanValue(raw, name)
+    }
 
     private fun booleanValue(value: Any, name: String): Boolean = when (value) {
         is Boolean -> value

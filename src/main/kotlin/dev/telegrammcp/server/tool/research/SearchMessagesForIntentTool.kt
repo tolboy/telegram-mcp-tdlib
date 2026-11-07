@@ -123,7 +123,7 @@ class SearchMessagesForIntentTool(
         val limit = requested.coerceIn(1, publicSearchProps.limits.maxMessagesPerChat)
 
         guardrailService.validateInput(query)
-        val searchQueries = parseQueryVariants(query, arguments["query_variants"])
+        val searchQueries = parseQueryVariants(query, arguments)
         searchQueries.forEach(guardrailService::validateInput)
         meterRegistry.counter("telegram.mcp.public_search.queries_total").increment(searchQueries.size.toDouble())
         log.withTool(TOOL_NAME).info(
@@ -321,23 +321,22 @@ class SearchMessagesForIntentTool(
                 .joinToString("\u001f")
         }
 
-    private fun parseQueryVariants(primaryQuery: String, rawVariants: Any?): List<String> {
-        val variants: List<*> = rawVariants as? List<*> ?: emptyList<Any?>()
-        if (rawVariants != null && rawVariants !is List<*>) {
-            throw InvalidToolInputException("query_variants must be a JSON array")
+    private fun parseQueryVariants(primaryQuery: String, arguments: Map<String, Any>): List<String> {
+        if (!arguments.containsKey("query_variants")) return listOf(primaryQuery)
+        val variants = arguments["query_variants"] as? List<*>
+            ?: throw InvalidToolInputException("query_variants must be a JSON array")
+        val extra = variants.mapIndexed { index, raw ->
+            val text = raw as? String
+                ?: throw InvalidToolInputException("query_variants[$index] must be a non-blank string")
+            val trimmed = text.trim()
+            if (trimmed.isBlank()) throw InvalidToolInputException("query_variants[$index] must be a non-blank string")
+            if (trimmed.length > MAX_QUERY_LENGTH) {
+                throw InvalidToolInputException("query variants must be $MAX_QUERY_LENGTH characters or fewer")
+            }
+            trimmed
         }
         return sequenceOf(primaryQuery)
-            .plus(
-                variants.asSequence()
-                    .mapNotNull { it?.toString()?.trim() }
-                    .filter { it.isNotBlank() }
-                    .onEach {
-                        if (it.length > MAX_QUERY_LENGTH) {
-                            throw InvalidToolInputException("query variants must be $MAX_QUERY_LENGTH characters or fewer")
-                        }
-                    }
-                    .take(MAX_QUERY_VARIANTS - 1),
-            )
+            .plus(extra.asSequence().take(MAX_QUERY_VARIANTS - 1))
             .distinctBy { it.lowercase(Locale.ROOT) }
             .take(MAX_QUERY_VARIANTS)
             .toList()

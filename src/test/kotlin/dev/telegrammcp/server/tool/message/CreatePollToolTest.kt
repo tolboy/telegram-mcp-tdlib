@@ -155,4 +155,18 @@ class CreatePollToolTest {
         val text = (result.content.first() as McpSchema.TextContent).text()
         assertTrue(text.contains("at most 10"))
     }
+
+    @Test
+    fun `invalid interior poll options reject the poll instead of changing its answer sequence`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.sendPoll(any(), any(), any(), any(), any()) } returns
+            TelegramMessage(messageId = 200, chatId = 42, chatTitle = "Chat", senderName = "Me", text = null, date = Instant.now())
+        for (option in listOf<Any?>(null, "", "  ", 42, true, mapOf("text" to "B"))) {
+            val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "question" to "Q?", "options" to listOf("A", option, "C")))
+            assertTrue(result.isError, "Invalid option must reject the complete poll: $option")
+            val error = ((result.structuredContent() as Map<*, *>)["data"] as Map<*, *>)["error"] as Map<*, *>
+            assertEquals("INVALID_INPUT", error["code"])
+        }
+        verify(exactly = 0) { telegramClient.sendPoll(any(), any(), any(), any(), any()) }
+    }
 }

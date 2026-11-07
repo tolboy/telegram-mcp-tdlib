@@ -156,6 +156,18 @@ class SearchMessagesForIntentToolTest {
     }
 
     @Test
+    fun `invalid query variant rejects the search instead of dropping that variant`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        val result = tool.executeChecked(exchange, mapOf(
+            "chats" to listOf(42),
+            "query" to "primary",
+            "query_variants" to listOf("ok", null),
+        ))
+        assertTrue(result.isError)
+        verify(exactly = 0) { telegramClient.searchMessages(any(), any(), any(), any()) }
+    }
+
+    @Test
     fun `failed variant is visible while successful hits survive`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.searchMessages(42L, "primary", 0L, 10) } throws IllegalStateException("upstream unavailable")

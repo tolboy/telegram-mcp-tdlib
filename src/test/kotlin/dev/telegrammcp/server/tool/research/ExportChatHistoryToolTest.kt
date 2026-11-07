@@ -215,6 +215,18 @@ class ExportChatHistoryToolTest {
     }
 
     @Test
+    fun `invalid query term rejects the export instead of dropping that term`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        val result = tool.executeChecked(exchange, mapOf(
+            "chat_id" to 42,
+            "query_terms" to listOf("alpha", 2),
+        ))
+        assertTrue(result.isError)
+        verify(exactly = 0) { telegramClient.searchMessages(any(), any(), any(), any()) }
+        verify(exactly = 0) { telegramClient.getHistory(any(), any(), any(), any()) }
+    }
+
+    @Test
     fun `rejects export without any source`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
         val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "include_history" to false))

@@ -172,14 +172,20 @@ class ExportChatHistoryTool(
     }
 
     private fun extractQueryTerms(args: Map<String, Any>): List<String> {
-        val raw = args["query_terms"] as? List<*> ?: args["queries"] as? List<*> ?: return emptyList()
-        return raw.asSequence()
-            .mapNotNull { it?.toString()?.trim() }
-            .filter { it.isNotBlank() }
-            .map { it.take(MAX_QUERY_LENGTH) }
+        val key = when {
+            args.containsKey("query_terms") -> "query_terms"
+            args.containsKey("queries") -> "queries"
+            else -> return emptyList()
+        }
+        val raw = args[key] as? List<*> ?: throw InvalidToolInputException("$key must be an array of strings")
+        return raw.mapIndexed { index, item ->
+            val text = item as? String ?: throw InvalidToolInputException("$key[$index] must be a non-blank string")
+            val trimmed = text.trim()
+            if (trimmed.isBlank()) throw InvalidToolInputException("$key[$index] must be a non-blank string")
+            trimmed.take(MAX_QUERY_LENGTH)
+        }
             .distinctBy { it.lowercase() }
             .take(MAX_QUERY_TERMS)
-            .toList()
     }
 
     private fun parseInstantArgument(arguments: Map<String, Any>, fieldName: String): Instant? {

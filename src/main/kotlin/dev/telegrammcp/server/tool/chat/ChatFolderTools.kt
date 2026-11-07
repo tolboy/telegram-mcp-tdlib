@@ -295,22 +295,22 @@ private object ChatFolderInputs {
 
     private fun optionalInt(arguments: Map<String, Any>, name: String): Int? = ToolNumbers.optionalInt(arguments, name)
 
-    private fun optionalBoolean(arguments: Map<String, Any>, name: String): Boolean = when (val raw = arguments[name]) {
-        null -> false
-        is Boolean -> raw
-        is String -> raw.lowercase().let { value ->
-            when (value) {
+    private fun optionalBoolean(arguments: Map<String, Any>, name: String): Boolean {
+        if (!arguments.containsKey(name)) return false
+        return when (val raw = arguments[name]) {
+            is Boolean -> raw
+            is String -> when (raw.lowercase()) {
                 "true" -> true
                 "false" -> false
                 else -> throw InvalidToolInputException("$name must be a boolean")
             }
+            else -> throw InvalidToolInputException("$name must be a boolean")
         }
-        else -> throw InvalidToolInputException("$name must be a boolean")
     }
 
     private fun resolveChatIds(arguments: Map<String, Any>, name: String, entityResolver: EntityResolverService): List<Long> {
-        val raw = arguments[name] ?: return emptyList()
-        val values = raw as? List<*> ?: throw InvalidToolInputException("$name must be an array")
+        if (!arguments.containsKey(name)) return emptyList()
+        val values = arguments[name] as? List<*> ?: throw InvalidToolInputException("$name must be an array")
         return values.mapIndexed { index, identifier ->
             entityResolver.resolve(identifier ?: throw InvalidToolInputException("$name[$index] must be a chat identifier"))
         }.distinct()

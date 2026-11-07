@@ -201,7 +201,7 @@ private object ScheduledMessageInputs {
             .also { if (it <= 0) throw InvalidToolInputException("$name must be a positive integer") }
 
     fun optionalBoolean(arguments: Map<String, Any>, name: String): Boolean = when (val raw = arguments[name]) {
-        null -> false
+        null -> if (arguments.containsKey(name)) throw InvalidToolInputException("$name must be a boolean") else false
         is Boolean -> raw
         is String -> when (raw.lowercase()) {
             "true" -> true

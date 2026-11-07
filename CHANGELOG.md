@@ -5,6 +5,10 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- Reject an explicit null in optional booleans, folder and privacy lists, poll
+  options, and search or export query lists. Absence still means the documented
+  default; a supplied null is invalid input and cannot clear or shift a value.
+
 - Extract one account-scoped TDLib request executor shared by all capabilities.
   Flood/rate control, deadlines, send observation, breaker and bulkhead ownership
   remain in one place; the public client interface and constructor are retained.

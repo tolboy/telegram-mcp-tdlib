@@ -84,7 +84,12 @@ class CreatePollTool(
 
             val rawOptions = arguments["options"] as? List<*>
                 ?: throw InvalidToolInputException("options is required and must be a list of strings")
-            val options = rawOptions.mapNotNull { it?.toString()?.takeIf { s -> s.isNotBlank() } }
+            val options = rawOptions.mapIndexed { index, rawOption ->
+                val option = rawOption as? String
+                    ?: throw InvalidToolInputException("options[$index] must be a non-blank string")
+                if (option.isBlank()) throw InvalidToolInputException("options[$index] must be a non-blank string")
+                option
+            }
             if (options.size < 2) throw InvalidToolInputException("options must contain at least 2 entries")
             if (options.size > MAX_OPTIONS) throw InvalidToolInputException("options must contain at most $MAX_OPTIONS entries")
             options.forEach { opt ->
