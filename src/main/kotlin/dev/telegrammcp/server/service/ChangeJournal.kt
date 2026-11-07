@@ -2,6 +2,7 @@ package dev.telegrammcp.server.service
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.SerializationFeature
+import dev.telegrammcp.server.client.McpCallCancellation
 import dev.telegrammcp.server.client.TelegramAccountRegistry
 import dev.telegrammcp.server.client.ToolCallDeadline
 import dev.telegrammcp.server.exception.TelegramApiException
@@ -142,7 +143,9 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
                     if (page.hasMore) continue
                     // A different process can append to this durable journal too.
                     // Recheck its file at most once per second even without a local signal.
-                    progress.awaitNanos(minOf(left, TimeUnit.SECONDS.toNanos(1)))
+                    // MCP cancellation is a local stop: the journal and its cursor stay.
+                    McpCallCancellation.throwIfLocalWait("change-journal")
+                    progress.awaitNanos(minOf(left, 50_000_000L))
                 }
             } finally { lock.unlock() }
         } catch (interrupted: InterruptedException) {
@@ -200,7 +203,14 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
     private fun awaitWriter(timeoutNanos: Long = TimeUnit.SECONDS.toNanos(2)) {
         val target = enqueued.get()
         var remaining = timeoutNanos
-        lock.withLock { while (handled < target && remaining > 0) remaining = progress.awaitNanos(remaining) }
+        lock.withLock {
+            while (handled < target && remaining > 0) {
+                McpCallCancellation.throwIfLocalWait("change-journal")
+                val slice = minOf(remaining, 50_000_000L)
+                val leftover = progress.awaitNanos(slice)
+                remaining -= slice - leftover.coerceAtLeast(0)
+            }
+        }
     }
 
     private fun drain() {

@@ -1,6 +1,7 @@
 package dev.telegrammcp.server.client
 
 import dev.telegrammcp.server.exception.TdLibAuthException
+import dev.telegrammcp.server.exception.TelegramTimeoutException
 import io.mockk.mockk
 import io.mockk.verify
 import org.junit.jupiter.api.Test
@@ -66,6 +67,39 @@ class TelegramAuthGateTest {
         )
         assertFalse(gate.isReady())
         verify(exactly = 0) { service.getMe() }
+    }
+
+    @Test
+    fun `mcp cancellation ends the auth wait and leaves login running`() {
+        val gate = gate(Duration.ofSeconds(30))
+        val key = "auth-wait"
+        val result = java.util.concurrent.CompletableFuture<Throwable>()
+        val worker = thread(isDaemon = true) {
+            McpCallCancellation.bind(key)
+            try {
+                gate.awaitReady()
+                result.complete(IllegalStateException("the wait returned"))
+            } catch (error: Throwable) {
+                result.complete(error)
+            } finally {
+                McpCallCancellation.unbind()
+            }
+        }
+        val started = System.nanoTime()
+        while (worker.state != Thread.State.TIMED_WAITING) {
+            assertTrue(worker.isAlive, "auth wait ended before it blocked")
+            assertTrue(Duration.ofNanos(System.nanoTime() - started) < Duration.ofSeconds(3))
+            Thread.yield()
+        }
+        McpCallCancellation.cancel(key)
+        val error = result.get(2, TimeUnit.SECONDS)
+        assertTrue(error is TelegramTimeoutException, error.toString())
+        val timeout = error as TelegramTimeoutException
+        assertEquals(TelegramTimeoutException.Reason.LOCAL_CANCEL, timeout.reason)
+        assertFalse(timeout.requestSent)
+        assertFalse(timeout.healthFailure)
+        assertFalse(gate.isReady())
+        worker.join(1_000)
     }
 
     @Test

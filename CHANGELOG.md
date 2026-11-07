@@ -5,6 +5,12 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- STDIO `notifications/cancelled` stops the same local waits as Streamable HTTP.
+  The tool thread is bound to the JSON-RPC id, including on the SDK elastic
+  scheduler. Auth-ready, change-journal, and human-approval waits stop on that
+  signal. Login, the journal, and an elicitation already in flight are not
+  cancelled. A send already handed to TDLib stays UNKNOWN.
+
 - Review fixes: cancellation is authenticated and session-owned before the
   notification is accepted; early cancellation and research workers share the
   same signal. Local stops neither open the Telegram breaker nor create a flood
@@ -31,9 +37,7 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 - Streamable HTTP `notifications/cancelled` stops the local TDLib wait and
   releases the caller's concurrency permit. A send already handed to TDLib
   stays UNKNOWN. The TDLib future is not cancelled, and an HTTP disconnect is
-  not treated as cancellation. STDIO cancellation is not implemented in this
-  transport integration; the SDK can read frames during a tool call, but its
-  current notification registry does not dispatch cancellation to this listener.
+  not treated as cancellation.
 
 - Add an offline native lifecycle check for Linux x64, Linux ARM64, Windows,
   and macOS ARM64. It loads the packaged JNI runtime, keeps two clients

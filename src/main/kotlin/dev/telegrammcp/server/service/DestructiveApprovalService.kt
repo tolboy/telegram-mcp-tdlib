@@ -1,5 +1,7 @@
 package dev.telegrammcp.server.service
 
+import dev.telegrammcp.server.client.McpCallCancellation
+import dev.telegrammcp.server.client.McpCallCancelledException
 import dev.telegrammcp.server.config.ServerModeProperties
 import dev.telegrammcp.server.config.ServerModeProperties.ApprovalMode
 import dev.telegrammcp.server.exception.ApprovalDeniedException
@@ -10,6 +12,10 @@ import io.modelcontextprotocol.spec.McpSchema
 import jakarta.annotation.PreDestroy
 import org.springframework.stereotype.Service
 import java.util.Collections
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 /**
  * Obtains human approval for a destructive operation before it runs.
@@ -147,23 +153,43 @@ class DestructiveApprovalService(
             throw ApprovalUnavailableException(toolName)
         }
 
+        val request = McpSchema.ElicitFormRequest(
+            approvalPrompt(toolName, description),
+            // No fields to fill in: the accept/decline action is the
+            // entire answer, and an empty schema keeps hosts from
+            // rendering a form where a yes/no belongs.
+            mapOf("type" to "object", "properties" to emptyMap<String, Any>()),
+            emptyMap(),
+        )
+        // The SDK call blocks inside the session. Run it off this thread so an
+        // MCP cancellation can stop the local wait without cancelling the
+        // elicitation that is already in flight.
+        val pending = CompletableFuture<McpSchema.ElicitResult>()
+        Thread({
+            try {
+                pending.complete(exchange.createElicitation(request))
+            } catch (error: Throwable) {
+                pending.completeExceptionally(error)
+            }
+        }, "approval-elicitation").apply { isDaemon = true }.start()
+        val waitNanos = props.confirmation.approvalTimeout.toNanos().takeIf { it > 0 } ?: Long.MAX_VALUE
         val result = try {
-            exchange.createElicitation(
-                // The record constructor rather than the builder: both builder
-                // overloads are deprecated in this SDK version.
-                McpSchema.ElicitFormRequest(
-                    approvalPrompt(toolName, description),
-                    // No fields to fill in: the accept/decline action is the
-                    // entire answer, and an empty schema keeps hosts from
-                    // rendering a form where a yes/no belongs.
-                    mapOf("type" to "object", "properties" to emptyMap<String, Any>()),
-                    emptyMap(),
-                ),
+            McpCallCancellation.await(pending, waitNanos)
+        } catch (cancelled: McpCallCancelledException) {
+            McpCallCancellation.throwIfLocalWait("approval")
+            throw cancelled
+        } catch (timedOut: TimeoutException) {
+            throw ApprovalDeniedException(
+                toolName,
+                "the operator did not answer within ${TimeUnit.NANOSECONDS.toSeconds(waitNanos)}s",
             )
-        } catch (error: Exception) {
+        } catch (error: ExecutionException) {
             // A transport failure, a timeout, or a host that advertised the
             // capability without implementing it all mean the same thing: no
             // approval was obtained.
+            log.warn("Approval request for '{}' failed: {}", toolName, error.cause?.message ?: error.message)
+            throw ApprovalDeniedException(toolName, "the approval request could not be completed")
+        } catch (error: Exception) {
             log.warn("Approval request for '{}' failed: {}", toolName, error.message)
             throw ApprovalDeniedException(toolName, "the approval request could not be completed")
         }

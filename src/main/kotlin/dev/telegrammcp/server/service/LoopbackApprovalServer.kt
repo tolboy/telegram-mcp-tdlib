@@ -2,6 +2,7 @@ package dev.telegrammcp.server.service
 
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
+import dev.telegrammcp.server.client.McpCallCancellation
 import dev.telegrammcp.server.util.StructuredLogger
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -97,12 +98,21 @@ class LoopbackApprovalServer(
         try {
             val url = "http://127.0.0.1:$port/approve?id=${approval.id}&nonce=${approval.nonce}"
             if (!deliver(toolName, description, url)) return ApprovalResult.UNDELIVERABLE
-            val answered = approval.answered.await(timeout.toMillis(), TimeUnit.MILLISECONDS)
-            if (!answered) {
-                log.warn("Approval for '{}' expired after {}s", toolName, timeout.toSeconds())
-                return ApprovalResult.TIMED_OUT
+            // Slice the wait so an MCP cancellation stops this call without
+            // answering the page or deleting a send receipt. The link stays
+            // single-use: finally removes it either way.
+            val deadline = System.nanoTime() + timeout.toNanos()
+            while (true) {
+                McpCallCancellation.throwIfLocalWait("approval")
+                val left = deadline - System.nanoTime()
+                if (left <= 0) {
+                    log.warn("Approval for '{}' expired after {}s", toolName, timeout.toSeconds())
+                    return ApprovalResult.TIMED_OUT
+                }
+                if (approval.answered.await(minOf(left, 50_000_000L), TimeUnit.NANOSECONDS)) {
+                    return approval.result()
+                }
             }
-            return approval.result()
         } catch (interrupted: InterruptedException) {
             Thread.currentThread().interrupt()
             return ApprovalResult.TIMED_OUT

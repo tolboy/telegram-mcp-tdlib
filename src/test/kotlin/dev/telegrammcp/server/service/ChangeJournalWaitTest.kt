@@ -1,7 +1,9 @@
 package dev.telegrammcp.server.service
 
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import dev.telegrammcp.server.client.McpCallCancellation
 import dev.telegrammcp.server.client.ToolCallDeadline
+import dev.telegrammcp.server.exception.TelegramTimeoutException
 import dev.telegrammcp.server.exception.TelegramApiException
 import dev.telegrammcp.server.exception.TelegramBusyException
 import dev.telegrammcp.server.exception.TelegramErrorKind
@@ -49,6 +51,33 @@ class ChangeJournalWaitTest {
             check(worker.isAlive) { "Waiter exited before waiting" }
             Thread.yield()
         }
+    }
+
+    @Test
+    fun `mcp cancellation ends a change wait and leaves the journal open`() {
+        val journal = journal()
+        val key = "change-wait"
+        val result = CompletableFuture<Throwable?>()
+        val worker = thread(isDaemon = true) {
+            McpCallCancellation.bind(key)
+            try {
+                journal.waitForChanges("default", null, 10, Duration.ofSeconds(30)) { true }
+                result.complete(null)
+            } catch (error: Throwable) {
+                result.complete(error)
+            } finally {
+                McpCallCancellation.unbind()
+            }
+        }
+        threads += worker
+        awaitWaiting(worker)
+        McpCallCancellation.cancel(key)
+        val error = result.get(2, TimeUnit.SECONDS)
+        assertIs<TelegramTimeoutException>(error)
+        assertEquals(TelegramTimeoutException.Reason.LOCAL_CANCEL, error.reason)
+        assertFalse(error.requestSent)
+        assertFalse(error.healthFailure)
+        assertTrue(journal.waitForChanges("default", null, 10, Duration.ZERO) { true }.timedOut)
     }
 
     @Test fun `concurrent waiters receive the same later durable change without consuming it`() {

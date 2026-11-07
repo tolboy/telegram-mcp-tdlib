@@ -1,6 +1,8 @@
 package dev.telegrammcp.server.service
 
+import dev.telegrammcp.server.client.McpCallCancellation
 import dev.telegrammcp.server.config.ServerModeProperties
+import dev.telegrammcp.server.exception.TelegramTimeoutException
 import dev.telegrammcp.server.exception.ApprovalDeniedException
 import dev.telegrammcp.server.exception.ApprovalUnavailableException
 import io.mockk.every
@@ -78,6 +80,40 @@ class DestructiveApprovalServiceTest {
             every { exchange.createElicitation(any()) } returns McpSchema.ElicitResult(action, emptyMap())
         }
         return exchange
+    }
+
+    @Test
+    fun `mcp cancellation stops an elicitation wait without accepting it`() {
+        val exchange = exchangeAnswering(null)
+        every { exchange.createElicitation(any()) } answers {
+            Thread.sleep(3_000)
+            McpSchema.ElicitResult(McpSchema.ElicitResult.Action.ACCEPT, emptyMap())
+        }
+        val key = "elicitation-wait"
+        val result = java.util.concurrent.CompletableFuture<Throwable?>()
+        val worker = Thread({
+            McpCallCancellation.bind(key)
+            try {
+                service(ServerModeProperties.ApprovalMode.ELICITATION).requireApproval(exchange, "ban_user", emptyMap())
+                result.complete(null)
+            } catch (error: Throwable) {
+                result.complete(error)
+            } finally {
+                McpCallCancellation.unbind()
+            }
+        }, "elicitation-cancel-test").apply { isDaemon = true; start() }
+        val started = System.nanoTime()
+        while (worker.state != Thread.State.TIMED_WAITING && worker.state != Thread.State.WAITING) {
+            assertTrue(worker.isAlive, "elicitation wait ended before it blocked")
+            assertTrue(java.time.Duration.ofNanos(System.nanoTime() - started) < java.time.Duration.ofSeconds(3))
+            Thread.yield()
+        }
+        McpCallCancellation.cancel(key)
+        val error = result.get(2, java.util.concurrent.TimeUnit.SECONDS)
+        assertTrue(error is TelegramTimeoutException, error.toString())
+        assertEquals(TelegramTimeoutException.Reason.LOCAL_CANCEL, (error as TelegramTimeoutException).reason)
+        assertFalse(error.healthFailure)
+        worker.join(1_000)
     }
 
     @Test

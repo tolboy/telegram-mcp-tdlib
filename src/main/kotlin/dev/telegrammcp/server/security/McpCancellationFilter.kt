@@ -3,6 +3,8 @@ package dev.telegrammcp.server.security
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.telegrammcp.server.client.McpCallCancellation
+import java.math.BigDecimal
+import java.math.BigInteger
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
@@ -63,6 +65,9 @@ internal class McpCancellationFilter : OncePerRequestFilter() {
     internal companion object {
         const val METHOD = "notifications/cancelled"
 
+        /** Session segment for the single STDIO child. HTTP uses the Mcp-Session-Id header. */
+        const val STDIO_SESSION = "stdio"
+
         fun key(sessionId: String?, requestId: String): String =
             AccessPermissionService.clientIdentity() + "\u0000" + (sessionId ?: "http-no-session") + "\u0000" + requestId
 
@@ -72,5 +77,23 @@ internal class McpCancellationFilter : OncePerRequestFilter() {
             node.isIntegralNumber && node.canConvertToLong() -> "n:" + node.longValue()
             else -> null
         }
+
+        /** Same canonical form as [requestId], for ids the STDIO mapper already decoded. */
+        fun canonicalId(id: Any?): String? = when (id) {
+            null -> null
+            is JsonNode -> requestId(id)
+            is String -> "s:$id"
+            is Double, is Float -> null
+            is BigDecimal -> id.toBigIntegerExactOrNull()?.let { canonicalInteger(it) }
+            is BigInteger -> canonicalInteger(id)
+            is Number -> "n:${id.toLong()}"
+            else -> null
+        }
+
+        private fun canonicalInteger(value: BigInteger): String? =
+            if (value.bitLength() < 64) "n:${value.toLong()}" else null
+
+        private fun BigDecimal.toBigIntegerExactOrNull(): BigInteger? =
+            runCatching { toBigIntegerExact() }.getOrNull()
     }
 }
