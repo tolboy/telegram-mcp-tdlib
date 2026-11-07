@@ -6,6 +6,7 @@ import dev.telegrammcp.server.client.SendObservationContext
 import dev.telegrammcp.server.model.TelegramMessage
 import dev.telegrammcp.server.model.ScheduledMessage
 import dev.telegrammcp.server.exception.InvalidToolInputException
+import jakarta.annotation.PreDestroy
 import org.springframework.stereotype.Service
 
 @Service
@@ -13,8 +14,9 @@ class SendOperationService(
     private val accountContext: TelegramAccountContext,
     paths: PlatformPaths,
     private val mapper: ObjectMapper,
-) {
+) : AutoCloseable {
     private val journal = SendOperationJournal(paths.applicationDataDirectory.resolve("send-operations"), mapper)
+    private val lateReceipts = LateSendReceiptWriter()
 
     fun execute(arguments: Map<String, Any>, chatId: Long, canonicalRequest: List<Any?>,
         beforeSend: () -> Unit, expectedCount: Int = 1, scheduled: Boolean = false, send: () -> Any): Any {
@@ -26,8 +28,8 @@ class SendOperationService(
             val payload = SendObservationContext.observe({ messages ->
                 if (messages.size == expectedCount && messages.all { it.chatId == chatId && it.id > 0 }) {
                     val ids = messages.map { it.id }
-                    journal.recordLateCompletion(account, key, chatId,
-                        SendOperationJournal.Completion(ids.first(), if (expectedCount > 1) ids else null, scheduled))
+                    val completion = SendOperationJournal.Completion(ids.first(), if (expectedCount > 1) ids else null, scheduled)
+                    lateReceipts.submit { journal.recordLateCompletion(account, key, chatId, completion) }
                 }
             }, send)
             val messages = when (payload) {
@@ -57,8 +59,9 @@ class SendOperationService(
         val result = journal.send(account, key, chatId,
             SendOperationJournal.digest(mapper.writeValueAsBytes(canonicalRequest)), beforeSend) {
             val message = SendObservationContext.observe({ messages ->
-                if (messages.size == 1 && messages.single().chatId == chatId) {
-                    journal.recordLate(account, key, chatId, messages.single().id)
+                if (messages.size == 1 && messages.single().chatId == chatId && messages.single().id > 0) {
+                    val messageId = messages.single().id
+                    lateReceipts.submit { journal.recordLate(account, key, chatId, messageId) }
                 }
             }, send)
             check(message.chatId == chatId) { "Telegram returned a different destination chat" }
@@ -71,4 +74,7 @@ class SendOperationService(
         val account = accountContext.currentAccount()
         return journal.recoverLate(account, key, chatId, journal.status(account, key, chatId))
     }
+
+    @PreDestroy
+    override fun close() = lateReceipts.close()
 }

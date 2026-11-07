@@ -52,12 +52,25 @@ sealed interface EntityIdentifier {
          */
         fun parse(raw: Any): EntityIdentifier {
             return when (raw) {
-                is Number -> NumericId(raw.toLong())
+                is Number -> NumericId(parseExactLong(raw))
                 is String -> parseString(raw)
                 else -> throw InvalidToolInputException(
                     "Identifier must be a number, username, phone number, or self chat alias, got: ${raw::class.simpleName}",
                 )
             }
+        }
+
+        /** Do not truncate fractions or wrap an oversized JSON integer into another chat ID. */
+        private fun parseExactLong(value: Number): Long = try {
+            // Outside the mantissa's safe range a floating-point value may
+            // already represent a different ID from the JSON integer supplied.
+            require(value !is Double || (value.isFinite() && kotlin.math.abs(value) <= 9_007_199_254_740_991.0))
+            require(value !is Float || (value.isFinite() && kotlin.math.abs(value) <= 16_777_215f))
+            value.toString().toBigDecimal().longValueExact()
+        } catch (_: IllegalArgumentException) {
+            throw InvalidToolInputException("Numeric identifier must be an exact 64-bit integer")
+        } catch (_: ArithmeticException) {
+            throw InvalidToolInputException("Numeric identifier must be an exact 64-bit integer")
         }
 
         private fun parseString(value: String): EntityIdentifier {

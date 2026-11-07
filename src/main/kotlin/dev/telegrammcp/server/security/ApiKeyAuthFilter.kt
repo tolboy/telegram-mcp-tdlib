@@ -200,9 +200,14 @@ class ApiKeyAuthFilter(
             fileName = props.security.apiKeyFile,
             settingName = "MCP API key",
         )
-        if (globalKey.isNotBlank()) add(ConfiguredKey("mcp-client", globalKey, null))
-
         val ids = mutableSetOf<String>()
+        val keys = mutableSetOf<String>()
+        if (globalKey.isNotBlank()) {
+            ids.add("mcp-client")
+            keys.add(globalKey)
+            add(ConfiguredKey("mcp-client", globalKey, null))
+        }
+
         props.security.clients.forEach { client ->
             val id = client.id.trim()
             require(id.isNotBlank()) { "Every mcp.security.clients entry requires a non-blank id" }
@@ -213,6 +218,9 @@ class ApiKeyAuthFilter(
                 settingName = "MCP client '$id' API key",
                 required = true,
             )
+            // A key identifies exactly one client and its account scopes. A
+            // duplicate would silently authenticate as whichever entry came first.
+            require(keys.add(key)) { "MCP client '$id' API key duplicates another configured API key" }
             val scopes = client.allowedAccounts.takeIf { it.isNotEmpty() }
                 ?.let(AccountAccessPolicy::normalizeScopes)
             add(ConfiguredKey(id, key, scopes))

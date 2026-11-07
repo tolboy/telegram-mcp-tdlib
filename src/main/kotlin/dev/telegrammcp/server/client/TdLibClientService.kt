@@ -227,8 +227,10 @@ class TdLibClientService(
         withResilience("loadChats") {
             try {
                 send<TdApi.Ok>(TdApi.LoadChats(TdApi.ChatListMain(), limit))
-            } catch (_: Exception) {
-                // LoadChats may return error when no more chats — this is expected
+            } catch (error: TelegramApiException) {
+                // Only 404 means all chats are loaded. Other errors must not
+                // turn an incomplete cache into an apparently successful list.
+                if (error.errorCode != 404) throw error
                 TdApi.Ok()
             }
         }

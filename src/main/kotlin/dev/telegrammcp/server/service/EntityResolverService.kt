@@ -4,10 +4,13 @@ import com.github.benmanes.caffeine.cache.Caffeine
 import dev.telegrammcp.server.client.TelegramAccountContext
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.exception.EntityNotFoundException
+import dev.telegrammcp.server.exception.TelegramApiException
+import dev.telegrammcp.server.exception.TelegramErrorKind
 import dev.telegrammcp.server.model.EntityIdentifier
 import dev.telegrammcp.server.util.StructuredLogger
 import org.springframework.stereotype.Service
 import java.time.Duration
+import java.util.Locale
 
 /**
  * Resolves any [EntityIdentifier] (numeric ID, @username, +phone, canonical self chat) to a
@@ -63,56 +66,38 @@ class EntityResolverService(
     }
 
     private fun resolveUsername(username: String): Long {
-        val cacheKey = "${accountScope()}|username:$username"
-        cache.getIfPresent(cacheKey)?.let {
-            log.debug("Cache hit for @{} → {}", username, it)
-            return it
-        }
-
-        return try {
-            val chatId = telegramClient.resolveUsername(username)
-            cache.put(cacheKey, chatId)
-            log.debug("Resolved @{} → {}", username, chatId)
-            chatId
-        } catch (_: Exception) {
-            throw EntityNotFoundException("@$username")
+        // Telegram usernames are case-insensitive; alternate casing shares a TTL.
+        return resolveCached("username:${username.lowercase(Locale.ROOT)}", "@$username") {
+            telegramClient.resolveUsername(username)
         }
     }
 
-    private fun resolvePhone(phone: String): Long {
-        val cacheKey = "${accountScope()}|phone:$phone"
+    private fun resolvePhone(phone: String): Long =
+        resolveCached("phone:$phone", phone) {
+            telegramClient.resolvePhone(phone)
+        }
+
+    private fun resolveSelfChat(identifier: String): Long =
+        resolveCached("self", identifier) {
+            telegramClient.resolveSelfChat()
+        }
+
+    private fun resolveCached(identifierKey: String, displayIdentifier: String, resolve: () -> Long): Long {
+        // A configured context must select an account even for cache hits.
+        val cacheKey = "${accountScope()}|$identifierKey"
         cache.getIfPresent(cacheKey)?.let {
-            log.debug("Cache hit for phone → {}", it)
+            log.debug("Entity resolution cache hit → {}", it)
             return it
         }
-
         return try {
-            val userId = telegramClient.resolvePhone(phone)
-            cache.put(cacheKey, userId)
-            log.debug("Resolved phone → {}", userId)
-            userId
-        } catch (_: Exception) {
-            throw EntityNotFoundException(phone)
-        }
-    }
-
-    private fun resolveSelfChat(identifier: String): Long {
-        val cacheKey = "${accountScope()}|self"
-        cache.getIfPresent(cacheKey)?.let {
-            log.debug("Cache hit for self chat '{}' → {}", identifier, it)
-            return it
-        }
-
-        return try {
-            val chatId = telegramClient.resolveSelfChat()
-            cache.put(cacheKey, chatId)
-            log.debug("Resolved self chat '{}' → {}", identifier, chatId)
-            chatId
-        } catch (_: Exception) {
-            throw EntityNotFoundException(identifier)
+            resolve().also { cache.put(cacheKey, it) }
+        } catch (error: TelegramApiException) {
+            // Preserve auth, permission, flood-wait and timeout semantics for callers.
+            if (error.kind == TelegramErrorKind.NOT_FOUND) throw EntityNotFoundException(displayIdentifier)
+            throw error
         }
     }
 
     private fun accountScope(): String =
-        runCatching { accountContext?.currentAccount() }.getOrNull() ?: "default"
+        accountContext?.currentAccount() ?: "default"
 }

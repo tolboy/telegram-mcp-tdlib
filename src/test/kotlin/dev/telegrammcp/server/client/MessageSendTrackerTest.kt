@@ -33,6 +33,17 @@ class MessageSendTrackerTest {
     }
 
     @Test
+    fun `multiple late observers and waiters retain the known final outcome`() {
+        val tracker = MessageSendTracker()
+        val pending = message(10, true)
+        tracker.onSucceeded(TdApi.UpdateMessageSendSucceeded(message(20, false), 10))
+        repeat(3) {
+            assertEquals(20L, tracker.observeFinal(pending).get(1, TimeUnit.SECONDS).id)
+            assertEquals(20L, tracker.awaitFinal(pending, 0).id)
+        }
+    }
+
+    @Test
     fun `returns an already final message unchanged`() {
         val tracker = MessageSendTracker()
         val message = message(id = 10, sending = false)
@@ -96,6 +107,47 @@ class MessageSendTrackerTest {
         val error = assertFailsWith<SendOutcomeUnknownException> { tracker.awaitFinal(pending, 0) }
         assertEquals(42L, error.chatId)
         assertEquals(10L, error.provisionalMessageId)
+
+        val sent = message(20, false)
+        tracker.onSucceeded(TdApi.UpdateMessageSendSucceeded(sent, pending.id))
+        assertSame(sent, tracker.awaitFinal(pending, 0))
+    }
+
+    @Test
+    fun `one caller timing out does not detach another caller waiting for the same send`() {
+        val tracker = MessageSendTracker()
+        val pending = message(10, true)
+        val result = CompletableFuture<TdApi.Message>()
+        val longWaiter = Thread {
+            try {
+                result.complete(tracker.awaitFinal(pending, 30))
+            } catch (error: Throwable) {
+                result.completeExceptionally(error)
+            }
+        }
+        longWaiter.start()
+        try {
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            while (longWaiter.state != Thread.State.TIMED_WAITING && System.nanoTime() < deadline) Thread.sleep(5)
+            assertEquals(Thread.State.TIMED_WAITING, longWaiter.state)
+
+            assertFailsWith<SendOutcomeUnknownException> { tracker.awaitFinal(pending, 0) }
+            val sent = message(20, false)
+            tracker.onSucceeded(TdApi.UpdateMessageSendSucceeded(sent, pending.id))
+            assertSame(sent, result.get(2, TimeUnit.SECONDS))
+        } finally {
+            longWaiter.interrupt()
+            longWaiter.join(2000)
+        }
+    }
+
+    @Test
+    fun `all timed out callers release their pending wait and late success stays recoverable`() {
+        val tracker = MessageSendTracker()
+        val pending = message(10, true)
+        repeat(10) { assertFailsWith<SendOutcomeUnknownException> { tracker.awaitFinal(pending, 0) } }
+        val waiters = MessageSendTracker::class.java.getDeclaredField("waiters").apply { isAccessible = true }
+        assertTrue((waiters.get(tracker) as Map<*, *>).isEmpty())
 
         val sent = message(20, false)
         tracker.onSucceeded(TdApi.UpdateMessageSendSucceeded(sent, pending.id))

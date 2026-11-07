@@ -203,4 +203,23 @@ class LocalAccessChecksTest {
         Files.setAttribute(dir, "unix:mode", "1777".toInt(8))
         LocalAccessChecks.rejectSharedWrite(file, "test secret")
     }
+
+    @Test
+    fun `posix group writable parent cannot replace an owner-only policy file`() {
+        val dir = Files.createDirectory(tempDir.resolve("group-shared"))
+        val file = Files.writeString(dir.resolve("permissions.json"), "{}")
+        val ownerOnly = setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)
+        if (runCatching { Files.setPosixFilePermissions(file, ownerOnly) }.isFailure) return
+        Files.setAttribute(dir, "unix:mode", "0770".toInt(8))
+
+        val failure = assertThrows<IllegalArgumentException> {
+            LocalAccessChecks.rejectSharedWrite(file, "MCP_PERMISSIONS_FILE")
+        }
+        assertContains(failure.message.orEmpty(), "parent folder")
+
+        // A sticky parent prevents a group member from replacing another
+        // owner's file, just as it does for a world-writable /tmp directory.
+        Files.setAttribute(dir, "unix:mode", "1770".toInt(8))
+        LocalAccessChecks.rejectSharedWrite(file, "MCP_PERMISSIONS_FILE")
+    }
 }

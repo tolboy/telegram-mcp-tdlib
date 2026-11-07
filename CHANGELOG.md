@@ -5,6 +5,25 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- Restrict the authentication/setup HTTP API to direct loopback requests,
+  including when an MCP API key or OAuth token is supplied. Reject ambiguous
+  API-key identities/credentials and group-writable POSIX secret-file parents
+  without the sticky bit. Remote deployments must perform authentication locally.
+- Make interactive authentication generation-scoped: logout and shutdown discard
+  in-flight builds, stale callbacks cannot overwrite a newer login, early READY
+  updates are published after build, and failed builds close their factories.
+- Preserve operational errors during entity resolution, scope cache hits to the
+  selected account, share username cache entries across casing, and reject
+  fractional/overflowing numeric chat identifiers instead of changing their value.
+- Propagate chat-loading errors other than TDLib's end-of-list 404; a flood wait
+  or server failure no longer appears as a successful partial chat inventory.
+- Persist late delivery receipts on a bounded background worker so disk I/O
+  cannot stall TDLib's response thread. A full/failed queue leaves unresolved
+  sends `UNKNOWN` and never triggers a resend.
+- Roll back already-started account clients when another account fails startup;
+  keep concurrent send waiters independent when one times out and retain the
+  final outcome for multiple late consumers.
+
 ## 1.19.1 - 2026-11-02
 
 Patch release for orderly termination during startup. The tool inventory and

@@ -100,21 +100,7 @@ class TdLibConfig(
         }
         ensureNativeInitialized(accountConfigurations.maxOf { it.logVerbosityLevel })
 
-        accountConfigurations.forEach { account ->
-            val handle = startAccount(account)
-            if (account.label == "default") {
-                delegating.swap(handle.service)
-                registry.register(
-                    TelegramAccountRegistry.AccountHandle(
-                        label = "default",
-                        service = delegating.proxy,
-                        close = handle.close,
-                    ),
-                )
-            } else {
-                registry.register(handle)
-            }
-        }
+        registerAccountClients(registry, delegating, accountConfigurations.map { account -> { startAccount(account) } })
 
         runtimeRegistry = registry
         log.info("Initialized {} isolated Telegram account(s): {}", registry.labels().size, registry.labels())
@@ -433,6 +419,35 @@ class TdLibConfig(
     private companion object {
         /** Exit code for "another process owns this TDLib session". */
         const val SESSION_LOCKED_EXIT_CODE = 2
+    }
+}
+
+/** Rolls back all started clients when a later account prevents context startup. */
+internal fun registerAccountClients(
+    registry: TelegramAccountRegistry,
+    delegating: DelegatingTelegramClientService,
+    starters: List<() -> TelegramAccountRegistry.AccountHandle>,
+) {
+    try {
+        starters.forEach { start ->
+            val handle = start()
+            try {
+                if (handle.label == "default") {
+                    registry.register(handle.copy(service = delegating.proxy))
+                    delegating.swap(handle.service)
+                } else {
+                    registry.register(handle)
+                }
+            } catch (error: Exception) {
+                // A handle that failed registration is not owned by the registry yet.
+                runCatching { handle.close?.invoke() }
+                throw error
+            }
+        }
+    } catch (error: Exception) {
+        registry.clear()
+        delegating.reset()
+        throw error
     }
 }
 

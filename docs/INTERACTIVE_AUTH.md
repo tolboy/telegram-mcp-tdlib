@@ -18,10 +18,16 @@ replace an already running isolated account registry.
 
 ## Network boundary
 
-- Requests arriving directly from IPv4 or IPv6 loopback can use `/auth/**`
-  without an MCP API key.
-- Requests arriving through Docker, a reverse proxy, or a private LAN must send
-  `Authorization: Bearer <MCP_API_KEY>` (or another configured key header).
+- All `/auth/**` endpoints, including state, require a request arriving directly
+  from IPv4 or IPv6 loopback. A valid MCP API key or OAuth token does not grant
+  remote login administration or access to QR tokens and password hints.
+- A present `Origin` and `Host` must also identify loopback; duplicate headers
+  are rejected. Keep `/auth/**` off public ingress and use MCP tools for ordinary
+  remote client access.
+- Requests with forwarding headers are not direct loopback, including when a
+  reverse proxy connects from `127.0.0.1`. For a container, run authentication
+  inside its network namespace or initialize the persisted session with the
+  standalone local CLI wizard before starting the remote MCP deployment.
 - Do not expose the auth endpoints to the public internet. Terminate TLS before
   any non-local HTTP hop.
 
@@ -31,7 +37,8 @@ LAN device is not the same security principal as the local process.
 For direct HTTP POSTs in this guide, configure an MCP API key and include
 `Authorization: Bearer <key>` or `X-MCP-API-Key: <key>`, including on localhost.
 Keyless POSTs require a valid Spring CSRF token and otherwise return `403`.
-The standalone browser authentication wizard supplies its validated nonce header
+These POSTs must also be direct loopback; a header key does not override that
+network boundary. The standalone browser authentication wizard supplies its validated nonce header
 automatically and does not need an additional CSRF token.
 
 ## QR login

@@ -82,6 +82,12 @@ unchanged retry while another item is still in flight.
 Late successful Telegram responses and send updates observed by the running
 process are saved independently of the original caller's timeout. Status lookup
 and replay reconcile these saved receipts, including after a later restart.
+The callback queues receipt writes on one background worker (up to 256 pending
+writes), so a slow disk cannot stall TDLib's response thread. Receipt lookup may
+briefly return `UNKNOWN` before the queued write commits. Queue saturation, a
+failed write, or shutdown before the queue drains leaves an unresolved operation
+`UNKNOWN`; it never authorizes an automatic resend. Shutdown allows up to five
+seconds for accepted writes to drain.
 An observation waits at most 24 hours. If the process stops before receiving the
 update, or no final response is observed, the result stays `UNKNOWN`; the server
 does not guess from matching text in history. There is no automatic retry of a

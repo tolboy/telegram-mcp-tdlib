@@ -614,9 +614,13 @@ Public endpoints (no auth needed):
 
 The well-known descriptor is intentionally small and stable. It helps generic installers or orchestration layers discover a single-purpose connector without turning this server into an in-process aggregator.
 
-Interactive `/auth/**` endpoints are keyless only from loopback. Requests from
-a Docker bridge, reverse proxy, or private LAN must include the configured MCP
-API key; private IP space is not treated as a trusted identity.
+Interactive `/auth/**` endpoints, including state, require direct loopback,
+including with a valid API key or OAuth token. Forwarded requests and Docker
+bridge/private-LAN callers cannot access login administration. Initialize container sessions
+from inside the container's network namespace or use the local CLI wizard before
+remote deployment. A present `Origin` and `Host` must identify loopback.
+Keep `/auth/**` off public ingress because state can contain a sensitive QR link.
+See [interactive authentication](docs/INTERACTIVE_AUTH.md).
 
 CSRF protection applies to state-changing requests, including loopback requests.
 Only validated API-key headers, OAuth Bearer tokens, and the authentication
@@ -982,6 +986,11 @@ src/main/kotlin/dev/telegrammcp/server/
 ```
 
 ## Testing
+
+The [November 7 project audit](docs/PROJECT_AUDIT_2026-11-07.md) records reliability
+and security fixes, verification, and the remaining refactoring work. The
+[TDLib open-source review](docs/TDLIB_OPEN_SOURCE_REVIEW_2026-11-07.md) compares
+eight projects with pinned source/test references and licensing notes.
 
 ```bash
 # Unit tests

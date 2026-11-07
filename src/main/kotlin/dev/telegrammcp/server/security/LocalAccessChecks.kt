@@ -127,17 +127,17 @@ object LocalAccessChecks {
     }
 
     /**
-     * A world-writable parent without the sticky bit lets anyone rename the
-     * file away and drop in their own. Group-writable parents are common with
-     * user-private groups (umask 002), so they are not rejected.
+     * A group- or world-writable parent without the sticky bit lets another
+     * user rename the file away and drop in their own, even if the file itself
+     * is owner-only. We cannot assume a writable group is a user-private group.
      */
     private fun rejectReplaceablePosixParent(path: Path, settingName: String) {
         val parent = path.toAbsolutePath().parent ?: return
         val mode = runCatching { Files.getAttribute(parent, "unix:mode") as Int }.getOrNull() ?: return
-        val othersWrite = mode and 0b000_000_010 != 0
+        val sharedWrite = mode and 0b000_010_010 != 0
         val sticky = mode and 0b001_000_000_000 != 0
-        require(!othersWrite || sticky) {
-            "$settingName parent folder must not be writable by others (or must have the sticky bit set)"
+        require(!sharedWrite || sticky) {
+            "$settingName parent folder must not be writable by group or others (or must have the sticky bit set)"
         }
     }
 

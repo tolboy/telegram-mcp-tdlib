@@ -10,7 +10,6 @@ import jakarta.servlet.http.HttpServletResponse
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
-import org.springframework.security.authentication.AnonymousAuthenticationToken
 import org.springframework.security.authorization.AuthorizationDecision
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity
@@ -71,15 +70,13 @@ class SecurityConfig(
                         "/.well-known/mcp-server.json",
                         "/.well-known/oauth-protected-resource",
                     ).permitAll()
-                    .requestMatchers("/auth/**").access { authentication, ctx ->
-                        val req = ctx.request
-                        AuthorizationDecision(
-                            isDirectLoopbackRequest(req) ||
-                                authentication.get() !is AnonymousAuthenticationToken,
-                        )
+                    .requestMatchers("/auth/**").access { _, ctx ->
+                        // MCP credentials do not grant login administration or
+                        // access to pending QR tokens and password hints.
+                        AuthorizationDecision(isLocalSetupRequest(ctx.request))
                     }
                     .requestMatchers("/setup", "/setup/**").access { _, ctx ->
-                        AuthorizationDecision(isDirectLoopbackRequest(ctx.request))
+                        AuthorizationDecision(isLocalSetupRequest(ctx.request))
                     }
                     .requestMatchers("/mcp", "/mcp/**").authenticated()
                     .requestMatchers("/actuator/**").authenticated()
@@ -137,6 +134,13 @@ class SecurityConfig(
             val uri = URI(resourceUri)
             return URI(uri.scheme, uri.authority, "/.well-known/oauth-protected-resource", null, null).toString()
         }
+
+        private fun isLocalSetupRequest(request: HttpServletRequest): Boolean =
+            isDirectLoopbackRequest(request) &&
+                request.getHeaders("Origin").toList().size <= 1 &&
+                McpOriginPolicy.allows(request.getHeader("Origin"), emptySet()) &&
+                request.getHeaders("Host").toList().size <= 1 &&
+                McpHostPolicy.allows(request.getHeader("Host"), emptySet())
 
         fun isDirectLoopbackRequest(request: HttpServletRequest): Boolean {
             // Loopback-only endpoints are a direct same-machine boundary. The

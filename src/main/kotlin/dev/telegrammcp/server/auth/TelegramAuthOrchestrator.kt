@@ -17,6 +17,7 @@ import it.tdlight.Init
 import it.tdlight.Log
 import it.tdlight.client.APIToken
 import it.tdlight.client.AuthenticationSupplier
+import it.tdlight.client.ClientInteraction
 import it.tdlight.client.SimpleTelegramClient
 import it.tdlight.client.SimpleTelegramClientBuilder
 import it.tdlight.client.SimpleTelegramClientFactory
@@ -25,6 +26,8 @@ import it.tdlight.jni.TdApi
 import jakarta.annotation.PreDestroy
 import org.springframework.stereotype.Service
 import java.util.concurrent.ExecutorService
+import java.util.concurrent.CancellationException
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -104,15 +107,6 @@ class TelegramAuthOrchestrator(
      */
     private val activeBuilds = AtomicInteger(0)
 
-    /**
-     * Set by [logout] immediately before tearing down the client. TDLib's
-     * subsequent `AuthorizationStateClosed` update is expected and must not be
-     * surfaced as an error in the wizard — otherwise the user sees a red
-     * "TDLib session closed" banner after pressing "Disconnect" even though
-     * that is exactly what they asked for.
-     */
-    private val intentionalLogout = java.util.concurrent.atomic.AtomicBoolean(false)
-
     @Volatile
     private var currentClient: SimpleTelegramClient? = null
 
@@ -183,36 +177,27 @@ class TelegramAuthOrchestrator(
             // Clean up previous client if any
             destroyCurrentClient()
             authStateHolder.reset()
-            // Fresh auth attempt — discard any stale logout flag so the
-            // upcoming TDLib lifecycle events go through the normal error
-            // path rather than being silently absorbed as "logout".
-            intentionalLogout.set(false)
-
             // Capture generation before releasing the lock so the background thread
             // can detect if it has been superseded by a subsequent initAuth call.
-            val myGeneration = generation.incrementAndGet()
+            val myGeneration = generation.get()
             activeBuilds.incrementAndGet()
 
             // Queued behind any teardown enqueued above, so the previous
             // factory is fully closed before this one is built.
             clientLifecycleExecutor.execute {
                 try {
-                    val (factory, client) = buildTdlibClient(apiId, apiHash, normalizedPhoneNumber)
-                    lock.withLock {
-                        if (generation.get() == myGeneration) {
-                            clientFactory = factory
-                            currentClient = client
-                            log.info("TDLib interactive client created — waiting for auth state updates")
-                        } else {
-                            log.warn("initAuth superseded — discarding stale client (gen {})", myGeneration)
-                            // Hand close off to another executor task so we don't hold
-                            // the lock during factory.close() (which can take seconds).
-                            closeFactoryAsync(factory, "superseded generation $myGeneration")
-                        }
+                    val built = buildTdlibClient(apiId, apiHash, normalizedPhoneNumber, myGeneration)
+                    if (!acceptBuiltClient(myGeneration, built)) {
+                        // Already on the lifecycle thread: close before the next queued build.
+                        closeFactory(built.factory, "superseded generation $myGeneration")
                     }
                 } catch (e: Exception) {
                     log.error("Failed to initialize TDLib client: {}", e.message, e)
-                    authStateHolder.setState(AuthState.Error(errorMessage = e.message ?: "Unknown error"))
+                    lock.withLock {
+                        if (generation.get() == myGeneration) {
+                            authStateHolder.setState(AuthState.Error(errorMessage = e.message ?: "Unknown error"))
+                        }
+                    }
                 } finally {
                     activeBuilds.decrementAndGet()
                 }
@@ -302,10 +287,8 @@ class TelegramAuthOrchestrator(
     /**
      * Logs out from the current TDLib session.
      *
-     * Sets [intentionalLogout] before tearing the client down so the ensuing
-     * `AuthorizationStateClosed` update is routed to [AuthState.LoggedOut]
-     * instead of [AuthState.Error]. The flag is cleared on the next successful
-     * `initAuth`.
+     * Invalidates the active authentication generation, including an in-flight
+     * build. Late callbacks from the discarded client cannot restart the flow.
      *
      * If there is no live client (e.g. session already torn down or never
      * authenticated), we still emit [AuthState.LoggedOut] so callers get a
@@ -313,13 +296,8 @@ class TelegramAuthOrchestrator(
      */
     fun logout() {
         lock.withLock {
-            intentionalLogout.set(true)
             val client = currentClient
-            if (client == null) {
-                authStateHolder.setState(AuthState.LoggedOut())
-                return
-            }
-            client.send(TdApi.LogOut()) { result ->
+            client?.send(TdApi.LogOut()) { result ->
                 if (result.isError) {
                     log.warn("Logout failed: {}", result.error)
                 } else {
@@ -327,6 +305,8 @@ class TelegramAuthOrchestrator(
                 }
             }
             destroyCurrentClient()
+            runtimeCredentials.clear()
+            authStateHolder.reset()
             authStateHolder.setState(AuthState.LoggedOut())
         }
     }
@@ -341,6 +321,7 @@ class TelegramAuthOrchestrator(
      */
     @PreDestroy
     fun shutdownLifecycleExecutor() {
+        lock.withLock { destroyCurrentClient() }
         clientLifecycleExecutor.shutdown()
         if (!clientLifecycleExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
             log.warn("TDLib lifecycle executor did not drain in 10s — forcing shutdown")
@@ -361,46 +342,78 @@ class TelegramAuthOrchestrator(
         apiId: Int,
         apiHash: String,
         phoneNumber: String,
-    ): Pair<SimpleTelegramClientFactory, SimpleTelegramClient> {
+        myGeneration: Int,
+    ): BuiltClient {
         ensureNativeInit()
 
         val settings = buildSettings(apiId, apiHash)
         val factory = SimpleTelegramClientFactory()
-        val builder: SimpleTelegramClientBuilder = factory.builder(settings)
-        val sendTracker = MessageSendTracker()
+        try {
+            val builder: SimpleTelegramClientBuilder = factory.builder(settings)
+            val sendTracker = MessageSendTracker()
 
-        configureBuilder(builder, sendTracker, phoneNumber)
+            configureBuilder(builder, sendTracker, phoneNumber, myGeneration)
 
-        val authSupplier = if (phoneNumber.isNotBlank()) {
-            log.info("Starting user-account auth with phone number")
-            AuthenticationSupplier.user(phoneNumber)
-        } else {
-            log.info("Starting QR-code auth (no phone provided) — using AuthenticationSupplier.qrCode()")
-            AuthenticationSupplier.qrCode()
+            val authSupplier = if (phoneNumber.isNotBlank()) {
+                log.info("Starting user-account auth with phone number")
+                AuthenticationSupplier.user(phoneNumber)
+            } else {
+                log.info("Starting QR-code auth (no phone provided) — using AuthenticationSupplier.qrCode()")
+                AuthenticationSupplier.qrCode()
+            }
+
+            return BuiltClient(factory, builder.build(authSupplier), sendTracker)
+        } catch (error: Exception) {
+            closeFactory(factory, "failed client build")
+            throw error
         }
+    }
 
-        val client = builder.build(authSupplier)
-        messageSendTracker = sendTracker
+    internal data class BuiltClient(
+        val factory: SimpleTelegramClientFactory,
+        val client: SimpleTelegramClient,
+        val sendTracker: MessageSendTracker,
+    )
 
-        return factory to client
+    /** Publishes a build atomically; READY may arrive before builder.build returns. */
+    internal fun acceptBuiltClient(myGeneration: Int, built: BuiltClient): Boolean = lock.withLock {
+        if (generation.get() != myGeneration) return@withLock false
+        clientFactory = built.factory
+        currentClient = built.client
+        messageSendTracker = built.sendTracker
+        if (authStateHolder.getState() is AuthState.Ready) registerClientServiceBean()
+        log.info("TDLib interactive client created — waiting for auth state updates")
+        true
     }
 
     /** Registers the update handlers of the wizard's client on [builder]. */
-    internal fun configureBuilder(builder: SimpleTelegramClientBuilder, sendTracker: MessageSendTracker, phoneNumber: String) {
+    internal fun configureBuilder(
+        builder: SimpleTelegramClientBuilder,
+        sendTracker: MessageSendTracker,
+        phoneNumber: String,
+        myGeneration: Int = generation.get(),
+    ) {
         changeJournal?.attach(builder, authWizard.accountLabel)
         // The circuit breaker of the hot-swapped service reads this state.
         clientServices.attach(builder, accountLabel)
         builder.addUpdateHandler(TdApi.UpdateAuthorizationState::class.java) { update ->
-            handleAuthState(update, null, phoneNumber)
+            lock.withLock {
+                if (generation.get() == myGeneration) handleAuthState(update, phoneNumber)
+            }
         }
         builder.addUpdateHandler(TdApi.UpdateMessageSendSucceeded::class.java, sendTracker::onSucceeded)
         builder.addUpdateHandler(TdApi.UpdateMessageSendFailed::class.java, sendTracker::onFailed)
-        builder.setClientInteraction(InteractiveClientInteraction(authStateHolder, phoneNumber))
+        val interaction = InteractiveClientInteraction(authStateHolder, phoneNumber)
+        builder.setClientInteraction(ClientInteraction { parameter, info ->
+            lock.withLock {
+                if (generation.get() == myGeneration) interaction.onParameterRequest(parameter, info)
+                else CompletableFuture.failedFuture(CancellationException("Authentication attempt superseded"))
+            }
+        })
     }
 
     private fun handleAuthState(
         update: TdApi.UpdateAuthorizationState,
-        client: SimpleTelegramClient?,
         phoneNumber: String,
     ) {
         when (val state = update.authorizationState) {
@@ -411,13 +424,9 @@ class TelegramAuthOrchestrator(
             }
 
             is TdApi.AuthorizationStateClosed -> {
-                if (intentionalLogout.compareAndSet(true, false)) {
-                    log.info("TDLib auth: CLOSED (after explicit logout)")
-                    // logout() already published LoggedOut — don't overwrite it.
-                } else {
-                    log.warn("TDLib auth: CLOSED (unexpected)")
-                    authStateHolder.setState(AuthState.Error(errorMessage = "TDLib session closed"))
-                }
+                log.warn("TDLib auth: CLOSED (unexpected)")
+                destroyCurrentClient()
+                authStateHolder.setState(AuthState.Error(errorMessage = "TDLib session closed"))
             }
 
             is TdApi.AuthorizationStateClosing -> {
@@ -496,11 +505,13 @@ class TelegramAuthOrchestrator(
 
     /** Must be called while holding [lock]. Detaches shared references before closing. */
     internal fun destroyCurrentClient() {
+        generation.incrementAndGet()
         // Detach references first to keep in-memory state consistent even if close fails.
         val oldFactory = clientFactory
         clientFactory = null
         currentClient = null
         messageSendTracker = null
+        delegatingClient.reset()
         // The next client starts with no connection state, not the old client's last Ready.
         clientServices.release(accountLabel)
 
@@ -517,13 +528,15 @@ class TelegramAuthOrchestrator(
      * lock it holds) is freed immediately. Safe to call from inside [lock].
      */
     private fun closeFactoryAsync(factory: SimpleTelegramClientFactory, context: String) {
-        clientLifecycleExecutor.execute {
-            try {
-                factory.close()
-                log.debug("TDLib factory closed ({})", context)
-            } catch (e: Exception) {
-                log.warn("Error closing TDLib client factory ({}): {}", context, e.message, e)
-            }
+        clientLifecycleExecutor.execute { closeFactory(factory, context) }
+    }
+
+    private fun closeFactory(factory: SimpleTelegramClientFactory, context: String) {
+        try {
+            factory.close()
+            log.debug("TDLib factory closed ({})", context)
+        } catch (e: Exception) {
+            log.warn("Error closing TDLib client factory ({}): {}", context, e.message, e)
         }
     }
 

@@ -39,7 +39,7 @@ class CsrfSecurityFilterChainTest {
             assertEquals(401, request(chain, path, "Authorization" to "Bearer wrong"))
             assertEquals(401, request(chain, path, "X-MCP-API-Key" to "wrong"))
             assertEquals(
-                if (path == "/mcp") 403 else 204,
+                403,
                 request(chain, path, "Authorization" to "Bearer secret-key", origin = "https://attacker.example"),
             )
             assertEquals(
@@ -47,7 +47,7 @@ class CsrfSecurityFilterChainTest {
                 request(chain, path, "Authorization" to "Bearer secret-key", origin = "http://127.0.0.1:6274"),
             )
             assertEquals(
-                if (path == "/mcp") 403 else 204,
+                403,
                 request(chain, path, "Authorization" to "Bearer secret-key", host = "attacker.example"),
             )
             assertEquals(
@@ -79,6 +79,9 @@ class CsrfSecurityFilterChainTest {
     fun `wizard nonce remains required and works without an additional CSRF token`() =
         withChain(wizard = AuthWizardProperties(enabled = true, nonce = "wizard-secret")) { chain ->
             assertEquals(204, request(chain, "/auth/logout", "X-Auth-Wizard-Nonce" to "wizard-secret"))
+            assertEquals(403, request(chain, "/auth/state", "X-Auth-Wizard-Nonce" to "wizard-secret", method = "GET", remoteAddress = "203.0.113.10"))
+            assertEquals(403, request(chain, "/auth/state", "X-Auth-Wizard-Nonce" to "wizard-secret", method = "GET", origin = "https://attacker.example"))
+            assertEquals(403, request(chain, "/auth/state", "X-Auth-Wizard-Nonce" to "wizard-secret", method = "GET", host = "attacker.example"))
             assertEquals(403, request(chain, "/auth/logout", "X-Auth-Wizard-Nonce" to "wrong"))
             assertEquals(403, request(chain, "/auth/logout"))
         }
@@ -91,6 +94,38 @@ class CsrfSecurityFilterChainTest {
             assertEquals(403, request(chain, "/auth/logout"))
             assertEquals(401, request(chain, "/auth/logout", "Authorization" to "Bearer invalid-jwt"))
         }
+
+    @Test
+    fun `valid API credentials do not grant remote Telegram login administration`() = withChain { chain ->
+        for (path in listOf("/auth/credentials", "/auth/request-qr", "/auth/submit-code", "/auth/submit-password", "/auth/resend-code", "/auth/logout")) {
+            assertEquals(403, request(chain, path, "Authorization" to "Bearer secret-key", remoteAddress = "203.0.113.10"), path)
+            assertEquals(204, request(chain, path, "Authorization" to "Bearer secret-key"), path)
+        }
+        assertEquals(403, request(chain, "/auth/state", "Authorization" to "Bearer secret-key", method = "GET", remoteAddress = "203.0.113.10"))
+        assertEquals(204, request(chain, "/auth/state", "Authorization" to "Bearer secret-key", method = "GET"))
+        assertEquals(403, request(chain, "/auth/state", "Authorization" to "Bearer secret-key", method = "GET", origin = "https://attacker.example"))
+        assertEquals(403, request(chain, "/auth/state", "Authorization" to "Bearer secret-key", method = "GET", host = "attacker.example"))
+    }
+
+    @Test
+    fun `scoped named MCP keys cannot mutate login through a loopback proxy`() = withChain(
+        apiKey = "",
+        clients = listOf(McpSecurityProperties.ClientKeyProps(id = "reader", apiKey = "reader-key", allowedAccounts = listOf("work"))),
+    ) { chain ->
+        assertEquals(403, request(chain, "/auth/logout", "Authorization" to "Bearer reader-key", forwardingHeader = "X-Forwarded-For" to "203.0.113.10"))
+        assertEquals(403, request(chain, "/auth/submit-code", "Authorization" to "Bearer reader-key", forwardingHeader = "Forwarded" to "for=203.0.113.10"))
+        assertEquals(403, request(chain, "/auth/logout", "Authorization" to "Bearer reader-key", forwardingHeader = "X-Real-IP" to ""))
+        assertEquals(403, request(chain, "/auth/state", "Authorization" to "Bearer reader-key", method = "GET", forwardingHeader = "X-Forwarded-For" to "203.0.113.10"))
+    }
+
+    @Test
+    fun `OAuth bearer credentials do not grant remote Telegram login administration`() = withChain(mode = McpAuthMode.OAUTH) { chain ->
+        assertEquals(403, request(chain, "/auth/logout", "Authorization" to "Bearer valid-jwt", remoteAddress = "203.0.113.10"))
+        assertEquals(403, request(chain, "/auth/credentials", "Authorization" to "Bearer valid-jwt", forwardingHeader = "Forwarded" to "for=203.0.113.10"))
+        assertEquals(204, request(chain, "/auth/logout", "Authorization" to "Bearer valid-jwt"))
+        assertEquals(403, request(chain, "/auth/state", "Authorization" to "Bearer valid-jwt", method = "GET", remoteAddress = "203.0.113.10"))
+        assertEquals(204, request(chain, "/auth/state", "Authorization" to "Bearer valid-jwt", method = "GET"))
+    }
 
     private fun withChain(
         apiKey: String = "secret-key",
@@ -129,15 +164,18 @@ class CsrfSecurityFilterChainTest {
         sessionId: String? = null,
         issuedSessionId: String? = null,
         csrfToken: Boolean = false,
+        remoteAddress: String = "127.0.0.1",
+        forwardingHeader: Pair<String, String>? = null,
     ): Int {
         val request = MockHttpServletRequest(method, path).also {
             it.servletPath = path
-            it.remoteAddr = "127.0.0.1"
+            it.remoteAddr = remoteAddress
             it.contentType = "application/x-www-form-urlencoded"
             header?.let { (name, value) -> it.addHeader(name, value) }
             origin?.let { value -> it.addHeader("Origin", value) }
             host?.let { value -> it.addHeader("Host", value) }
             sessionId?.let { value -> it.addHeader(McpSessionPrincipalBinder.HEADER, value) }
+            forwardingHeader?.let { (name, value) -> it.addHeader(name, value) }
         }
         val response = MockHttpServletResponse()
         if (csrfToken) {

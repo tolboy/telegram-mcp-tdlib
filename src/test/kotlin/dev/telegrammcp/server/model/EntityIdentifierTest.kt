@@ -39,6 +39,29 @@ class EntityIdentifierTest {
             assertIs<EntityIdentifier.NumericId>(id)
             assertEquals(42L, id.id)
         }
+
+        @Test
+        fun `preserves exact integer values across JSON number representations`() {
+            for (value in listOf<Number>(42.0, java.math.BigDecimal("42.000"), java.math.BigInteger("42"))) {
+                assertEquals(EntityIdentifier.NumericId(42), EntityIdentifier.parse(value))
+            }
+            for (value in listOf(Long.MIN_VALUE, Long.MAX_VALUE)) {
+                assertEquals(EntityIdentifier.NumericId(value), EntityIdentifier.parse(value))
+            }
+        }
+
+        @Test
+        fun `rejects fractional nonfinite and overflowing identifiers without changing destination`() {
+            val invalid = listOf<Number>(
+                42.9, Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY,
+                Long.MAX_VALUE.toDouble(), 1.0000000000000001E18, 16_777_216f,
+                java.math.BigInteger("9223372036854775808"),
+                java.math.BigInteger("-9223372036854775809"), java.math.BigDecimal("42.000000000000000001"),
+            )
+            for (value in invalid) {
+                assertThrows<InvalidToolInputException> { EntityIdentifier.parse(value) }
+            }
+        }
     }
 
     @Nested

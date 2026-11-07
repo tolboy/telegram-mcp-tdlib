@@ -19,16 +19,19 @@ import java.util.concurrent.TimeoutException
 class MessageSendTracker {
     private data class Key(val chatId: Long, val oldMessageId: Long)
     private data class TimedOutcome(val outcome: Outcome, val createdAtNanos: Long)
+    private class PendingOutcome {
+        val future = CompletableFuture<Outcome>()
+        var users = 0 // accessed only inside waiters.compute
+    }
 
     private sealed interface Outcome {
         data class Success(val message: TdApi.Message) : Outcome
         data class Failure(val error: TdApi.Error) : Outcome
     }
 
-    private val waiters = ConcurrentHashMap<Key, CompletableFuture<Outcome>>()
-    private val earlyOutcomes = ConcurrentHashMap<Key, TimedOutcome>()
+    private val waiters = ConcurrentHashMap<Key, PendingOutcome>()
+    private val outcomes = ConcurrentHashMap<Key, TimedOutcome>()
     private val observers = ConcurrentHashMap<Key, CompletableFuture<TdApi.Message>>()
-    private val observedOutcomes = ConcurrentHashMap<Key, TimedOutcome>()
 
     /** Independent of blocking waiters, so a caller timeout does not discard late delivery. */
     fun observeFinal(message: TdApi.Message): CompletableFuture<TdApi.Message> {
@@ -36,7 +39,7 @@ class MessageSendTracker {
         val key = Key(message.chatId, message.id)
         val future = observers.computeIfAbsent(key) { CompletableFuture<TdApi.Message>().orTimeout(24, TimeUnit.HOURS) }
         future.whenComplete { _, _ -> observers.remove(key, future) }
-        observedOutcomes.remove(key)?.let { completeObserver(key, it.outcome) }
+        knownOutcome(key)?.let { completeObserver(key, it) }
         return future
     }
 
@@ -66,16 +69,17 @@ class MessageSendTracker {
         if (message.sendingState == null) return message
 
         val key = Key(message.chatId, message.id)
-        consumeEarly(key)?.let { return it.unwrap(key) }
+        knownOutcome(key)?.let { return it.unwrap(key) }
 
-        val waiter = CompletableFuture<Outcome>()
-        val active = waiters.putIfAbsent(key, waiter) ?: waiter
-        consumeEarly(key)?.let { outcome ->
-            if (waiters.remove(key, active)) active.complete(outcome)
+        val active = waiters.compute(key) { _, previous ->
+            (previous ?: PendingOutcome()).also { it.users++ }
+        }!!
+        knownOutcome(key)?.let { outcome ->
+            if (waiters.remove(key, active)) active.future.complete(outcome)
         }
 
         return try {
-            active.get(timeoutNanos.coerceAtLeast(0), TimeUnit.NANOSECONDS).unwrap(key)
+            active.future.get(timeoutNanos.coerceAtLeast(0), TimeUnit.NANOSECONDS).unwrap(key)
         } catch (error: ExecutionException) {
             throw error.cause ?: error
         } catch (error: TimeoutException) {
@@ -84,30 +88,28 @@ class MessageSendTracker {
             Thread.currentThread().interrupt()
             throw SendOutcomeUnknownException(key.chatId, key.oldMessageId, error)
         } finally {
-            waiters.remove(key, active)
-            earlyOutcomes.remove(key)
+            // A timed-out caller must not detach another caller's live wait.
+            waiters.computeIfPresent(key) { _, pending ->
+                if (pending !== active) pending
+                else pending.takeIf { --it.users > 0 }
+            }
         }
     }
 
     private fun complete(key: Key, outcome: Outcome) {
-        observedOutcomes.entries.removeIf { it.value.isExpired() }
-        observedOutcomes[key] = TimedOutcome(outcome, System.nanoTime())
+        outcomes.entries.removeIf { it.value.isExpired() }
+        // Publish before notifying either consumer. An observer/waiter joining
+        // during completion must also see the final outcome.
+        outcomes[key] = TimedOutcome(outcome, System.nanoTime())
         completeObserver(key, outcome)
         val waiter = waiters.remove(key)
         if (waiter != null) {
-            waiter.complete(outcome)
-        } else {
-            purgeExpiredOutcomes()
-            earlyOutcomes[key] = TimedOutcome(outcome, System.nanoTime())
+            waiter.future.complete(outcome)
         }
     }
 
-    private fun consumeEarly(key: Key): Outcome? =
-        earlyOutcomes.remove(key)?.takeUnless { it.isExpired() }?.outcome
-
-    private fun purgeExpiredOutcomes() {
-        earlyOutcomes.entries.removeIf { it.value.isExpired() }
-    }
+    private fun knownOutcome(key: Key): Outcome? =
+        outcomes[key]?.takeUnless { it.isExpired() }?.outcome
 
     private fun TimedOutcome.isExpired(): Boolean =
         System.nanoTime() - createdAtNanos > EARLY_OUTCOME_TTL_NANOS
