@@ -5,6 +5,10 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- Handle expired and disconnected asynchronous HTTP responses without writing
+  ProblemDetail JSON into an already committed SSE stream. Uncommitted async
+  timeouts end with 503; ordinary REST errors retain their response contract.
+
 - Parse integer tool arguments through one exact conversion layer. IDs, counts,
   durations and numeric timestamps reject fractions, overflow and malformed
   optional values instead of truncating or falling back to another operation.
