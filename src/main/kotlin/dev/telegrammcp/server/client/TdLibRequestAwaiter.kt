@@ -26,6 +26,7 @@ internal object TdLibRequestAwaiter {
      * caller could no longer hear about.
      */
     fun waitFor(request: TdApi.Function<*>, timeout: Duration): Wait {
+        ensureNotCancelled(request)
         val reason = if (request is TdApi.DownloadFile) Reason.DOWNLOAD_TIMEOUT else Reason.REQUEST_TIMEOUT
         val timeoutNanos = timeout.toNanos()
         val remaining = ToolCallDeadline.remainingNanos() ?: return Wait(timeoutNanos, reason)
@@ -48,21 +49,34 @@ internal object TdLibRequestAwaiter {
         future: CompletableFuture<TdApi.Object>,
         request: TdApi.Function<*>,
         wait: Wait,
-    ): TdApi.Object = try {
-        McpCallCancellation.await(future, wait.nanos)
-    } catch (error: McpCallCancelledException) {
-        throw localStop(request, wait, error)
-    } catch (error: CancellationException) {
-        // Future.cancel is not evidence that Telegram aborted the request.
-        throw localStop(request, wait, error)
-    } catch (error: ExecutionException) {
-        throw translate(error.cause ?: error, request)
-    } catch (error: TimeoutException) {
-        throw timeoutFailure(request, wait, error)
-    } catch (error: InterruptedException) {
-        Thread.currentThread().interrupt()
-        throw sendChatId(request)?.let { SendOutcomeUnknownException(it, cause = error) } ?: error
+    ): TdApi.Object {
+        val started = System.nanoTime()
+        return try {
+            McpCallCancellation.await(future, wait.nanos)
+        } catch (error: CancellationException) {
+            // Neither MCP cancellation nor Future.cancel proves Telegram aborted a request.
+            throw localStop(request, error, requestSent = true, elapsedNanos = System.nanoTime() - started)
+        } catch (error: ExecutionException) {
+            throw translate(error.cause ?: error, request)
+        } catch (error: TimeoutException) {
+            throw timeoutFailure(request, wait, error)
+        } catch (error: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw localStop(request, error, requestSent = true, elapsedNanos = System.nanoTime() - started)
+        }
     }
+
+    /** A cancellation received before dispatch must not submit a later mutation. */
+    fun ensureNotCancelled(request: TdApi.Function<*>) {
+        try {
+            McpCallCancellation.throwIfSignalled()
+        } catch (error: CancellationException) {
+            throw cancelledBeforeDispatch(request, error)
+        }
+    }
+
+    fun cancelledBeforeDispatch(request: TdApi.Function<*>, error: Throwable, elapsedNanos: Long = 0): TelegramTimeoutException =
+        localTimeout(request, error, requestSent = false, elapsedNanos = elapsedNanos)
 
     /** Maps tdlight's TelegramError to the server's typed, classifiable exception. */
     fun translate(error: Throwable, request: TdApi.Function<*>? = null): Throwable = when (error) {
@@ -80,19 +94,24 @@ internal object TdLibRequestAwaiter {
      */
     fun isReadOnly(request: TdApi.Function<*>): Boolean = TelegramReadRequests.isSafeRead(request)
 
-    private fun localStop(request: TdApi.Function<*>, wait: Wait, error: Throwable): Exception {
-        sendChatId(request)?.let { chatId ->
-            return SendOutcomeUnknownException(chatId, cause = error).apply { healthFailure = false }
+    private fun localStop(request: TdApi.Function<*>, error: Throwable, requestSent: Boolean, elapsedNanos: Long): Exception {
+        if (requestSent) {
+            sendChatId(request)?.let { chatId ->
+                return SendOutcomeUnknownException(chatId, cause = error).apply { healthFailure = false }
+            }
         }
-        return TelegramTimeoutException(
+        return localTimeout(request, error, requestSent, elapsedNanos)
+    }
+
+    private fun localTimeout(request: TdApi.Function<*>, error: Throwable, requestSent: Boolean, elapsedNanos: Long) =
+        TelegramTimeoutException(
             request.javaClass.simpleName,
             Reason.LOCAL_CANCEL,
-            requestSent = true,
-            retryable = isReadOnly(request) && !ToolCallDeadline.writeDispatched(),
-            waitedMillis = TimeUnit.NANOSECONDS.toMillis(wait.nanos),
+            requestSent = requestSent,
+            retryable = (!requestSent || isReadOnly(request)) && !ToolCallDeadline.writeDispatched(),
+            waitedMillis = TimeUnit.NANOSECONDS.toMillis(elapsedNanos.coerceAtLeast(0)),
             cause = error,
         ).apply { healthFailure = false }
-    }
 
     private fun timeoutFailure(request: TdApi.Function<*>, wait: Wait, error: TimeoutException): Exception {
         sendChatId(request)?.let {

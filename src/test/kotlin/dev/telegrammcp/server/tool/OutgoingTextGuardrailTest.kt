@@ -50,6 +50,7 @@ class OutgoingTextGuardrailTest {
     private val message = TelegramMessage(1L, 42L, "Test", "Me", text = null, date = Instant.EPOCH, mediaType = "photo")
 
     init {
+        every { files.validateForUpload(any()) } answers { Path.of(firstArg<String>()) }
         every { resolver.resolve(42 as Any) } returns 42L
         every { files.withStagedUpload<Any?>(any(), any()) } answers {
             @Suppress("UNCHECKED_CAST")

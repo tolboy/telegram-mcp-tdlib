@@ -110,10 +110,13 @@ class SendAlbumTool(
             guardrailService.validateChatAccess(chatId)
             parsed.mapNotNull { it.caption }.forEach(guardrailService::validateInput)
             log.withTool(TOOL_NAME).info("Sending album of {} items to chat {}", parsed.size, chatId)
+            val sourcePaths = parsed.map { fileSecurityService.validateForUpload(it.filePath) }
             fileSecurityService.withStagedUploads(parsed.map { it.filePath }) { stagedPaths ->
                 val items = parsed.zip(stagedPaths) { item, path -> item.copy(filePath = path.toString()) }
-                val canonical = parsed.zip(stagedPaths) { item, path ->
-                    listOf(path.toString(), item.type.name, item.caption, RecoverableSend.fileFingerprint(arguments, path))
+                val canonical = parsed.indices.map { index ->
+                    val item = parsed[index]
+                    listOf(sourcePaths[index].toString(), item.type.name, item.caption,
+                        RecoverableSend.fileFingerprint(arguments, stagedPaths[index]))
                 }
                 RecoverableSend.execute(sendOperations, operationGuardService, TOOL_NAME, arguments, chatId, canonical,
                     expectedCount = items.size) {

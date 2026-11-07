@@ -43,6 +43,7 @@ class SendStickerToolTest {
         guardrailService = mockk(relaxed = true)
         operationGuardService = mockk(relaxed = true)
         fileSecurityService = mockk(relaxed = true)
+        every { fileSecurityService.validateForUpload(any()) } answers { Path.of(firstArg<String>()) }
         auditService = mockk(relaxed = true)
         objectMapper = jacksonObjectMapper().findAndRegisterModules()
         exchange = mockk(relaxed = true)

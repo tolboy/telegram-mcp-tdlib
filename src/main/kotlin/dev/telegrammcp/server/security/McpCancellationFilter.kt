@@ -38,7 +38,7 @@ internal class McpCancellationFilter : OncePerRequestFilter() {
         }
         val replay = cached ?: CachedBodyRequest(request, body)
         val message = runCatching { mapper.readTree(body) }.getOrNull()
-        if (message != null && message.isObject && message.path("method").asText() == METHOD) {
+        if (message != null && message.isObject && !message.has("id") && message.path("method").asText() == METHOD) {
             requestId(message.path("params").path("requestId"))?.let { id ->
                 McpCallCancellation.cancel(key(request.getHeader(McpSessionPrincipalBinder.HEADER), id))
             }
@@ -63,7 +63,8 @@ internal class McpCancellationFilter : OncePerRequestFilter() {
     internal companion object {
         const val METHOD = "notifications/cancelled"
 
-        fun key(sessionId: String?, requestId: String): String = (sessionId ?: "stdio") + "\u0000" + requestId
+        fun key(sessionId: String?, requestId: String): String =
+            AccessPermissionService.clientIdentity() + "\u0000" + (sessionId ?: "http-no-session") + "\u0000" + requestId
 
         /** JSON-RPC ids are strings or integers. The two forms do not match each other. */
         fun requestId(node: JsonNode): String? = when {

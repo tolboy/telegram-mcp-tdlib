@@ -80,9 +80,10 @@ class SendVoiceTool(
             if (caption != null) guardrailService.validateInput(caption)
 
             log.withTool(TOOL_NAME).info("Sending voice '{}' to chat {}", rawPath, chatId)
+            val sourcePath = fileSecurityService.validateForUpload(rawPath)
             val message = fileSecurityService.withStagedUpload(rawPath) { staged ->
                 dev.telegrammcp.server.tool.RecoverableSend.execute(sendOperations, operationGuardService, TOOL_NAME,
-                    arguments, chatId, listOf(staged.toString(), duration, caption,
+                    arguments, chatId, listOf(sourcePath.toString(), duration, caption,
                         dev.telegrammcp.server.tool.RecoverableSend.fileFingerprint(arguments, staged))) {
                     telegramClient.sendVoice(chatId, staged.toString(), duration, caption)
                 }

@@ -154,8 +154,12 @@ class TelegramTimeoutException(
         } else {
             "The tool call's overall deadline ran out before $request was sent (request not sent)"
         }
-        Reason.LOCAL_CANCEL -> "The local wait for $request ended before Telegram answered. " +
-            "This does not confirm that Telegram cancelled the request"
+        Reason.LOCAL_CANCEL -> if (requestSent) {
+            "The local wait for $request ended before Telegram answered. " +
+                "This does not confirm that Telegram cancelled the request"
+        } else {
+            "The local wait for $request was cancelled before dispatch (request not sent)"
+        }
     },
     cause,
 ) {
@@ -178,6 +182,7 @@ class TelegramTimeoutException(
      */
     val retryAfterHint: Long?
         get() = when {
+            reason == Reason.LOCAL_CANCEL -> null
             !retryable -> null
             !requestSent -> 1L
             else -> retryAfterSeconds ?: 1L

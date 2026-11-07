@@ -148,7 +148,8 @@ class SearchMessagesForIntentTool(
         val completedResults = ConcurrentHashMap<Int, Map<String, Any>>()
         val requestContext = (accountContext?.coroutineContext() ?: kotlin.coroutines.EmptyCoroutineContext) +
             dev.telegrammcp.server.security.AccessPermissionContext.coroutineContext() +
-            ToolCallDeadline.coroutineContext()
+            ToolCallDeadline.coroutineContext() +
+            dev.telegrammcp.server.client.McpCallCancellation.coroutineContext()
         val results: List<Map<String, Any>> = runBlocking(requestContext) {
             try {
                 withTimeout(timeoutMillis) {

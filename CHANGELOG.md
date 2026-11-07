@@ -5,6 +5,16 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- Review fixes: cancellation is authenticated and session-owned before the
+  notification is accepted; early cancellation and research workers share the
+  same signal. Local stops neither open the Telegram breaker nor create a flood
+  gate, and cancellation before dispatch prevents the request from being sent.
+- Preserve definite batch delivery observed before session close, with the
+  existing bounded TTL, so an unresolved earlier item cannot hide a later success.
+- Keyed upload replay uses the original canonical source path and staged content
+  digest. Snapshot filenames are preserved, active copies have leases, expiry is
+  checked on each upload, and shared storage accounting is serialized.
+
 - Uploads are copied from an opened file before TDLib reads them. Replacing
   the caller's path during the send does not change those bytes. The copy is
   deleted after a definite result and kept for 24 hours when the send outcome
@@ -21,9 +31,9 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 - Streamable HTTP `notifications/cancelled` stops the local TDLib wait and
   releases the caller's concurrency permit. A send already handed to TDLib
   stays UNKNOWN. The TDLib future is not cancelled, and an HTTP disconnect is
-  not treated as cancellation. STDIO still cannot observe a cancel until the
-  tool call returns, because MCP Java SDK 2.1.0 reads that stream on the
-  handler thread.
+  not treated as cancellation. STDIO cancellation is not implemented in this
+  transport integration; the SDK can read frames during a tool call, but its
+  current notification registry does not dispatch cancellation to this listener.
 
 - Add an offline native lifecycle check for Linux x64, Linux ARM64, Windows,
   and macOS ARM64. It loads the packaged JNI runtime, keeps two clients

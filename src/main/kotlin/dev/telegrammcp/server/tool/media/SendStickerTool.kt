@@ -76,9 +76,10 @@ class SendStickerTool(
             guardrailService.validateChatAccess(chatId)
 
             log.withTool(TOOL_NAME).info("Sending sticker '{}' to chat {}", rawPath, chatId)
+            val sourcePath = fileSecurityService.validateForUpload(rawPath)
             val message = fileSecurityService.withStagedUpload(rawPath) { staged ->
                 dev.telegrammcp.server.tool.RecoverableSend.execute(sendOperations, operationGuardService, TOOL_NAME,
-                    arguments, chatId, listOf(staged.toString(), emoji,
+                    arguments, chatId, listOf(sourcePath.toString(), emoji,
                         dev.telegrammcp.server.tool.RecoverableSend.fileFingerprint(arguments, staged))) {
                     telegramClient.sendSticker(chatId, staged.toString(), emoji)
                 }

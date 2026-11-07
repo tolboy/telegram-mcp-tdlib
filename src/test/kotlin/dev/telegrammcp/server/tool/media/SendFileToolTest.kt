@@ -44,6 +44,7 @@ class SendFileToolTest {
         entityResolver = mockk()
         guardrailService = mockk(relaxed = true)
         fileSecurityService = mockk()
+        every { fileSecurityService.validateForUpload(any()) } answers { Path.of(firstArg<String>()) }
         operationGuardService = mockk(relaxed = true)
         auditService = mockk(relaxed = true)
         objectMapper = jacksonObjectMapper().findAndRegisterModules()

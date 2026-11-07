@@ -12,9 +12,11 @@ notification and a finish notification. On Streamable HTTP,
 `notifications/cancelled` stops the server's local wait for that JSON-RPC id
 and releases its concurrency permit. A send that was already handed to TDLib
 stays `UNKNOWN`; the notification does not cancel the Telegram request, and
-closing the HTTP connection is not treated as cancellation. MCP Java SDK 2.1.0
-reads STDIO on the tool thread, so a STDIO cancel is not visible until the
-call returns. Clients that omit `Mcp-Method`
+closing the HTTP connection is not treated as cancellation. STDIO cancellation
+is not implemented by the current transport integration: the SDK reads frames
+independently, but its notification registry is not wired to this listener.
+Auth-ready waits, change-journal waits and human-approval waits also remain
+outside the current cancellation boundary. Clients that omit `Mcp-Method`
 and `Mcp-Name` are unchanged. If either header is present, it must match the
 JSON-RPC body; a mismatch is HTTP 400 and JSON-RPC code `-32020`. Those
 headers are not required.

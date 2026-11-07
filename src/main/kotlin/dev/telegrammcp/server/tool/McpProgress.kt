@@ -9,9 +9,9 @@ import org.slf4j.LoggerFactory
  *
  * Streamable HTTP `notifications/cancelled` is accepted by
  * [dev.telegrammcp.server.security.McpCancellationFilter] and only stops the
- * local wait. Closing the HTTP response is not cancellation. MCP Java SDK
- * 2.1.0 still reads STDIO on the tool thread, so a STDIO cancel cannot be
- * observed until that call returns.
+ * local wait. Closing the HTTP response is not cancellation. STDIO can read
+ * frames during a tool call, but its notification registry is not wired to
+ * this application's cancellation listener yet.
  */
 object McpProgress {
     private val log = LoggerFactory.getLogger(McpProgress::class.java)

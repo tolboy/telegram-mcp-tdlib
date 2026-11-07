@@ -16,7 +16,7 @@ import it.tdlight.client.SimpleTelegramClient
 import it.tdlight.jni.TdApi
 import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletableFuture
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 /**
  * One account's execution policy, shared by every TDLib capability adapter.
@@ -57,6 +57,7 @@ internal class TdLibRequestExecutor(
         val scope = TelegramFloodGate.scopeOf(function)
         val priorWriteDispatched = ToolCallDeadline.writeDispatched()
         return try {
+            TdLibRequestAwaiter.ensureNotCancelled(function)
             floodGate.check(scope)
             acquirePermitIfPending(function)
             sendUngated(function)
@@ -70,12 +71,12 @@ internal class TdLibRequestExecutor(
         } catch (error: SendOutcomeUnknownException) {
             // Closing a session releases local waits; it does not indicate a
             // Telegram timeout or impose a flood-wait gate on another caller.
-            if (error.cause !is CancellationException) {
+            if (!isLocalStop(error)) {
                 floodGate.recordLocalTimeout(scope, requestSettings.localTimeoutGate)
             }
             throw error
         } catch (error: TelegramTimeoutException) {
-            if (error.requestSent) {
+            if (error.requestSent && error.reason != TelegramTimeoutException.Reason.LOCAL_CANCEL) {
                 floodGate.recordLocalTimeout(scope, requestSettings.localTimeoutGate)
                 // A retry before the scope's gate ends is rejected locally, so
                 // advertise the gate's remaining time, not a fixed second.
@@ -93,6 +94,7 @@ internal class TdLibRequestExecutor(
         val future = CompletableFuture<TdApi.Object>()
         val observer = if (function is TdApi.SendMessage || function is TdApi.SendMessageAlbum || function is TdApi.ForwardMessages)
             SendObservationContext.capture() else null
+        TdLibRequestAwaiter.ensureNotCancelled(function)
         if (!TdLibRequestAwaiter.isReadOnly(function)) ToolCallDeadline.markWriteDispatched()
         timeoutHealth.onDispatch()
         client.send(function) { result ->
@@ -109,7 +111,7 @@ internal class TdLibRequestExecutor(
         return try {
             TdLibRequestAwaiter.await(future, function, wait) as T
         } catch (error: SendOutcomeUnknownException) {
-            if (!error.deadlineExceeded) error.healthFailure = timeoutHealth.countsTowardBreaker(scopeOf(function))
+            if (!error.deadlineExceeded && !isLocalStop(error)) error.healthFailure = timeoutHealth.countsTowardBreaker(scopeOf(function))
             throw error
         } catch (error: TelegramTimeoutException) {
             if (error.reason == TelegramTimeoutException.Reason.REQUEST_TIMEOUT) {
@@ -120,6 +122,9 @@ internal class TdLibRequestExecutor(
     }
 
     private fun scopeOf(function: TdApi.Function<*>): String = TelegramFloodGate.scopeOf(function)
+
+    private fun isLocalStop(error: SendOutcomeUnknownException): Boolean =
+        error.cause is CancellationException || error.cause is InterruptedException
 
     /**
      * Sends [request] and waits for the message's final state while holding
@@ -151,7 +156,7 @@ internal class TdLibRequestExecutor(
             floodGate.record(scope, error)
             throw error
         } catch (error: SendOutcomeUnknownException) {
-            if (error.cause !is CancellationException) {
+            if (!isLocalStop(error)) {
                 floodGate.recordLocalTimeout(scope, requestSettings.localTimeoutGate)
             }
             throw error
@@ -171,6 +176,7 @@ internal class TdLibRequestExecutor(
      * that would only be available after the deadline is not waited for.
      */
     private fun acquirePermitIfPending(function: TdApi.Function<*>) {
+        TdLibRequestAwaiter.ensureNotCancelled(function)
         val permit = pendingPermit.get() ?: return
         if (permit[0]) return
         val waitNanos = rateLimiter.reservePermission()
@@ -183,13 +189,20 @@ internal class TdLibRequestExecutor(
                     requestSent = false, retryable = !ToolCallDeadline.writeDispatched(), waitedMillis = 0,
                 )
             }
+            val started = System.nanoTime()
             try {
-                TimeUnit.NANOSECONDS.sleep(waitNanos)
+                // Poll only the local cancellation signal; no TDLib future exists yet.
+                McpCallCancellation.await(CompletableFuture<Unit>(), waitNanos)
+            } catch (_: TimeoutException) {
+                // The reserved rate-limiter permit has become available.
+            } catch (cancelled: CancellationException) {
+                throw TdLibRequestAwaiter.cancelledBeforeDispatch(function, cancelled, System.nanoTime() - started)
             } catch (interrupted: InterruptedException) {
                 Thread.currentThread().interrupt()
-                throw TelegramUnavailableException(interrupted)
+                throw TdLibRequestAwaiter.cancelledBeforeDispatch(function, interrupted, System.nanoTime() - started)
             }
         }
+        TdLibRequestAwaiter.ensureNotCancelled(function)
         permit[0] = true
     }
 

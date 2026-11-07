@@ -192,6 +192,40 @@ class MessageSendTrackerTest {
         threads.forEach { it.join(1000) }
     }
 
+    @Test
+    fun `closing cannot erase a definite later batch delivery or learn a new outcome`() {
+        val tracker = MessageSendTracker()
+        val first = message(10, true)
+        val second = message(11, true)
+        val delivered = message(21, false)
+        tracker.onSucceeded(TdApi.UpdateMessageSendSucceeded(delivered, second.id))
+        tracker.close()
+
+        assertFailsWith<SendOutcomeUnknownException> { tracker.awaitFinal(first, 0) }
+        assertSame(delivered, tracker.awaitFinal(second, 0))
+        assertSame(delivered, tracker.observeFinal(second).get(1, TimeUnit.SECONDS))
+        tracker.onSucceeded(TdApi.UpdateMessageSendSucceeded(message(20, false), first.id))
+        assertFailsWith<SendOutcomeUnknownException> { tracker.awaitFinal(first, 0) }
+        assertTrue(tracker.observeFinal(first).isCompletedExceptionally)
+    }
+
+    @Test
+    fun `pre-close evidence expires and closed reads clear its retained cache`() {
+        val tracker = MessageSendTracker()
+        var now = 1L
+        tracker.nanoTime = { now }
+        val pending = message(10, true)
+        val delivered = message(20, false)
+        tracker.onSucceeded(TdApi.UpdateMessageSendSucceeded(delivered, pending.id))
+        tracker.close()
+        assertSame(delivered, tracker.awaitFinal(pending, 0))
+
+        now += TimeUnit.MINUTES.toNanos(5) + 1
+        assertFailsWith<SendOutcomeUnknownException> { tracker.awaitFinal(pending, 0) }
+        val outcomes = MessageSendTracker::class.java.getDeclaredField("outcomes").apply { isAccessible = true }
+        assertTrue((outcomes.get(tracker) as Map<*, *>).isEmpty())
+    }
+
     private fun message(id: Long, sending: Boolean): TdApi.Message = TdApi.Message().apply {
         this.id = id
         this.chatId = 42

@@ -115,7 +115,10 @@ object LateSignalStartupProbe {
         }
         // Same order as the real entrypoints: the signal hook first, then Spring.
         val shutdown = ServerShutdown(
-            graceMillis = 4_000,
+            // Starting a child JVM during the full native/HTTP suite can take
+            // several seconds on a loaded runner. This test covers late hook
+            // registration, not the production watchdog's deadline.
+            graceMillis = 15_000,
             halt = { code -> Runtime.getRuntime().halt(code) },
         )
         checkNotNull(installSignalShutdownHook(shutdown)) { "signal hook was not registered" }

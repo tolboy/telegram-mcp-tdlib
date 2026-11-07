@@ -34,6 +34,7 @@ class MessageSendTracker : AutoCloseable {
     private val waiters = HashMap<Key, PendingOutcome>()
     private val outcomes = HashMap<Key, TimedOutcome>()
     private val observers = HashMap<Key, CompletableFuture<TdApi.Message>>()
+    @Volatile internal var nanoTime: () -> Long = System::nanoTime
 
     /** Independent of blocking waiters, so a caller timeout does not discard late delivery. */
     fun observeFinal(message: TdApi.Message): CompletableFuture<TdApi.Message> {
@@ -41,9 +42,9 @@ class MessageSendTracker : AutoCloseable {
         val known: Outcome?
         val future: CompletableFuture<TdApi.Message>
         synchronized(lifecycleLock) {
-            if (closed) return CompletableFuture.failedFuture(closedFailure(key))
             if (message.sendingState == null) return CompletableFuture.completedFuture(message)
             known = knownOutcome(key)
+            if (closed && known == null) return CompletableFuture.failedFuture(closedFailure(key))
             future = if (known == null) observers.getOrPut(key) {
                 CompletableFuture<TdApi.Message>().orTimeout(24, TimeUnit.HOURS)
             } else CompletableFuture()
@@ -79,9 +80,9 @@ class MessageSendTracker : AutoCloseable {
     fun awaitFinal(message: TdApi.Message, timeoutNanos: Long, deadlineExceeded: Boolean): TdApi.Message {
         val key = Key(message.chatId, message.id)
         val active = synchronized(lifecycleLock) {
-            if (closed) throw closedFailure(key)
             if (message.sendingState == null) return message
             knownOutcome(key)?.let { return it.unwrap(key) }
+            if (closed) throw closedFailure(key)
             waiters.getOrPut(key) { PendingOutcome() }.also { it.users++ }
         }
 
@@ -110,7 +111,7 @@ class MessageSendTracker : AutoCloseable {
         synchronized(lifecycleLock) {
             if (closed) return // A late native callback cannot resurrect a closed session.
             outcomes.entries.removeIf { it.value.isExpired() }
-            outcomes[key] = TimedOutcome(outcome, System.nanoTime())
+            outcomes[key] = TimedOutcome(outcome, nanoTime())
             waiter = waiters.remove(key)
             observer = observers.remove(key)
         }
@@ -119,7 +120,13 @@ class MessageSendTracker : AutoCloseable {
         observer?.let { completeObserver(it, key, outcome) }
     }
 
-    /** Terminal session teardown: release waits, preserve UNKNOWN, never authorize a resend. */
+    /**
+     * Terminal session teardown: unresolved waits become UNKNOWN and no new
+     * pending observation is accepted. Definite outcomes observed before close
+     * retain their bounded TTL, so batch reconciliation cannot lose a delivery
+     * merely because an earlier item was still pending at teardown. Late native
+     * callbacks are ignored; close never authorizes a resend.
+     */
     override fun close() {
         val pendingWaiters: Map<Key, PendingOutcome>
         val pendingObservers: Map<Key, CompletableFuture<TdApi.Message>>
@@ -130,7 +137,7 @@ class MessageSendTracker : AutoCloseable {
             pendingObservers = observers.toMap()
             waiters.clear()
             observers.clear()
-            outcomes.clear()
+            outcomes.entries.removeIf { it.value.isExpired() }
         }
         pendingWaiters.forEach { (key, pending) -> pending.future.completeExceptionally(closedFailure(key)) }
         pendingObservers.forEach { (key, future) -> future.completeExceptionally(closedFailure(key)) }
@@ -141,11 +148,15 @@ class MessageSendTracker : AutoCloseable {
     ).apply { healthFailure = false }
 
     /** Caller holds lifecycleLock. */
-    private fun knownOutcome(key: Key): Outcome? =
-        outcomes[key]?.takeUnless { it.isExpired() }?.outcome
+    private fun knownOutcome(key: Key): Outcome? {
+        // Once closed, no further completion arrives to perform regular TTL
+        // cleanup. Reads must evict expired evidence rather than retain it.
+        if (closed) outcomes.entries.removeIf { it.value.isExpired() }
+        return outcomes[key]?.takeUnless { it.isExpired() }?.outcome
+    }
 
     private fun TimedOutcome.isExpired(): Boolean =
-        System.nanoTime() - createdAtNanos > EARLY_OUTCOME_TTL_NANOS
+        nanoTime() - createdAtNanos > EARLY_OUTCOME_TTL_NANOS
 
     private fun Outcome.unwrap(key: Key): TdApi.Message = when (this) {
         is Outcome.Success -> message

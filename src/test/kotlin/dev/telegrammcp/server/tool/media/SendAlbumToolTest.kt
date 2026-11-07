@@ -42,6 +42,7 @@ class SendAlbumToolTest {
         guardrailService = mockk(relaxed = true)
         operationGuardService = mockk(relaxed = true)
         fileSecurityService = mockk(relaxed = true)
+        every { fileSecurityService.validateForUpload(any()) } answers { Path.of(firstArg<String>()) }
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { fileSecurityService.withStagedUploads<Any?>(any(), any()) } answers {
             @Suppress("UNCHECKED_CAST")

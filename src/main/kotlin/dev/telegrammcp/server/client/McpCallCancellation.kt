@@ -6,6 +6,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.asContextElement
 
 /**
  * Local stop for one MCP JSON-RPC request.
@@ -23,28 +24,30 @@ internal object McpCallCancellation {
 
     /** Associates the current servlet thread with one session-scoped request id. */
     fun bind(key: String) {
+        check(boundKey.get() == null) { "An MCP request is already bound to this thread" }
+        val flag = AtomicBoolean()
+        synchronized(active) { active.getOrPut(key) { mutableListOf() }.add(flag) }
         boundKey.set(key)
+        signal.set(flag)
     }
 
     fun unbind() {
-        boundKey.remove()
-    }
-
-    fun <T> listen(block: () -> T): T {
-        val key = boundKey.get() ?: return block()
-        val flag = AtomicBoolean()
-        signal.set(flag)
-        synchronized(active) { active.getOrPut(key) { mutableListOf() }.add(flag) }
-        return try {
-            block()
-        } finally {
-            signal.remove()
-            synchronized(active) {
-                val flags = active[key] ?: return@synchronized
+        val key = boundKey.get()
+        val flag = signal.get()
+        if (key != null && flag != null) synchronized(active) {
+            active[key]?.let { flags ->
                 flags.remove(flag)
                 if (flags.isEmpty()) active.remove(key)
             }
         }
+        boundKey.remove()
+        signal.remove()
+    }
+
+    fun <T> listen(block: () -> T): T {
+        // bind registers before progress/permissions/dispatch. Creating a new
+        // signal here would lose a cancellation that arrived in that window.
+        return block()
     }
 
     /** Wakes every local wait for [key]. Does not complete or cancel a TDLib future. */
@@ -55,20 +58,28 @@ internal object McpCallCancellation {
 
     fun isSignalled(): Boolean = signal.get()?.get() == true
 
+    fun throwIfSignalled() {
+        if (isSignalled()) throw McpCallCancelledException()
+    }
+
+    /** Carries the same signal into bounded research worker coroutines. */
+    fun coroutineContext(): kotlin.coroutines.CoroutineContext = signal.asContextElement()
+
     /**
      * Waits for [future] without calling [CompletableFuture.cancel].
      * A signalled MCP cancellation throws [McpCallCancelledException].
      */
     fun <T> await(future: CompletableFuture<T>, timeoutNanos: Long): T {
-        var remaining = timeoutNanos.coerceAtLeast(0)
+        val budget = timeoutNanos.coerceAtLeast(0)
+        val started = System.nanoTime()
         while (true) {
-            if (isSignalled()) throw McpCallCancelledException()
+            throwIfSignalled()
+            val remaining = (budget - (System.nanoTime() - started)).coerceAtLeast(0)
             val slice = minOf(remaining, SLICE_NANOS)
             try {
                 return future.get(slice, TimeUnit.NANOSECONDS)
             } catch (error: TimeoutException) {
-                remaining -= slice
-                if (remaining <= 0) throw error
+                if (System.nanoTime() - started >= budget) throw error
             } catch (error: CancellationException) {
                 throw error
             }
@@ -77,4 +88,4 @@ internal object McpCallCancellation {
 }
 
 /** The MCP client asked to stop waiting. This is not a TDLib cancellation result. */
-internal class McpCallCancelledException : RuntimeException("MCP client cancelled the local wait")
+internal class McpCallCancelledException : CancellationException("MCP client cancelled the local wait")

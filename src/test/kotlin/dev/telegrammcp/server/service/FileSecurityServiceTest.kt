@@ -3,6 +3,8 @@
 import dev.telegrammcp.server.config.ServerModeProperties
 import dev.telegrammcp.server.config.TdLibProperties
 import dev.telegrammcp.server.exception.FileSecurityException
+import io.mockk.every
+import io.mockk.mockk
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -198,6 +200,31 @@ class FileSecurityServiceTest {
         }
         assertTrue(rejected.message.contains("TDLib session"))
         assertEquals(upload.toRealPath(), service.validateForUpload(upload.toString()))
+    }
+
+    @Test
+    fun `snapshot copies cannot be read through upload or download paths under a broad allowed root`() {
+        val state = tempDir.resolve("state")
+        val staged = state.resolve("upload-snapshots/pending/content/private.pdf")
+        Files.createDirectories(staged.parent)
+        Files.writeString(staged, "another call's private upload")
+        val paths = mockk<PlatformPaths> {
+            every { applicationDataDirectory } returns state
+            every { resolveApplicationPath(any(), any()) } answers { Path.of(firstArg<String>()).toAbsolutePath().normalize() }
+        }
+        val service = FileSecurityService(ServerModeProperties(fileSecurity = ServerModeProperties.FileSecurityProps(
+            allowedRoots = listOf(tempDir.toString()))), paths)
+        assertThrows<FileSecurityException> { service.validateForUpload(staged.toString()) }
+        assertThrows<FileSecurityException> { service.validateForDownload(staged.resolveSibling("new.pdf").toString()) }
+    }
+
+    @Test
+    fun `POSIX hard links cannot alias an outside file into an allowed upload root`() {
+        assumeTrue("unix" in tempDir.fileSystem.supportedFileAttributeViews(), "POSIX link-count policy is unavailable")
+        val allowed = Files.createDirectory(tempDir.resolve("allowed"))
+        val outside = Files.writeString(tempDir.resolve("outside.bin"), "protected test bytes")
+        val alias = Files.createLink(allowed.resolve("looks-safe.pdf"), outside)
+        assertThrows<FileSecurityException> { serviceWithRoots(allowed.toString()).validateForUpload(alias.toString()) }
     }
 
     // ── Download validation ─────────────────────────────────────────────────

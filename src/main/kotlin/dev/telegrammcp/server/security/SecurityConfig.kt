@@ -102,7 +102,9 @@ class SecurityConfig(
                 }
         }
         configured.addFilterAfter(McpRoutingHeaderFilter(), McpOriginFilter::class.java)
-        configured.addFilterAfter(McpCancellationFilter(), McpRoutingHeaderFilter::class.java)
+        // Cancellation can finish a request without calling the rest of the
+        // chain, so authentication and session ownership must run first.
+        configured.addFilterAfter(McpCancellationFilter(), McpSessionPrincipalFilter::class.java)
         if (resourceProperties?.subscriptionsActive == true && resourceSubscriptions != null && resourceAccess != null) {
             // After session ownership is checked, so a subscription is recorded for its owner only.
             configured.addFilterAfter(

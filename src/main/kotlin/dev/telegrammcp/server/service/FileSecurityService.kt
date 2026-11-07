@@ -32,10 +32,13 @@ class FileSecurityService(
 ) {
 
     private val log = StructuredLogger.forClass<FileSecurityService>()
+    private val uploadSnapshotDirectory = platformPaths.applicationDataDirectory.resolve("upload-snapshots")
     private val uploadSnapshots = UploadSnapshots(
-        root = platformPaths.applicationDataDirectory.resolve("upload-snapshots"),
+        root = uploadSnapshotDirectory,
         maxFileBytes = props.fileSecurity.maxFileSizeBytes,
-        maxTotalBytes = props.fileSecurity.maxFileSizeBytes.coerceAtLeast(1) * 4,
+        maxTotalBytes = props.fileSecurity.maxFileSizeBytes.coerceAtLeast(1).let {
+            if (it > Long.MAX_VALUE / 4) Long.MAX_VALUE else it * 4
+        },
     )
 
     private val allowedRoots: List<Path> =
@@ -56,7 +59,9 @@ class FileSecurityService(
      * Upload and download must not read `td.binlog` or the media cache.
      */
     private val protectedDirectories: List<Path> =
-        sessionDirectories(tdLibProperties, telegramProperties)
+        // Path is Iterable<Path>; adding it directly would append its segments
+        // instead of the absolute protected directory.
+        sessionDirectories(tdLibProperties, telegramProperties) + listOf(canonicalizeForComparison(uploadSnapshotDirectory))
 
     companion object {
         /** Characters forbidden in file paths. */
@@ -148,6 +153,13 @@ class FileSecurityService(
             throw FileSecurityException("File is not readable: $path")
         }
 
+        // POSIX exposes link count, unlike the Windows NIO provider. A second
+        // hard link could alias a protected session file outside allowed roots.
+        val links = runCatching { Files.getAttribute(path, "unix:nlink", java.nio.file.LinkOption.NOFOLLOW_LINKS) as Number }.getOrNull()
+        if (links != null && links.toLong() > 1) {
+            throw FileSecurityException("Upload source must not have multiple hard links")
+        }
+
         // Size check
         val fileSize = Files.size(path)
         if (fileSize > maxSizeBytes) {
@@ -160,11 +172,17 @@ class FileSecurityService(
 
     /** Validates [rawPath], copies its opened bytes, and gives TDLib only the copy. */
     fun <T> withStagedUpload(rawPath: String, block: (Path) -> T): T =
-        uploadSnapshots.use(validateForUpload(rawPath), block)
+        uploadSnapshots.use(validateForUpload(rawPath), ::validateSnapshotSource, block)
 
     /** Same as [withStagedUpload] for every member of an album. One unknown outcome retains every copy. */
     fun <T> withStagedUploads(rawPaths: List<String>, block: (List<Path>) -> T): T =
-        uploadSnapshots.useAll(rawPaths.map { validateForUpload(it) }, block)
+        uploadSnapshots.useAll(rawPaths.map { validateForUpload(it) }, ::validateSnapshotSource, block)
+
+    private fun validateSnapshotSource(source: Path) {
+        if (validateForUpload(source.toString()) != source) {
+            throw FileSecurityException("Upload source changed during snapshot validation")
+        }
+    }
 
     /**
      * Validates a target directory for download operations.

@@ -45,9 +45,21 @@ cleanup that deletes those files would remove the protection against a
 duplicate send and has to be a separate, explicit design.
 
 Upload snapshots are different. They are bytes, not the idempotency record.
-Success and definite failure delete the copy. An unknown outcome keeps the
-copy for 24 hours so the operator can see what was handed to TDLib. Deleting
-that copy does not authorize another send; the receipt journal does.
+Each uses a private UUID directory while retaining the original filename.
+Success and known pre-dispatch rejection attempt immediate cleanup; failures
+during cleanup do not change a confirmed send result. Ambiguous callback errors,
+including partial delivery, timeout, and local cancellation, retain copies
+conservatively for 24 hours. Expiry runs on every subsequent upload and skips
+copies with an active OS lease, including copies used by another process.
+The cache has shared byte/count limits; an idle daemon does not run a background
+expiry timer. Deleting a snapshot does not authorize another send; the receipt
+journal does. The protected snapshot directory is inaccessible to file tools.
+
+Source files are opened with NOFOLLOW_LINKS and checked around copying. POSIX
+hard links are rejected when `unix:nlink` is available. Windows Java NIO does
+not provide that check; repeated parent replacement or hostile in-place writes
+with preserved metadata are not covered by an atomic descriptor-identity claim.
+Use allowed roots controlled by the operator rather than a shared writable tree.
 
 ## Out of scope
 
