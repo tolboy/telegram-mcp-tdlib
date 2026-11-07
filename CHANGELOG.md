@@ -5,6 +5,13 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- Streamable HTTP `notifications/cancelled` stops the local TDLib wait and
+  releases the caller's concurrency permit. A send already handed to TDLib
+  stays UNKNOWN. The TDLib future is not cancelled, and an HTTP disconnect is
+  not treated as cancellation. STDIO still cannot observe a cancel until the
+  tool call returns, because MCP Java SDK 2.1.0 reads that stream on the
+  handler thread.
+
 - Add an offline native lifecycle check for Linux x64, Linux ARM64, Windows,
   and macOS ARM64. It loads the packaged JNI runtime, keeps two clients
   independent across close, accepts a repeated close, restarts after the

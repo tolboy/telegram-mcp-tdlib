@@ -7,6 +7,7 @@ import dev.telegrammcp.server.exception.TelegramTimeoutException.Reason
 import it.tdlight.client.TelegramError
 import it.tdlight.jni.TdApi
 import java.time.Duration
+import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
@@ -48,7 +49,12 @@ internal object TdLibRequestAwaiter {
         request: TdApi.Function<*>,
         wait: Wait,
     ): TdApi.Object = try {
-        future.get(wait.nanos, TimeUnit.NANOSECONDS)
+        McpCallCancellation.await(future, wait.nanos)
+    } catch (error: McpCallCancelledException) {
+        throw localStop(request, wait, error)
+    } catch (error: CancellationException) {
+        // Future.cancel is not evidence that Telegram aborted the request.
+        throw localStop(request, wait, error)
     } catch (error: ExecutionException) {
         throw translate(error.cause ?: error, request)
     } catch (error: TimeoutException) {
@@ -73,6 +79,20 @@ internal object TdLibRequestAwaiter {
      * advertised as safe to retry for them.
      */
     fun isReadOnly(request: TdApi.Function<*>): Boolean = TelegramReadRequests.isSafeRead(request)
+
+    private fun localStop(request: TdApi.Function<*>, wait: Wait, error: Throwable): Exception {
+        sendChatId(request)?.let { chatId ->
+            return SendOutcomeUnknownException(chatId, cause = error).apply { healthFailure = false }
+        }
+        return TelegramTimeoutException(
+            request.javaClass.simpleName,
+            Reason.LOCAL_CANCEL,
+            requestSent = true,
+            retryable = isReadOnly(request) && !ToolCallDeadline.writeDispatched(),
+            waitedMillis = TimeUnit.NANOSECONDS.toMillis(wait.nanos),
+            cause = error,
+        ).apply { healthFailure = false }
+    }
 
     private fun timeoutFailure(request: TdApi.Function<*>, wait: Wait, error: TimeoutException): Exception {
         sendChatId(request)?.let {

@@ -86,7 +86,9 @@ class MessageSendTracker : AutoCloseable {
         }
 
         return try {
-            active.future.get(timeoutNanos.coerceAtLeast(0), TimeUnit.NANOSECONDS).unwrap(key)
+            McpCallCancellation.await(active.future, timeoutNanos.coerceAtLeast(0)).unwrap(key)
+        } catch (error: McpCallCancelledException) {
+            throw SendOutcomeUnknownException(key.chatId, key.oldMessageId, error).apply { healthFailure = false }
         } catch (error: ExecutionException) {
             throw error.cause ?: error
         } catch (error: TimeoutException) {

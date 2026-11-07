@@ -154,10 +154,12 @@ class TelegramTimeoutException(
         } else {
             "The tool call's overall deadline ran out before $request was sent (request not sent)"
         }
+        Reason.LOCAL_CANCEL -> "The local wait for $request ended before Telegram answered. " +
+            "This does not confirm that Telegram cancelled the request"
     },
     cause,
 ) {
-    enum class Reason { REQUEST_TIMEOUT, DOWNLOAD_TIMEOUT, TOOL_DEADLINE }
+    enum class Reason { REQUEST_TIMEOUT, DOWNLOAD_TIMEOUT, TOOL_DEADLINE, LOCAL_CANCEL }
 
     @Volatile
     var healthFailure: Boolean = true

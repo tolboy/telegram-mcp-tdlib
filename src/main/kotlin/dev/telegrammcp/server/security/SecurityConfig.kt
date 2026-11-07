@@ -102,6 +102,7 @@ class SecurityConfig(
                 }
         }
         configured.addFilterAfter(McpRoutingHeaderFilter(), McpOriginFilter::class.java)
+        configured.addFilterAfter(McpCancellationFilter(), McpRoutingHeaderFilter::class.java)
         if (resourceProperties?.subscriptionsActive == true && resourceSubscriptions != null && resourceAccess != null) {
             // After session ownership is checked, so a subscription is recorded for its owner only.
             configured.addFilterAfter(
