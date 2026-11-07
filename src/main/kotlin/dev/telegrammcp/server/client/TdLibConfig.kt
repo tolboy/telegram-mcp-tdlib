@@ -228,15 +228,16 @@ class TdLibConfig(
 
     private fun startAccount(config: RuntimeAccountConfig): TelegramAccountRegistry.AccountHandle {
         val factory = SimpleTelegramClientFactory()
+        val messageSendTracker = MessageSendTracker()
         return try {
             val builder: SimpleTelegramClientBuilder = factory.builder(buildSettings(config))
             changeJournal?.attach(builder, config.label)
             clientServices.attach(builder, config.label)
             val authGate = TelegramAuthGate(config.label, config.authReadyTimeout)
             val chatFolderState = ChatFolderState()
-            val messageSendTracker = MessageSendTracker()
             builder.addUpdateHandler(TdApi.UpdateAuthorizationState::class.java) { update ->
                 handleAuthState(config.label, update, authGate)
+                if (update.authorizationState is TdApi.AuthorizationStateClosed) messageSendTracker.close()
             }
             builder.addUpdateHandler(TdApi.UpdateChatFolders::class.java) { update ->
                 chatFolderState.replace(update)
@@ -295,12 +296,15 @@ class TdLibConfig(
                     ),
                 ),
                 close = {
+                    authGate.markFailed("TDLib session for account '${config.label}' closed")
+                    messageSendTracker.close()
                     // A closed client must not leave its last Ready behind for the breaker.
                     clientServices.release(config.label)
                     factory.close()
                 },
             )
         } catch (e: Exception) {
+            messageSendTracker.close()
             clientServices.release(config.label)
             runCatching { factory.close() }
             throw e

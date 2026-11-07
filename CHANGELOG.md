@@ -5,6 +5,10 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- Closing a TDLib session releases every local send waiter and late observer
+  as UNKNOWN. The release does not record a flood gate, does not open the
+  circuit breaker, and does not authorize another send.
+
 - Reject an explicit null in optional booleans, folder and privacy lists, poll
   options, and search or export query lists. Absence still means the documented
   default; a supplied null is invalid input and cannot clear or shift a value.

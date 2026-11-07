@@ -189,6 +189,7 @@ class TelegramAuthOrchestrator(
                     val built = buildTdlibClient(apiId, apiHash, normalizedPhoneNumber, myGeneration)
                     if (!acceptBuiltClient(myGeneration, built)) {
                         // Already on the lifecycle thread: close before the next queued build.
+                        built.sendTracker.close()
                         closeFactory(built.factory, "superseded generation $myGeneration")
                     }
                 } catch (e: Exception) {
@@ -348,9 +349,9 @@ class TelegramAuthOrchestrator(
 
         val settings = buildSettings(apiId, apiHash)
         val factory = SimpleTelegramClientFactory()
+        val sendTracker = MessageSendTracker()
         try {
             val builder: SimpleTelegramClientBuilder = factory.builder(settings)
-            val sendTracker = MessageSendTracker()
 
             configureBuilder(builder, sendTracker, phoneNumber, myGeneration)
 
@@ -364,6 +365,7 @@ class TelegramAuthOrchestrator(
 
             return BuiltClient(factory, builder.build(authSupplier), sendTracker)
         } catch (error: Exception) {
+            sendTracker.close()
             closeFactory(factory, "failed client build")
             throw error
         }
@@ -377,7 +379,10 @@ class TelegramAuthOrchestrator(
 
     /** Publishes a build atomically; READY may arrive before builder.build returns. */
     internal fun acceptBuiltClient(myGeneration: Int, built: BuiltClient): Boolean = lock.withLock {
-        if (generation.get() != myGeneration) return@withLock false
+        if (generation.get() != myGeneration) {
+            built.sendTracker.close()
+            return@withLock false
+        }
         clientFactory = built.factory
         currentClient = built.client
         messageSendTracker = built.sendTracker
@@ -397,6 +402,9 @@ class TelegramAuthOrchestrator(
         // The circuit breaker of the hot-swapped service reads this state.
         clientServices.attach(builder, accountLabel)
         builder.addUpdateHandler(TdApi.UpdateAuthorizationState::class.java) { update ->
+            // Each builder owns its tracker, even after a newer generation
+            // replaced the shared auth state. Never close the new tracker here.
+            if (update.authorizationState is TdApi.AuthorizationStateClosed) sendTracker.close()
             lock.withLock {
                 if (generation.get() == myGeneration) handleAuthState(update, phoneNumber)
             }
@@ -508,9 +516,11 @@ class TelegramAuthOrchestrator(
         generation.incrementAndGet()
         // Detach references first to keep in-memory state consistent even if close fails.
         val oldFactory = clientFactory
+        val oldTracker = messageSendTracker
         clientFactory = null
         currentClient = null
         messageSendTracker = null
+        oldTracker?.close()
         delegatingClient.reset()
         // The next client starts with no connection state, not the old client's last Ready.
         clientServices.release(accountLabel)

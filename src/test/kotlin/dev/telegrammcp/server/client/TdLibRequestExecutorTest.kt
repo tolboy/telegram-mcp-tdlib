@@ -19,6 +19,8 @@ import java.time.Duration
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -76,6 +78,41 @@ class TdLibRequestExecutorTest {
 
         callback.get().onResult(Result.of(TdApi.Message().apply { chatId = 42; id = 100 }))
         assertEquals(listOf(100L), observed.get())
+        assertEquals(1, bulkhead.metrics.availableConcurrentCalls)
+    }
+
+    @Test
+    fun `a closed session releases the final wait without imposing a flood gate`() {
+        val tracker = MessageSendTracker()
+        val gate = TelegramFloodGate()
+        val executor = TdLibRequestExecutor(
+            client, RateLimiter.ofDefaults("closed-session"),
+            CircuitBreaker.of("closed-session", ResilienceConfig.ignoringNonHealthFailures(CircuitBreakerConfig.ofDefaults())),
+            SimpleMeterRegistry(), tracker, gate, settings, bulkhead, TdLibTimeoutHealth.alwaysCounting(),
+        )
+        val pending = TdApi.Message().apply {
+            id = 10
+            chatId = 42
+            sendingState = TdApi.MessageSendingStatePending(1)
+        }
+        val request = TdApi.SendMessage().apply { chatId = 42 }
+        val failure = AtomicReference<Throwable>()
+        val waiter = Thread {
+            try {
+                executor.awaitFinalMessage(pending, request, priorWriteDispatched = true)
+            } catch (error: Throwable) {
+                failure.set(error)
+            }
+        }
+        waiter.start()
+        val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(2)
+        while (waiter.state != Thread.State.TIMED_WAITING && System.nanoTime() < deadline) Thread.sleep(5)
+        tracker.close()
+        waiter.join(2000)
+        val error = assertIs<SendOutcomeUnknownException>(failure.get())
+        assertIs<java.util.concurrent.CancellationException>(error.cause)
+        assertFalse(error.healthFailure)
+        assertNull(gate.remainingSeconds(TelegramFloodGate.scopeOf(request)))
         assertEquals(1, bulkhead.metrics.availableConcurrentCalls)
     }
 }

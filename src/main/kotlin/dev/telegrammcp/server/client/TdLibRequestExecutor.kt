@@ -14,6 +14,7 @@ import io.github.resilience4j.ratelimiter.RequestNotPermitted
 import io.micrometer.core.instrument.MeterRegistry
 import it.tdlight.client.SimpleTelegramClient
 import it.tdlight.jni.TdApi
+import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 
@@ -67,7 +68,11 @@ internal class TdLibRequestExecutor(
             floodGate.record(scope, error)
             throw error
         } catch (error: SendOutcomeUnknownException) {
-            floodGate.recordLocalTimeout(scope, requestSettings.localTimeoutGate)
+            // Closing a session releases local waits; it does not indicate a
+            // Telegram timeout or impose a flood-wait gate on another caller.
+            if (error.cause !is CancellationException) {
+                floodGate.recordLocalTimeout(scope, requestSettings.localTimeoutGate)
+            }
             throw error
         } catch (error: TelegramTimeoutException) {
             if (error.requestSent) {
@@ -146,7 +151,9 @@ internal class TdLibRequestExecutor(
             floodGate.record(scope, error)
             throw error
         } catch (error: SendOutcomeUnknownException) {
-            floodGate.recordLocalTimeout(scope, requestSettings.localTimeoutGate)
+            if (error.cause !is CancellationException) {
+                floodGate.recordLocalTimeout(scope, requestSettings.localTimeoutGate)
+            }
             throw error
         }
     }
