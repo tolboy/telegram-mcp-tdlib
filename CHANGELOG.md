@@ -5,6 +5,10 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- Extract one account-scoped TDLib request executor shared by all capabilities.
+  Flood/rate control, deadlines, send observation, breaker and bulkhead ownership
+  remain in one place; the public client interface and constructor are retained.
+
 - Handle expired and disconnected asynchronous HTTP responses without writing
   ProblemDetail JSON into an already committed SSE stream. Uncommitted async
   timeouts end with 503; ordinary REST errors retain their response contract.
