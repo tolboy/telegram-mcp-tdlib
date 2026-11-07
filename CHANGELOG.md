@@ -5,6 +5,19 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- Uploads are copied from an opened file before TDLib reads them. Replacing
+  the caller's path during the send does not change those bytes. The copy is
+  deleted after a definite result and kept for 24 hours when the send outcome
+  is UNKNOWN. Snapshot storage is capped at four times the configured maximum
+  file size.
+- Session directories now reject a POSIX ancestor that is group- or
+  world-writable without the sticky bit. Windows ancestor replace rights are
+  logged. Send receipts in status SENT, SCHEDULED, or UNKNOWN cannot be
+  deleted. See [session security and retention](docs/SESSION_SECURITY_AND_RETENTION.md).
+- TDLib `3.5.9+td.1.8.68` and MCP Java SDK `2.1.0` are pinned by
+  `DependencyUpgradeGateTest`. A bump has to change that test and add an
+  Unreleased line `Dependency upgrade: tdlight=<version> mcp-sdk=<version>`.
+
 - Streamable HTTP `notifications/cancelled` stops the local TDLib wait and
   releases the caller's concurrency permit. A send already handed to TDLib
   stays UNKNOWN. The TDLib future is not cancelled, and an HTTP disconnect is

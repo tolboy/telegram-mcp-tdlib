@@ -32,6 +32,11 @@ class FileSecurityService(
 ) {
 
     private val log = StructuredLogger.forClass<FileSecurityService>()
+    private val uploadSnapshots = UploadSnapshots(
+        root = platformPaths.applicationDataDirectory.resolve("upload-snapshots"),
+        maxFileBytes = props.fileSecurity.maxFileSizeBytes,
+        maxTotalBytes = props.fileSecurity.maxFileSizeBytes.coerceAtLeast(1) * 4,
+    )
 
     private val allowedRoots: List<Path> =
         props.fileSecurity.allowedRoots
@@ -152,6 +157,14 @@ class FileSecurityService(
 
         return path
     }
+
+    /** Validates [rawPath], copies its opened bytes, and gives TDLib only the copy. */
+    fun <T> withStagedUpload(rawPath: String, block: (Path) -> T): T =
+        uploadSnapshots.use(validateForUpload(rawPath), block)
+
+    /** Same as [withStagedUpload] for every member of an album. One unknown outcome retains every copy. */
+    fun <T> withStagedUploads(rawPaths: List<String>, block: (List<Path>) -> T): T =
+        uploadSnapshots.useAll(rawPaths.map { validateForUpload(it) }, block)
 
     /**
      * Validates a target directory for download operations.

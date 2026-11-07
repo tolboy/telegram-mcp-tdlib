@@ -43,7 +43,11 @@ class SendAlbumToolTest {
         operationGuardService = mockk(relaxed = true)
         fileSecurityService = mockk(relaxed = true)
         every { entityResolver.resolve(42 as Any) } returns 42L
-        every { fileSecurityService.validateForUpload(any<String>()) } answers { Path.of("/safe" + firstArg<String>()) }
+        every { fileSecurityService.withStagedUploads<Any?>(any(), any()) } answers {
+            @Suppress("UNCHECKED_CAST")
+            val paths = (args[0] as List<String>).map { Path.of("/safe$it") }
+            (args[1] as (List<Path>) -> Any?).invoke(paths)
+        }
         tool = SendAlbumTool(
             telegramClient = telegramClient,
             entityResolver = entityResolver,
@@ -78,8 +82,7 @@ class SendAlbumToolTest {
                 AlbumItem(Path.of("/safe/tmp/b.mp4").toString(), AlbumItemType.VIDEO, null),
             ))
         }
-        verify { fileSecurityService.validateForUpload("/tmp/a.jpg") }
-        verify { fileSecurityService.validateForUpload("/tmp/b.mp4") }
+        verify { fileSecurityService.withStagedUploads(listOf("/tmp/a.jpg", "/tmp/b.mp4"), any()) }
     }
 
     @Test
@@ -99,7 +102,7 @@ class SendAlbumToolTest {
             "items" to listOf(item("/tmp/a.jpg", "photo"), item("/tmp/b.pdf", "document"))))
 
         assertTrue(result.isError)
-        verify(exactly = 0) { fileSecurityService.validateForUpload(any<String>()) }
+        verify(exactly = 0) { fileSecurityService.withStagedUploads(any(), any()) }
         verify(exactly = 0) { telegramClient.sendAlbum(any(), any()) }
     }
 

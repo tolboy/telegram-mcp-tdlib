@@ -70,8 +70,9 @@ class SendOperationJournal(private val root: Path, private val mapper: ObjectMap
                 throw SendOperationConflictException()
             }
             if (receipt.status != REJECTED) return@locked receipt.payload(replayed = true)
-            // Nothing was sent last time: an unchanged retry starts a fresh attempt.
-            io { Files.delete(path) }
+            // Nothing was sent last time. A SENT or UNKNOWN receipt is never deleted:
+            // removing it would make the same idempotency key look new.
+            io { deleteRejected(path) }
         }
         beforeSend()
         val reservation = Reservation(operationId = operationId, chatId = chatId, fingerprint = fingerprint)
@@ -182,6 +183,14 @@ class SendOperationJournal(private val root: Path, private val mapper: ObjectMap
 
     private fun directoryPermissions() = if (root.fileSystem.supportedFileAttributeViews().contains("posix"))
         arrayOf(PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------"))) else emptyArray()
+
+    private fun deleteRejected(path: Path) {
+        val (_, receipt) = read(path)
+        check(receipt.status == REJECTED) {
+            "Refusing to delete a send receipt in status ${receipt.status}; that record is what prevents a duplicate send"
+        }
+        Files.delete(path)
+    }
 
     private fun <T> io(action: () -> T): T = try { action() } catch (error: Exception) { throw SendJournalException(error) }
 

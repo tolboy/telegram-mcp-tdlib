@@ -157,6 +157,49 @@ object LocalAccessChecks {
         if (Files.getFileAttributeView(path, java.nio.file.attribute.PosixFileAttributeView::class.java) != null) {
             Files.setPosixFilePermissions(path, ownerOnly)
         }
+        auditSessionAncestors(path)
+    }
+
+    /**
+     * A protected directory is only as private as the parents that can rename it
+     * away. POSIX ancestors that are group- or world-writable without the sticky
+     * bit fail startup. Windows ancestor ACLs are audited and logged: a normal
+     * profile grants broad read, and refusing those would lock out the operator.
+     */
+    fun auditSessionAncestors(path: Path) {
+        var current = path.toAbsolutePath().normalize().parent
+        while (current != null && current.nameCount > 0) {
+            val mode = runCatching { Files.getAttribute(current, "unix:mode") as Int }.getOrNull()
+            if (mode != null) {
+                require(!posixAncestorAllowsReplacement(mode)) {
+                    "Session directory ancestor $current is writable by group or others without the sticky bit"
+                }
+            } else {
+                runCatching {
+                    val view = Files.getFileAttributeView(
+                        current, AclFileAttributeView::class.java, LinkOption.NOFOLLOW_LINKS,
+                    ) ?: return@runCatching
+                    val findings = classify(view.acl, view.owner, defaultSidResolver, DIRECTORY_REPLACE_PERMISSIONS)
+                    if (findings.broad.isNotEmpty()) {
+                        log.warn(
+                            "Session directory ancestor {} can be replaced by shared Windows groups: {}",
+                            current,
+                            findings.broad.joinToString(),
+                        )
+                    }
+                }
+            }
+            val parent = current.parent
+            if (parent == null || parent == current) break
+            current = parent
+        }
+    }
+
+    /** True when this POSIX mode lets someone other than the owner replace entries and the sticky bit is absent. */
+    internal fun posixAncestorAllowsReplacement(mode: Int): Boolean {
+        val sharedWrite = mode and 0b000_010_010 != 0
+        val sticky = mode and 0b001_000_000_000 != 0
+        return sharedWrite && !sticky
     }
 
     /**

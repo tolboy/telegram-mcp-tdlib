@@ -73,14 +73,15 @@ class SendStickerTool(
                 ?: throw InvalidToolInputException("file_path is required")
             val emoji = arguments["emoji"]?.toString()?.takeIf { it.isNotBlank() }
 
-            val validatedPath = fileSecurityService.validateForUpload(rawPath)
             guardrailService.validateChatAccess(chatId)
 
-            log.withTool(TOOL_NAME).info("Sending sticker '{}' to chat {}", validatedPath, chatId)
-            val message = dev.telegrammcp.server.tool.RecoverableSend.execute(sendOperations, operationGuardService, TOOL_NAME,
-                arguments, chatId, listOf(validatedPath.toString(), emoji,
-                    dev.telegrammcp.server.tool.RecoverableSend.fileFingerprint(arguments, validatedPath))) {
-                telegramClient.sendSticker(chatId, validatedPath.toString(), emoji)
+            log.withTool(TOOL_NAME).info("Sending sticker '{}' to chat {}", rawPath, chatId)
+            val message = fileSecurityService.withStagedUpload(rawPath) { staged ->
+                dev.telegrammcp.server.tool.RecoverableSend.execute(sendOperations, operationGuardService, TOOL_NAME,
+                    arguments, chatId, listOf(staged.toString(), emoji,
+                        dev.telegrammcp.server.tool.RecoverableSend.fileFingerprint(arguments, staged))) {
+                    telegramClient.sendSticker(chatId, staged.toString(), emoji)
+                }
             }
             auditService.record(TOOL_NAME, arguments, AuditOutcome.SUCCESS)
 

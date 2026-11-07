@@ -94,18 +94,17 @@ class SendFileTool(
 
             log.withTool(TOOL_NAME).info("Sending file '{}' to chat {}", rawFilePath, chatId)
 
-            // Validate file path security
-            val validatedPath = fileSecurityService.validateForUpload(rawFilePath)
-
             guardrailService.validateChatAccess(chatId)
             if (caption != null) {
                 guardrailService.validateInput(caption)
             }
 
-            dev.telegrammcp.server.tool.RecoverableSend.execute(sendOperations, operationGuardService, TOOL_NAME,
-                arguments, chatId, listOf(validatedPath.toString(), caption,
-                    dev.telegrammcp.server.tool.RecoverableSend.fileFingerprint(arguments, validatedPath))) {
-                telegramClient.sendFile(chatId, validatedPath.toString(), caption)
+            fileSecurityService.withStagedUpload(rawFilePath) { staged ->
+                dev.telegrammcp.server.tool.RecoverableSend.execute(sendOperations, operationGuardService, TOOL_NAME,
+                    arguments, chatId, listOf(staged.toString(), caption,
+                        dev.telegrammcp.server.tool.RecoverableSend.fileFingerprint(arguments, staged))) {
+                    telegramClient.sendFile(chatId, staged.toString(), caption)
+                }
             }
     }
 

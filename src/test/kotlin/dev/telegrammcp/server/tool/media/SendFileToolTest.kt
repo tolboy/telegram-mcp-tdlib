@@ -69,7 +69,10 @@ class SendFileToolTest {
             mediaType = "document",
         )
         every { entityResolver.resolve(42 as Any) } returns 42L
-        every { fileSecurityService.validateForUpload("/data/test.pdf") } returns Path.of("/data/test.pdf")
+        every { fileSecurityService.withStagedUpload<Any?>("/data/test.pdf", any()) } answers {
+            @Suppress("UNCHECKED_CAST")
+            (args[1] as (java.nio.file.Path) -> Any?).invoke(java.nio.file.Path.of("/data/test.pdf"))
+        }
         every { telegramClient.sendFile(42L, any(), null) } returns sentMsg
 
         val result = tool.executeChecked(
@@ -100,7 +103,7 @@ class SendFileToolTest {
     @Test
     fun `blocked by file security violation`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
-        every { fileSecurityService.validateForUpload("/etc/passwd") } throws
+        every { fileSecurityService.withStagedUpload<Any?>("/etc/passwd", any()) } throws FileSecurityException("denied")
             FileSecurityException("Path is outside allowed file system roots")
 
         val result = tool.executeChecked(
@@ -132,7 +135,10 @@ class SendFileToolTest {
             mediaType = "document",
         )
         every { entityResolver.resolve(42 as Any) } returns 42L
-        every { fileSecurityService.validateForUpload("/data/doc.pdf") } returns Path.of("/data/doc.pdf")
+        every { fileSecurityService.withStagedUpload<Any?>("/data/doc.pdf", any()) } answers {
+            @Suppress("UNCHECKED_CAST")
+            (args[1] as (java.nio.file.Path) -> Any?).invoke(java.nio.file.Path.of("/data/doc.pdf"))
+        }
         every { telegramClient.sendFile(42L, any(), "See this file") } returns sentMsg
 
         val result = tool.executeChecked(

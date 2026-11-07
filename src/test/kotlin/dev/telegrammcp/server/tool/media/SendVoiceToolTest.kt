@@ -68,7 +68,10 @@ class SendVoiceToolTest {
     fun `sends voice note successfully`() {
         val msg = TelegramMessage(1, 42, "Test", "Alice", text = null, date = Instant.now(), mediaType = "voiceNote")
         every { entityResolver.resolve(42 as Any) } returns 42L
-        every { fileSecurityService.validateForUpload("/tmp/voice.ogg") } returns Path.of("/tmp/voice.ogg")
+        every { fileSecurityService.withStagedUpload<Any?>("/tmp/voice.ogg", any()) } answers {
+            @Suppress("UNCHECKED_CAST")
+            (args[1] as (Path) -> Any?).invoke(Path.of("/tmp/voice.ogg"))
+        }
         every { telegramClient.sendVoice(42L, any(), 30, "caption") } returns msg
 
         val result = tool.executeChecked(
@@ -78,7 +81,7 @@ class SendVoiceToolTest {
 
         assertFalse(result.isError)
         verify { operationGuardService.checkPermission("send_voice", any()) }
-        verify { fileSecurityService.validateForUpload("/tmp/voice.ogg") }
+        verify { fileSecurityService.withStagedUpload("/tmp/voice.ogg", any()) }
     }
 
     @Test
@@ -101,7 +104,7 @@ class SendVoiceToolTest {
             val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "file_path" to "/tmp/voice.ogg", "duration" to duration))
             assertTrue(result.isError)
         }
-        verify(exactly = 0) { fileSecurityService.validateForUpload(any()) }
+        verify(exactly = 0) { fileSecurityService.withStagedUpload(any(), any()) }
         verify(exactly = 0) { telegramClient.sendVoice(any(), any(), any(), any()) }
     }
 }

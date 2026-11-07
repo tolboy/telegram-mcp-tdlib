@@ -23,6 +23,14 @@ class LocalAccessChecksTest {
     lateinit var tempDir: Path
 
     @Test
+    fun `a posix ancestor may be replaced only when shared write lacks the sticky bit`() {
+        assertTrue(LocalAccessChecks.posixAncestorAllowsReplacement(0b000_000_010))
+        assertTrue(LocalAccessChecks.posixAncestorAllowsReplacement(0b000_010_000))
+        assertFalse(LocalAccessChecks.posixAncestorAllowsReplacement(0b001_000_000_010))
+        assertFalse(LocalAccessChecks.posixAncestorAllowsReplacement(0b111_000_000))
+    }
+
+    @Test
     fun `shared windows principals include the multi-user builtin group and SID forms`() {
         assertTrue(LocalAccessChecks.isSharedPrincipal("Everyone"))
         assertTrue(LocalAccessChecks.isSharedPrincipal("NT AUTHORITY\\Authenticated Users"))

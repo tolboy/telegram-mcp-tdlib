@@ -65,7 +65,10 @@ class EditChatPhotoToolTest {
     @Test
     fun `sets chat photo successfully`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
-        every { fileSecurityService.validateForUpload("/tmp/photo.jpg") } returns Path.of("/tmp/photo.jpg")
+        every { fileSecurityService.withStagedUpload<Any?>("/tmp/photo.jpg", any()) } answers {
+            @Suppress("UNCHECKED_CAST")
+            (args[1] as (Path) -> Any?).invoke(Path.of("/tmp/photo.jpg"))
+        }
         every { telegramClient.setChatPhoto(42L, any()) } returns true
 
         val result = tool.executeChecked(
@@ -75,7 +78,7 @@ class EditChatPhotoToolTest {
 
         assertFalse(result.isError)
         verify { operationGuardService.checkPermission("edit_chat_photo", any()) }
-        verify { fileSecurityService.validateForUpload("/tmp/photo.jpg") }
+        verify { fileSecurityService.withStagedUpload("/tmp/photo.jpg", any()) }
     }
 
     @Test

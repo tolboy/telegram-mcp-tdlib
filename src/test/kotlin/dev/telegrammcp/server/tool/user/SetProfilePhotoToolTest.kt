@@ -56,14 +56,17 @@ class SetProfilePhotoToolTest {
 
     @Test
     fun `sets profile photo successfully`() {
-        every { fileSecurityService.validateForUpload("/tmp/photo.jpg") } returns Path.of("/tmp/photo.jpg")
+        every { fileSecurityService.withStagedUpload<Any?>("/tmp/photo.jpg", any()) } answers {
+            @Suppress("UNCHECKED_CAST")
+            (args[1] as (Path) -> Any?).invoke(Path.of("/tmp/photo.jpg"))
+        }
         every { telegramClient.setProfilePhoto(any()) } returns true
 
         val result = tool.executeChecked(exchange, mapOf("file_path" to "/tmp/photo.jpg"))
 
         assertFalse(result.isError)
         verify { operationGuardService.checkPermission("set_profile_photo", any()) }
-        verify { fileSecurityService.validateForUpload("/tmp/photo.jpg") }
+        verify { fileSecurityService.withStagedUpload("/tmp/photo.jpg", any()) }
     }
 
     @Test

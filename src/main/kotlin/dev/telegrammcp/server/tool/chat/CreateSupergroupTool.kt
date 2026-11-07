@@ -152,11 +152,11 @@ class CreateSupergroupTool(
         if (description.isNotBlank()) guardrailService.validateInput(description)
         topics.forEach { guardrailService.validateInput(it.name) }
 
-        val validatedPhoto = photoPath?.let { fileSecurityService.validateForUpload(it) }
+        photoPath?.let { fileSecurityService.validateForUpload(it) }
 
         log.withTool(TOOL_NAME).info(
             "Creating supergroup '{}' (forum={}, topics={}, photo={})",
-            title, enableForumTopics, topics.size, validatedPhoto != null,
+            title, enableForumTopics, topics.size, photoPath != null,
         )
 
         // 1. Create + verify type. createSupergroupOrChannel re-polls getChat
@@ -184,9 +184,11 @@ class CreateSupergroupTool(
 
         // 3. Optional photo upload (best-effort).
         var photoSet = false
-        if (validatedPhoto != null) {
+        if (photoPath != null) {
             runCatching {
-                telegramClient.setChatPhoto(chat.chatId, validatedPhoto.toString())
+                fileSecurityService.withStagedUpload(photoPath) { staged ->
+                    telegramClient.setChatPhoto(chat.chatId, staged.toString())
+                }
             }.onSuccess { photoSet = it }
                 .onFailure { error ->
                     warnings.add("edit_chat_photo failed: ${error.message}")
