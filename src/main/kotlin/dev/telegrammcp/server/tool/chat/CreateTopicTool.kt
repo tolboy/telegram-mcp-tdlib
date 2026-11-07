@@ -9,6 +9,7 @@ import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
 import dev.telegrammcp.server.tool.ToolSupport
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
 import io.modelcontextprotocol.server.McpSyncServerExchange
@@ -51,7 +52,7 @@ class CreateTopicTool(
           "type": "object",
           "properties": {
             "chat_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Forum-enabled supergroup chat identifier (ID/@username/+phone)"
             },
             "name": {
@@ -59,11 +60,11 @@ class CreateTopicTool(
               "description": "Topic name (1-128 chars)"
             },
             "icon_color": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Optional topic icon color. Allowed: 0x6FB9F0, 0xFFD67E, 0xCB86DB, 0x8EEE98, 0xFF93B2, 0xFB6F5F"
             },
             "custom_emoji_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Optional custom emoji ID for the topic icon"
             }
           },
@@ -103,13 +104,13 @@ class CreateTopicTool(
         val chatId = entityResolver.resolve(
             arguments["chat_id"] ?: throw InvalidToolInputException("chat_id is required"),
         )
-        val iconColor = parseIconColor(arguments["icon_color"])
+        val iconColor = if (arguments.containsKey("icon_color")) parseIconColor(arguments["icon_color"]) else null
         if (iconColor != null && iconColor !in ALLOWED_ICON_COLORS) {
             throw InvalidToolInputException(
                 "icon_color must be one of ${ALLOWED_ICON_COLORS.joinToString { "0x${it.toString(16).uppercase()}" }}",
             )
         }
-        val customEmojiId = parseLong(arguments["custom_emoji_id"], "custom_emoji_id")
+        val customEmojiId = ToolNumbers.optionalLong(arguments, "custom_emoji_id")
 
         guardrailService.validateInput(name)
         guardrailService.validateChatAccess(chatId)
@@ -119,9 +120,8 @@ class CreateTopicTool(
     }
 
     private fun parseIconColor(raw: Any?): Int? {
-        if (raw == null) return null
         return when (raw) {
-            is Number -> raw.toInt()
+            is Number -> ToolNumbers.int(raw, "icon_color")
             is String -> {
                 val value = raw.trim()
                 if (value.isBlank()) return null
@@ -129,23 +129,13 @@ class CreateTopicTool(
                     if (value.startsWith("0x", ignoreCase = true)) {
                         value.removePrefix("0x").removePrefix("0X").toInt(16)
                     } else {
-                        value.toInt()
+                        ToolNumbers.int(value, "icon_color")
                     }
                 }.getOrElse {
                     throw InvalidToolInputException("icon_color must be an integer or hex string")
                 }
             }
             else -> throw InvalidToolInputException("icon_color must be an integer or hex string")
-        }
-    }
-
-    private fun parseLong(raw: Any?, field: String): Long? {
-        if (raw == null) return null
-        return when (raw) {
-            is Number -> raw.toLong()
-            is String -> raw.trim().takeIf { it.isNotBlank() }?.toLongOrNull()
-                ?: throw InvalidToolInputException("$field must be an integer")
-            else -> throw InvalidToolInputException("$field must be an integer")
         }
     }
 }

@@ -28,7 +28,7 @@ class GetSendOperationTool(
         "get_send_operation",
         "Read the selected account's saved send receipt. SENT confirms a stored final message ID; UNKNOWN requires checking delivery, never automatic resend; NOT_FOUND means no saved reservation; REJECTED means Telegram refused before sending (flood wait), so an identical retry with the same key sends again. An active send returns OPERATION_IN_PROGRESS.",
         """{"type":"object","properties":{
-          "chat_id":{"type":["string","number"],"description":"Destination chat identifier, as used for the send."},
+          "chat_id":{"type":["string","integer"],"description":"Destination chat identifier, as used for the send."},
           "idempotency_key":{"type":"string","description":"Key supplied to send_message or reply_to_message."}
         },"required":["chat_id","idempotency_key"]}""", mapper,
         dataSchema = dev.telegrammcp.server.tool.ToolOutputSchemas.receipt,

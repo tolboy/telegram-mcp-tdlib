@@ -6,6 +6,7 @@ import dev.telegrammcp.server.exception.InvalidToolInputException
 import dev.telegrammcp.server.model.ChatType
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
@@ -48,7 +49,7 @@ class ListChatsTool(
           "type": "object",
           "properties": {
             "limit": {
-              "type": "number",
+              "type": "integer",
               "description": "Max number of chats to return (1–200, default 50)"
             },
             "filter": {
@@ -108,13 +109,8 @@ class ListChatsTool(
     }
 
     private fun extractLimit(args: Map<String, Any>): Int {
-        val raw = args["limit"] ?: return DEFAULT_LIMIT
-        val limit = when (raw) {
-            is Number -> raw.toInt()
-            is String -> raw.toIntOrNull()
-                ?: throw InvalidToolInputException("limit must be a valid integer")
-            else -> throw InvalidToolInputException("limit must be a number")
-        }
+        if (!args.containsKey("limit")) return DEFAULT_LIMIT
+        val limit = ToolNumbers.int(args["limit"], "limit")
         return limit.coerceIn(1, MAX_LIMIT)
     }
 

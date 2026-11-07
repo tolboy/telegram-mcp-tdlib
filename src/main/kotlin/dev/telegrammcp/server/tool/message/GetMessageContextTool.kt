@@ -1,5 +1,6 @@
 ﻿package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.ToolNumbers
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.exception.InvalidToolInputException
@@ -39,9 +40,9 @@ class GetMessageContextTool(
         {
           "type": "object",
           "properties": {
-            "chat_id": { "type": ["string", "number"], "description": "Chat identifier (ID/@username/+phone)" },
-            "message_id": { "type": "number", "description": "Target message ID" },
-            "context_size": { "type": "number", "description": "Total messages around the target (default 6, max 100)" }
+            "chat_id": { "type": ["string", "integer"], "description": "Chat identifier (ID/@username/+phone)" },
+            "message_id": { "type": "integer", "description": "Target message ID" },
+            "context_size": { "type": "integer", "description": "Total messages around the target (default 6, max 100)" }
           },
           "required": ["chat_id", "message_id"]
         }
@@ -61,10 +62,8 @@ class GetMessageContextTool(
             val chatId = entityResolver.resolve(
                 arguments["chat_id"] ?: throw InvalidToolInputException("chat_id is required"),
             )
-            val messageId = (arguments["message_id"] as? Number)?.toLong()
-                ?: arguments["message_id"]?.toString()?.toLongOrNull()
-                ?: throw InvalidToolInputException("message_id is required and must be a number")
-            val contextSize = ((arguments["context_size"] as? Number)?.toInt() ?: DEFAULT_CONTEXT)
+            val messageId = ToolNumbers.long(arguments["message_id"] ?: throw InvalidToolInputException("message_id is required and must be a number"), "message_id")
+            val contextSize = (ToolNumbers.optionalInt(arguments, "context_size") ?: DEFAULT_CONTEXT)
                 .coerceIn(1, MAX_CONTEXT)
 
             guardrailService.validateChatAccess(chatId)

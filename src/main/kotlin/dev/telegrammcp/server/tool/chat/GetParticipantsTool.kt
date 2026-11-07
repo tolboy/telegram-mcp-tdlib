@@ -6,6 +6,7 @@ import dev.telegrammcp.server.exception.InvalidToolInputException
 import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
@@ -51,7 +52,7 @@ class GetParticipantsTool(
           "type": "object",
           "properties": {
             "chat_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Chat identifier: numeric ID, @username, +phone, or the canonical value self"
             },
             "query": {
@@ -59,11 +60,11 @@ class GetParticipantsTool(
               "description": "Filter members by name or username (optional)"
             },
             "limit": {
-              "type": "number",
+              "type": "integer",
               "description": "Max members to return (1–200, default 50)"
             },
             "offset": {
-              "type": "number",
+              "type": "integer",
               "description": "Pagination offset (default 0)"
             }
           },
@@ -110,24 +111,14 @@ class GetParticipantsTool(
     }
 
     private fun extractLimit(args: Map<String, Any>): Int {
-        val raw = args["limit"] ?: return DEFAULT_LIMIT
-        val limit = when (raw) {
-            is Number -> raw.toInt()
-            is String -> raw.toIntOrNull()
-                ?: throw InvalidToolInputException("limit must be a valid integer")
-            else -> throw InvalidToolInputException("limit must be a number")
-        }
+        if (!args.containsKey("limit")) return DEFAULT_LIMIT
+        val limit = ToolNumbers.int(args["limit"], "limit")
         return limit.coerceIn(1, MAX_LIMIT)
     }
 
     private fun extractOffset(args: Map<String, Any>): Int {
-        val raw = args["offset"] ?: return 0
-        return when (raw) {
-            is Number -> raw.toInt()
-            is String -> raw.toIntOrNull()
-                ?: throw InvalidToolInputException("offset must be a valid integer")
-            else -> throw InvalidToolInputException("offset must be a number")
-        }
+        if (!args.containsKey("offset")) return 0
+        return ToolNumbers.int(args["offset"], "offset")
     }
 }
 

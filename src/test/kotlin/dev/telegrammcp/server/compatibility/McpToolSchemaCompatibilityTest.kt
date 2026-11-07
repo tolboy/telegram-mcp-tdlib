@@ -35,6 +35,39 @@ class McpToolSchemaCompatibilityTest {
         }
     }
 
+    @Test
+    fun `identifiers counts and durations advertise integers while geographic values retain decimals`() {
+        val realValuedInputs = mapOf(
+            "send_location" to setOf("$.properties.latitude", "$.properties.longitude", "$.properties.horizontal_accuracy"),
+            "send_venue" to setOf("$.properties.latitude", "$.properties.longitude"),
+        )
+        val definitions = handlers.map { it.definition() }
+        assertTrue(definitions.map { it.name() }.containsAll(realValuedInputs.keys))
+        definitions.forEach { tool ->
+            assertEquals(
+                realValuedInputs[tool.name()].orEmpty(),
+                collectNumberTypes(tool.inputSchema()),
+                "${tool.name()} must use integer for exact identifiers, counts and durations; only geographic inputs accept fractional values",
+            )
+        }
+    }
+
+    /** Includes array items, nested objects and union type arrays, not just top-level properties. */
+    private fun collectNumberTypes(value: Any?, path: String = "$"): Set<String> = when (value) {
+        is Map<*, *> -> buildSet {
+            val types = value["type"]
+            if (types == "number" || types is Iterable<*> && "number" in types) add(path)
+            value.forEach { (key, nested) -> addAll(collectNumberTypes(nested, "$path.$key")) }
+        }
+        is Iterable<*> -> value.withIndex().flatMapTo(mutableSetOf()) { (index, nested) ->
+            collectNumberTypes(nested, "$path[$index]")
+        }
+        is Array<*> -> value.withIndex().flatMapTo(mutableSetOf()) { (index, nested) ->
+            collectNumberTypes(nested, "$path[$index]")
+        }
+        else -> emptySet()
+    }
+
     private fun collectUnsupportedKeywords(value: Any?): Set<String> = when (value) {
         is Map<*, *> -> value.entries.flatMapTo(mutableSetOf()) { (key, nested) ->
             buildSet {

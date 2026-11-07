@@ -6,6 +6,7 @@ import dev.telegrammcp.server.exception.InvalidToolInputException
 import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
@@ -40,11 +41,11 @@ class GetAdminsTool(
           "type": "object",
           "properties": {
             "chat_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Chat identifier (ID/@username/+phone)"
             },
             "limit": {
-              "type": "number",
+              "type": "integer",
               "description": "Max admins to return (1-200, default 50)"
             }
           },
@@ -74,7 +75,7 @@ class GetAdminsTool(
             val chatId = entityResolver.resolve(
                 arguments["chat_id"] ?: throw InvalidToolInputException("chat_id is required"),
             )
-            val limit = ((arguments["limit"] as? Number)?.toInt() ?: DEFAULT_LIMIT)
+            val limit = (ToolNumbers.optionalInt(arguments, "limit") ?: DEFAULT_LIMIT)
                 .coerceIn(1, MAX_LIMIT)
 
             guardrailService.validateChatAccess(chatId)

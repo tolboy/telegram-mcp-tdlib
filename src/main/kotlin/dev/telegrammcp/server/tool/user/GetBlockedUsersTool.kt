@@ -5,6 +5,7 @@ import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.model.AuditOutcome
 import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Timer
@@ -34,7 +35,7 @@ class GetBlockedUsersTool(
         {
           "type": "object",
           "properties": {
-            "limit": { "type": "number", "description": "Max results (1–200, default 100)" }
+            "limit": { "type": "integer", "description": "Max results (1–200, default 100)" }
           },
           "required": []
         }
@@ -51,8 +52,7 @@ class GetBlockedUsersTool(
         val sample = Timer.start(meterRegistry)
 
         return try {
-            val limit = (arguments["limit"] as? Number)?.toInt()
-                ?: arguments["limit"]?.toString()?.toIntOrNull()
+            val limit = ToolNumbers.optionalInt(arguments, "limit")
                 ?: DEFAULT_LIMIT
 
             log.withTool(TOOL_NAME).info("Fetching blocked users (limit={})", limit)

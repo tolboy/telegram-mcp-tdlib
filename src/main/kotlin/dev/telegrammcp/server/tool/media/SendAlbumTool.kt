@@ -53,7 +53,7 @@ class SendAlbumTool(
           "type": "object",
           "properties": {
             "chat_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Chat identifier: numeric ID, @username, +phone, or the canonical value self"
             },
             "items": {

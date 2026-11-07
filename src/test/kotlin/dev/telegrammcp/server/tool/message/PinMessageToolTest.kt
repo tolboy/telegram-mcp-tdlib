@@ -101,5 +101,24 @@ class PinMessageToolTest {
         val text = (result.content.first() as McpSchema.TextContent).text()
         assertTrue(text.contains("message_id is required"))
     }
+
+    @Test
+    fun `fractional or overflowing message identifiers cannot pin a different message`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        for (id in listOf<Any>(10.9, Double.NaN, 1.0000000000000001E18, java.math.BigInteger("9223372036854775808"))) {
+            val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to id))
+            assertTrue(result.isError)
+        }
+        verify(exactly = 0) { telegramClient.pinMessage(any(), any(), any()) }
+    }
+
+    @Test
+    fun `decimal string identifiers preserve all int64 bits`() {
+        val id = (1L shl 54) + 1
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.pinMessage(42L, id, false) } returns true
+        assertFalse(tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to id.toString())).isError)
+        verify { telegramClient.pinMessage(42L, id, false) }
+    }
 }
 

@@ -9,6 +9,7 @@ import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Timer
@@ -43,11 +44,11 @@ class PromoteAdminTool(
           "type": "object",
           "properties": {
             "chat_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Chat identifier"
             },
             "user_id": {
-              "type": "number",
+              "type": "integer",
               "description": "User ID to promote"
             }
           },
@@ -71,8 +72,7 @@ class PromoteAdminTool(
             val chatId = entityResolver.resolve(
                 arguments["chat_id"] ?: throw InvalidToolInputException("chat_id is required"),
             )
-            val userId = (arguments["user_id"] as? Number)?.toLong()
-                ?: throw InvalidToolInputException("user_id is required")
+            val userId = ToolNumbers.long(arguments["user_id"] ?: throw InvalidToolInputException("user_id is required"), "user_id")
 
             log.withTool(TOOL_NAME).info("Promoting user {} to admin in chat {}", userId, chatId)
 

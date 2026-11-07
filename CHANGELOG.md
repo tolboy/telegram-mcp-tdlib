@@ -5,6 +5,13 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- Parse integer tool arguments through one exact conversion layer. IDs, counts,
+  durations and numeric timestamps reject fractions, overflow and malformed
+  optional values instead of truncating or falling back to another operation.
+  Participant/message batches reject any invalid element as a whole. In
+  particular, invalid `photo_id` cannot become deletion of the current photo.
+  Input schemas now advertise `integer`; geographic coordinates retain `number`.
+
 - Restrict the authentication/setup HTTP API to direct loopback requests,
   including when an MCP API key or OAuth token is supplied. Reject ambiguous
   API-key identities/credentials and group-writable POSIX secret-file parents

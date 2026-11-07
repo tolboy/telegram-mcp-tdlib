@@ -9,6 +9,7 @@ import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
 import dev.telegrammcp.server.tool.ToolSupport
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
 import io.modelcontextprotocol.server.McpSyncServerExchange
@@ -17,17 +18,14 @@ import org.springframework.stereotype.Component
 
 internal object ModerationArguments {
     const val CHAT_ID_SCHEMA =
-        """{ "type": ["string", "number"], "description": "Chat identifier (ID/@username) of a group or channel you administer" }"""
+        """{ "type": ["string", "integer"], "description": "Chat identifier (ID/@username) of a group or channel you administer" }"""
 
     fun chatId(entityResolver: EntityResolverService, arguments: Map<String, Any>): Long =
         entityResolver.resolve(arguments["chat_id"] ?: throw InvalidToolInputException("chat_id is required"))
 
     fun numericId(arguments: Map<String, Any>, key: String): Long {
         val raw = arguments[key] ?: throw InvalidToolInputException("$key is required")
-        val value = when (raw) {
-            is Number -> raw.toDouble().takeIf { it == Math.floor(it) && it.isFinite() }?.toLong()
-            else -> raw.toString().trim().toLongOrNull()
-        } ?: throw InvalidToolInputException("$key must be a numeric Telegram ID")
+        val value = ToolNumbers.long(raw, key)
         if (value == 0L) throw InvalidToolInputException("$key must not be 0")
         return value
     }
@@ -60,7 +58,7 @@ class ListJoinRequestsTool(
             "chat_id": ${ModerationArguments.CHAT_ID_SCHEMA},
             "query": { "type": "string", "description": "Optional filter on the requester's name or username" },
             "invite_link": { "type": "string", "description": "Optional invite link; only requests made through it are returned" },
-            "limit": { "type": "number", "minimum": 1, "maximum": 100, "description": "Max requests to return (default 50, max 100)" }
+            "limit": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Max requests to return (default 50, max 100)" }
           },
           "required": ["chat_id"]
         }
@@ -77,10 +75,7 @@ class ListJoinRequestsTool(
     override fun execute(exchange: McpSyncServerExchange, arguments: Map<String, Any>): McpSchema.CallToolResult =
         ToolSupport.execute(TOOL_NAME, arguments, objectMapper, meterRegistry, log, "Failed to list join requests", auditService) {
             val chatId = ModerationArguments.chatId(entityResolver, arguments)
-            val limit = arguments["limit"]?.let {
-                (it as? Number)?.toInt() ?: it.toString().toIntOrNull()
-                    ?: throw InvalidToolInputException("limit must be a number")
-            } ?: 50
+            val limit = if (arguments.containsKey("limit")) ToolNumbers.int(arguments["limit"], "limit") else 50
             if (limit !in 1..100) throw InvalidToolInputException("limit must be between 1 and 100")
             val query = arguments["query"]?.toString()?.trim().orEmpty()
             val inviteLink = arguments["invite_link"]?.toString()?.trim().orEmpty()
@@ -118,7 +113,7 @@ class ProcessJoinRequestTool(
           "type": "object",
           "properties": {
             "chat_id": ${ModerationArguments.CHAT_ID_SCHEMA},
-            "user_id": { "type": ["string", "number"], "description": "Numeric user ID from list_join_requests" },
+            "user_id": { "type": ["string", "integer"], "description": "Numeric user ID from list_join_requests" },
             "action": { "type": "string", "enum": ["approve", "decline"], "description": "approve adds the user to the chat; decline rejects the request" }
           },
           "required": ["chat_id", "user_id", "action"]
@@ -178,7 +173,7 @@ class DeleteMessagesBySenderTool(
           "type": "object",
           "properties": {
             "chat_id": ${ModerationArguments.CHAT_ID_SCHEMA},
-            "sender_id": { "type": ["string", "number"], "description": "Numeric sender ID: a user ID, or a negative chat ID for messages sent on behalf of a chat" },
+            "sender_id": { "type": ["string", "integer"], "description": "Numeric sender ID: a user ID, or a negative chat ID for messages sent on behalf of a chat" },
             "confirmed": { "type": "boolean", "description": "Set to true to confirm this destructive operation" }
           },
           "required": ["chat_id", "sender_id"]

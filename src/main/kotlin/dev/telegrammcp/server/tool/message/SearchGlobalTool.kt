@@ -6,6 +6,7 @@ import dev.telegrammcp.server.exception.InvalidToolInputException
 import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
@@ -44,7 +45,7 @@ class SearchGlobalTool(
               "description": "Search query (max 256 characters)"
             },
             "limit": {
-              "type": "number",
+              "type": "integer",
               "description": "Max results to return (1-100, default: 20)"
             }
           },
@@ -79,7 +80,7 @@ class SearchGlobalTool(
                 throw InvalidToolInputException("query exceeds maximum length of $MAX_QUERY_LENGTH characters")
             }
 
-            val limit = (arguments["limit"] as? Number)?.toInt()?.coerceIn(1, MAX_LIMIT) ?: 20
+            val limit = (ToolNumbers.optionalInt(arguments, "limit") ?: 20).coerceIn(1, MAX_LIMIT)
 
             log.withTool(TOOL_NAME).info("Global search for '{}' (limit={})", query, limit)
 

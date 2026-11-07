@@ -36,7 +36,7 @@ class GetUserStatusTool(
         {
           "type": "object",
           "properties": {
-            "user_id": { "type": ["string", "number"], "description": "User identifier (ID/@username/+phone)" }
+            "user_id": { "type": ["string", "integer"], "description": "User identifier (ID/@username/+phone)" }
           },
           "required": ["user_id"]
         }

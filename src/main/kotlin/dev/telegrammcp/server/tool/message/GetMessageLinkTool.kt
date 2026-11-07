@@ -1,5 +1,6 @@
 package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.ToolNumbers
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.exception.InvalidToolInputException
@@ -37,8 +38,8 @@ class GetMessageLinkTool(
         {
           "type": "object",
           "properties": {
-            "chat_id": { "type": ["string", "number"], "description": "Chat identifier (ID/@username/+phone)" },
-            "message_id": { "type": "number", "description": "Message ID to link" },
+            "chat_id": { "type": ["string", "integer"], "description": "Chat identifier (ID/@username/+phone)" },
+            "message_id": { "type": "integer", "description": "Message ID to link" },
             "for_album": { "type": "boolean", "description": "Link the whole media album when available (default false)" },
             "in_message_thread": { "type": "boolean", "description": "Keep the link inside the current message thread (default false)" }
           },
@@ -69,9 +70,7 @@ class GetMessageLinkTool(
         val chatId = entityResolver.resolve(
             arguments["chat_id"] ?: throw InvalidToolInputException("chat_id is required"),
         )
-        val messageId = (arguments["message_id"] as? Number)?.toLong()
-            ?: arguments["message_id"]?.toString()?.toLongOrNull()
-            ?: throw InvalidToolInputException("message_id is required and must be a number")
+        val messageId = ToolNumbers.long(arguments["message_id"] ?: throw InvalidToolInputException("message_id is required and must be a number"), "message_id")
         val forAlbum = arguments["for_album"].toBooleanArgument("for_album")
         val inMessageThread = arguments["in_message_thread"].toBooleanArgument("in_message_thread")
 

@@ -42,7 +42,7 @@ class DeleteChatPhotoTool(
         {
           "type": "object",
           "properties": {
-            "chat_id": { "type": ["string", "number"], "description": "Chat identifier" },
+            "chat_id": { "type": ["string", "integer"], "description": "Chat identifier" },
             "confirmed": { "type": "boolean", "description": "Set to true to confirm this destructive operation" }
           },
           "required": ["chat_id"]

@@ -1,5 +1,6 @@
 package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.ToolNumbers
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.exception.InvalidToolInputException
@@ -50,15 +51,15 @@ class GetMessagesTool(
           "type": "object",
           "properties": {
             "chat_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Chat identifier: numeric ID, @username, +phone, or the canonical value self"
             },
             "message_id": {
-              "type": "number",
+              "type": "integer",
               "description": "Target message ID to get context around"
             },
             "context_size": {
-              "type": "number",
+              "type": "integer",
               "description": "Number of messages before and after (1–50, default 5)"
             }
           },
@@ -112,22 +113,13 @@ class GetMessagesTool(
 
     private fun extractMessageId(args: Map<String, Any>): Long {
         val raw = args["message_id"] ?: throw InvalidToolInputException("message_id is required")
-        return when (raw) {
-            is Number -> raw.toLong()
-            is String -> raw.toLongOrNull()
-                ?: throw InvalidToolInputException("message_id must be a valid number")
-            else -> throw InvalidToolInputException("message_id must be a number")
-        }
+        return ToolNumbers.long(raw, "message_id")
     }
 
     private fun extractContextSize(args: Map<String, Any>): Int {
-        val raw = args["context_size"] ?: return DEFAULT_CONTEXT
-        val size = when (raw) {
-            is Number -> raw.toInt()
-            is String -> raw.toIntOrNull()
-                ?: throw InvalidToolInputException("context_size must be a valid integer")
-            else -> throw InvalidToolInputException("context_size must be a number")
-        }
+        if (!args.containsKey("context_size")) return DEFAULT_CONTEXT
+        val raw = args["context_size"]
+        val size = ToolNumbers.int(raw, "context_size")
         return size.coerceIn(1, MAX_CONTEXT)
     }
 }

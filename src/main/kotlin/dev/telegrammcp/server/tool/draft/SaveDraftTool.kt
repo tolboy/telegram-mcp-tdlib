@@ -8,6 +8,7 @@ import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
@@ -39,9 +40,9 @@ class SaveDraftTool(
         {
           "type": "object",
           "properties": {
-            "chat_id": { "type": ["string", "number"], "description": "Chat identifier" },
+            "chat_id": { "type": ["string", "integer"], "description": "Chat identifier" },
             "text": { "type": "string", "description": "Draft text" },
-            "reply_to_message_id": { "type": "number", "description": "Optional message being replied to" }
+            "reply_to_message_id": { "type": "integer", "description": "Optional message being replied to" }
           },
           "required": ["chat_id", "text"]
         }
@@ -74,8 +75,7 @@ class SaveDraftTool(
             )
             val text = arguments["text"]?.toString()
                 ?: throw InvalidToolInputException("text is required")
-            val replyTo = (arguments["reply_to_message_id"] as? Number)?.toLong()
-                ?: arguments["reply_to_message_id"]?.toString()?.toLongOrNull()
+            val replyTo = ToolNumbers.optionalLong(arguments, "reply_to_message_id")
 
             guardrailService.validateChatAccess(chatId)
             guardrailService.validateInput(text)

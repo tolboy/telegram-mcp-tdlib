@@ -40,7 +40,7 @@ class ClearDraftTool(
         {
           "type": "object",
           "properties": {
-            "chat_id": { "type": ["string", "number"], "description": "Chat identifier" }
+            "chat_id": { "type": ["string", "integer"], "description": "Chat identifier" }
           },
           "required": ["chat_id"]
         }

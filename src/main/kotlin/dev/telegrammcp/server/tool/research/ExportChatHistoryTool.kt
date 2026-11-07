@@ -7,6 +7,7 @@ import dev.telegrammcp.server.model.TelegramMessage
 import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
@@ -52,19 +53,19 @@ class ExportChatHistoryTool(
           "type": "object",
           "properties": {
             "chat_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Chat identifier: numeric ID, @username, +phone, or the canonical value self."
             },
             "since": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Inclusive lower date bound. ISO instant, yyyy-MM-dd, or unix seconds."
             },
             "until": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Inclusive upper date bound. ISO instant, yyyy-MM-dd, or unix seconds."
             },
             "limit": {
-              "type": "number",
+              "type": "integer",
               "description": "Max unique messages to return (1-500, default 200)."
             },
             "query_terms": {
@@ -101,8 +102,8 @@ class ExportChatHistoryTool(
         log = log,
         failureMessage = "Failed to export chat history",
     ) {
-        val since = parseInstant(arguments["since"], "since")
-        val until = parseInstant(arguments["until"], "until")
+        val since = parseInstantArgument(arguments, "since")
+        val until = parseInstantArgument(arguments, "until")
         if (since != null && until != null && since.isAfter(until)) {
             throw InvalidToolInputException("since must be before until")
         }
@@ -165,13 +166,8 @@ class ExportChatHistoryTool(
     }
 
     private fun extractLimit(args: Map<String, Any>): Int {
-        val raw = args["limit"] ?: return DEFAULT_LIMIT
-        val limit = when (raw) {
-            is Number -> raw.toInt()
-            is String -> raw.toIntOrNull()
-                ?: throw InvalidToolInputException("limit must be a valid integer")
-            else -> throw InvalidToolInputException("limit must be a number")
-        }
+        if (!args.containsKey("limit")) return DEFAULT_LIMIT
+        val limit = ToolNumbers.int(args["limit"], "limit")
         return limit.coerceIn(1, MAX_LIMIT)
     }
 
@@ -186,17 +182,28 @@ class ExportChatHistoryTool(
             .toList()
     }
 
-    private fun parseInstant(raw: Any?, fieldName: String): Instant? {
-        if (raw == null) return null
-        if (raw is Number) return Instant.ofEpochSecond(raw.toLong())
+    private fun parseInstantArgument(arguments: Map<String, Any>, fieldName: String): Instant? {
+        if (!arguments.containsKey(fieldName)) return null
+        val raw = arguments[fieldName]
+            ?: throw InvalidToolInputException("$fieldName must be ISO instant, yyyy-MM-dd, or unix seconds")
+        if (raw is Number) return epochInstant(raw, fieldName)
         val text = raw.toString().trim()
         if (text.isBlank()) return null
-        text.toLongOrNull()?.let { return Instant.ofEpochSecond(it) }
+        if (text.matches(Regex("[+-]?[0-9]+"))) return epochInstant(text, fieldName)
         return runCatching { Instant.parse(text) }
             .recoverCatching { parseLocalDateBound(text, fieldName) }
             .getOrElse {
                 throw InvalidToolInputException("$fieldName must be ISO instant, yyyy-MM-dd, or unix seconds")
             }
+    }
+
+    private fun epochInstant(raw: Any, fieldName: String): Instant {
+        val seconds = ToolNumbers.long(raw, fieldName)
+        return try {
+            Instant.ofEpochSecond(seconds)
+        } catch (_: java.time.DateTimeException) {
+            throw InvalidToolInputException("$fieldName is outside the supported unix seconds range")
+        }
     }
 
     private fun parseLocalDateBound(text: String, fieldName: String): Instant {

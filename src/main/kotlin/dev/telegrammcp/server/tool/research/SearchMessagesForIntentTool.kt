@@ -10,6 +10,7 @@ import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
@@ -67,7 +68,7 @@ class SearchMessagesForIntentTool(
             "chats": {
               "type": "array",
               "description": "Chat identifiers (numeric IDs or @usernames).",
-              "items": { "type": ["string", "number"] }
+              "items": { "type": ["string", "integer"] }
             },
             "query": { "type": "string", "description": "Primary search query in any language." },
             "query_variants": {
@@ -75,7 +76,7 @@ class SearchMessagesForIntentTool(
               "description": "Optional equivalent spellings, synonyms, or translations supplied by the caller; each is searched independently.",
               "items": { "type": "string" }
             },
-            "limit_per_chat": { "type": "number", "description": "Max messages per chat (clamped by public-search config)." }
+            "limit_per_chat": { "type": "integer", "description": "Max messages per chat (clamped by public-search config)." }
           },
           "required": ["chats", "query"]
         }
@@ -117,8 +118,7 @@ class SearchMessagesForIntentTool(
         if (query.length > MAX_QUERY_LENGTH) {
             throw InvalidToolInputException("query exceeds maximum length of $MAX_QUERY_LENGTH")
         }
-        val requested = (arguments["limit_per_chat"] as? Number)?.toInt()
-            ?: arguments["limit_per_chat"]?.toString()?.toIntOrNull()
+        val requested = ToolNumbers.optionalInt(arguments, "limit_per_chat")
             ?: publicSearchProps.limits.maxMessagesPerChat
         val limit = requested.coerceIn(1, publicSearchProps.limits.maxMessagesPerChat)
 

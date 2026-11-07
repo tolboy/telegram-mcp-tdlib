@@ -93,4 +93,15 @@ class SendVoiceToolTest {
         val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
         assertTrue(result.isError)
     }
+
+    @Test
+    fun `invalid voice duration fails before reading or sending the file`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        for (duration in listOf<Any>(30.9, 4_294_967_297L, "invalid")) {
+            val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "file_path" to "/tmp/voice.ogg", "duration" to duration))
+            assertTrue(result.isError)
+        }
+        verify(exactly = 0) { fileSecurityService.validateForUpload(any()) }
+        verify(exactly = 0) { telegramClient.sendVoice(any(), any(), any(), any()) }
+    }
 }

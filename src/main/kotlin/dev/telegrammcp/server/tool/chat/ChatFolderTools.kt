@@ -9,6 +9,7 @@ import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
@@ -71,7 +72,7 @@ class GetChatFolderTool(
     companion object {
         const val TOOL_NAME = "get_chat_folder"
         private const val INPUT_SCHEMA = """
-        {"type":"object","properties":{"folder_id":{"type":"number","description":"Telegram chat folder ID"}},"required":["folder_id"]}
+        {"type":"object","properties":{"folder_id":{"type":"integer","description":"Telegram chat folder ID"}},"required":["folder_id"]}
         """
     }
     private val log = StructuredLogger.forClass<GetChatFolderTool>()
@@ -103,14 +104,14 @@ class ConfigureChatFolderTool(
         {
           "type":"object",
           "properties":{
-            "folder_id":{"type":"number","description":"Existing folder ID to replace; omit to create a new folder"},
+            "folder_id":{"type":"integer","description":"Existing folder ID to replace; omit to create a new folder"},
             "title":{"type":"string","description":"Folder title"},
             "icon_name":{"type":"string","description":"Optional Telegram folder icon name"},
-            "color_id":{"type":"number","description":"Telegram folder color ID (default 0)"},
+            "color_id":{"type":"integer","description":"Telegram folder color ID (default 0)"},
             "is_shareable":{"type":"boolean","description":"Whether the folder may be shared"},
-            "pinned_chats":{"type":"array","items":{"type":["string","number"]},"description":"Pinned chat identifiers"},
-            "included_chats":{"type":"array","items":{"type":["string","number"]},"description":"Explicitly included chat identifiers"},
-            "excluded_chats":{"type":"array","items":{"type":["string","number"]},"description":"Explicitly excluded chat identifiers"},
+            "pinned_chats":{"type":"array","items":{"type":["string","integer"]},"description":"Pinned chat identifiers"},
+            "included_chats":{"type":"array","items":{"type":["string","integer"]},"description":"Explicitly included chat identifiers"},
+            "excluded_chats":{"type":"array","items":{"type":["string","integer"]},"description":"Explicitly excluded chat identifiers"},
             "exclude_muted":{"type":"boolean"}, "exclude_read":{"type":"boolean"}, "exclude_archived":{"type":"boolean"},
             "include_contacts":{"type":"boolean"}, "include_non_contacts":{"type":"boolean"}, "include_bots":{"type":"boolean"},
             "include_groups":{"type":"boolean"}, "include_channels":{"type":"boolean"}
@@ -149,7 +150,7 @@ class DeleteChatFolderTool(
     companion object {
         const val TOOL_NAME = "delete_chat_folder"
         private const val INPUT_SCHEMA = """
-        {"type":"object","properties":{"folder_id":{"type":"number"},"confirmed":{"type":"boolean","description":"Required when confirmation mode is enabled"}},"required":["folder_id"]}
+        {"type":"object","properties":{"folder_id":{"type":"integer"},"confirmed":{"type":"boolean","description":"Required when confirmation mode is enabled"}},"required":["folder_id"]}
         """
     }
     private val log = StructuredLogger.forClass<DeleteChatFolderTool>()
@@ -185,8 +186,8 @@ class ReorderChatFoldersTool(
         {
           "type":"object",
           "properties":{
-            "folder_ids":{"type":"array","items":{"type":"number"},"description":"Complete list of folder IDs in the desired order"},
-            "main_list_position":{"type":"number","description":"0-based position of the main chat list among the folders (default 0)"}
+            "folder_ids":{"type":"array","items":{"type":"integer"},"description":"Complete list of folder IDs in the desired order"},
+            "main_list_position":{"type":"integer","description":"0-based position of the main chat list among the folders (default 0)"}
           },
           "required":["folder_ids"]
         }
@@ -206,14 +207,12 @@ class ReorderChatFoldersTool(
             operationGuardService.checkPermission(TOOL_NAME, arguments)
             val rawIds = arguments["folder_ids"] as? List<*>
                 ?: throw InvalidToolInputException("folder_ids is required and must be a list of numbers")
-            val folderIds = rawIds.map {
-                (it as? Number)?.toInt()
-                    ?: it?.toString()?.toIntOrNull()
-                    ?: throw InvalidToolInputException("folder_ids entries must be numbers")
+            val folderIds = rawIds.mapIndexed { index, value ->
+                ToolNumbers.int(value, "folder_ids[$index]")
             }
             if (folderIds.isEmpty()) throw InvalidToolInputException("folder_ids must not be empty")
             if (folderIds.any { it <= 0 }) throw InvalidToolInputException("folder_ids must be positive")
-            val mainListPosition = (arguments["main_list_position"] as? Number)?.toInt() ?: 0
+            val mainListPosition = ToolNumbers.optionalInt(arguments, "main_list_position") ?: 0
             if (mainListPosition < 0) throw InvalidToolInputException("main_list_position must be non-negative")
 
             folderIds.forEach { folderId ->
@@ -289,17 +288,12 @@ private object ChatFolderInputs {
         optionalPositiveInt(arguments, name) ?: throw InvalidToolInputException("$name is required")
 
     fun optionalPositiveInt(arguments: Map<String, Any>, name: String): Int? {
-        if (arguments[name] == null) return null
         val value = optionalInt(arguments, name) ?: return null
         if (value <= 0) throw InvalidToolInputException("$name must be a positive integer")
         return value
     }
 
-    private fun optionalInt(arguments: Map<String, Any>, name: String): Int? = when (val raw = arguments[name]) {
-        null -> null
-        is Number -> raw.toInt().takeIf { raw.toDouble() == it.toDouble() }
-        else -> raw.toString().trim().toIntOrNull()
-    } ?: if (arguments.containsKey(name)) throw InvalidToolInputException("$name must be an integer") else null
+    private fun optionalInt(arguments: Map<String, Any>, name: String): Int? = ToolNumbers.optionalInt(arguments, name)
 
     private fun optionalBoolean(arguments: Map<String, Any>, name: String): Boolean = when (val raw = arguments[name]) {
         null -> false

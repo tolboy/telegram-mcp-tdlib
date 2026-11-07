@@ -1,5 +1,6 @@
 package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.ToolNumbers
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.exception.InvalidToolInputException
@@ -52,7 +53,7 @@ class SearchMessagesTool(
           "type": "object",
           "properties": {
             "chat_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Chat identifier: numeric ID, @username, +phone, or the canonical value self"
             },
             "query": {
@@ -60,11 +61,11 @@ class SearchMessagesTool(
               "description": "Search query string"
             },
             "limit": {
-              "type": "number",
+              "type": "integer",
               "description": "Max results (1–100, default 20)"
             },
             "offset": {
-              "type": "number",
+              "type": "integer",
               "description": "Pagination offset message ID (default 0)"
             }
           },
@@ -122,24 +123,16 @@ class SearchMessagesTool(
     }
 
     private fun extractLimit(args: Map<String, Any>): Int {
-        val raw = args["limit"] ?: return DEFAULT_LIMIT
-        val limit = when (raw) {
-            is Number -> raw.toInt()
-            is String -> raw.toIntOrNull()
-                ?: throw InvalidToolInputException("limit must be a valid integer")
-            else -> throw InvalidToolInputException("limit must be a number")
-        }
+        if (!args.containsKey("limit")) return DEFAULT_LIMIT
+        val raw = args["limit"]
+        val limit = ToolNumbers.int(raw, "limit")
         return limit.coerceIn(1, MAX_LIMIT)
     }
 
     private fun extractOffset(args: Map<String, Any>): Long {
-        val raw = args["offset"] ?: return 0L
-        return when (raw) {
-            is Number -> raw.toLong()
-            is String -> raw.toLongOrNull()
-                ?: throw InvalidToolInputException("offset must be a valid number")
-            else -> throw InvalidToolInputException("offset must be a number")
-        }
+        if (!args.containsKey("offset")) return 0L
+        val raw = args["offset"]
+        return ToolNumbers.long(raw, "offset")
     }
 }
 

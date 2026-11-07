@@ -8,6 +8,7 @@ import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Timer
@@ -39,8 +40,8 @@ class GetRecentActionsTool(
         {
           "type": "object",
           "properties": {
-            "chat_id": { "type": ["string", "number"], "description": "Chat identifier (supergroup/channel)" },
-            "limit": { "type": "number", "description": "Max events (1–100, default 50)" }
+            "chat_id": { "type": ["string", "integer"], "description": "Chat identifier (supergroup/channel)" },
+            "limit": { "type": "integer", "description": "Max events (1–100, default 50)" }
           },
           "required": ["chat_id"]
         }
@@ -60,8 +61,7 @@ class GetRecentActionsTool(
             val chatId = entityResolver.resolve(
                 arguments["chat_id"] ?: throw InvalidToolInputException("chat_id is required"),
             )
-            val limit = (arguments["limit"] as? Number)?.toInt()
-                ?: arguments["limit"]?.toString()?.toIntOrNull()
+            val limit = ToolNumbers.optionalInt(arguments, "limit")
                 ?: DEFAULT_LIMIT
 
             guardrailService.validateChatAccess(chatId)

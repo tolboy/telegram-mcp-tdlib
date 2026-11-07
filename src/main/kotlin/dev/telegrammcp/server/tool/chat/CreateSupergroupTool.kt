@@ -10,6 +10,7 @@ import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
 import dev.telegrammcp.server.tool.ToolSupport
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
 import io.modelcontextprotocol.server.McpSyncServerExchange
@@ -88,10 +89,10 @@ class CreateSupergroupTool(
                 "properties": {
                   "name": { "type": "string", "description": "Topic name (1-128 chars)" },
                   "icon_color": {
-                    "type": ["string", "number"],
+                    "type": ["string", "integer"],
                     "description": "Optional icon color (one of 0x6FB9F0, 0xFFD67E, 0xCB86DB, 0x8EEE98, 0xFF93B2, 0xFB6F5F)"
                   },
-                  "custom_emoji_id": { "type": ["string", "number"], "description": "Optional custom emoji id" }
+                  "custom_emoji_id": { "type": ["string", "integer"], "description": "Optional custom emoji id" }
                 },
                 "required": ["name"]
               }
@@ -251,22 +252,23 @@ class CreateSupergroupTool(
             if (name.length > MAX_TOPIC_NAME) {
                 throw InvalidToolInputException("topics[$index].name must be $MAX_TOPIC_NAME chars or fewer")
             }
-            val iconColor = parseIconColor(map["icon_color"], index)
+            val iconColor = if (map.containsKey("icon_color")) parseIconColor(map["icon_color"], index) else null
             if (iconColor != null && iconColor !in ALLOWED_ICON_COLORS) {
                 throw InvalidToolInputException(
                     "topics[$index].icon_color must be one of " +
                         ALLOWED_ICON_COLORS.joinToString { "0x${it.toString(16).uppercase()}" },
                 )
             }
-            val customEmojiId = parseLong(map["custom_emoji_id"], "topics[$index].custom_emoji_id")
+            val customEmojiId = if (map.containsKey("custom_emoji_id")) {
+                ToolNumbers.long(map["custom_emoji_id"], "topics[$index].custom_emoji_id")
+            } else null
             TopicSpec(name, iconColor, customEmojiId)
         }
     }
 
     private fun parseIconColor(raw: Any?, index: Int): Int? {
-        if (raw == null) return null
         return when (raw) {
-            is Number -> raw.toInt()
+            is Number -> ToolNumbers.int(raw, "topics[$index].icon_color")
             is String -> {
                 val value = raw.trim()
                 if (value.isBlank()) return null
@@ -274,23 +276,13 @@ class CreateSupergroupTool(
                     if (value.startsWith("0x", ignoreCase = true)) {
                         value.removePrefix("0x").removePrefix("0X").toInt(16)
                     } else {
-                        value.toInt()
+                        ToolNumbers.int(value, "topics[$index].icon_color")
                     }
                 }.getOrElse {
                     throw InvalidToolInputException("topics[$index].icon_color must be an integer or hex string")
                 }
             }
             else -> throw InvalidToolInputException("topics[$index].icon_color must be an integer or hex string")
-        }
-    }
-
-    private fun parseLong(raw: Any?, field: String): Long? {
-        if (raw == null) return null
-        return when (raw) {
-            is Number -> raw.toLong()
-            is String -> raw.trim().takeIf { it.isNotBlank() }?.toLongOrNull()
-                ?: throw InvalidToolInputException("$field must be an integer")
-            else -> throw InvalidToolInputException("$field must be an integer")
         }
     }
 

@@ -83,5 +83,16 @@ class BanUserToolTest {
         val text = (result.content.first() as McpSchema.TextContent).text()
         assertTrue(text.contains("user_id is required"))
     }
+
+    @Test
+    fun `invalid numeric user IDs never ban a different user`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        for (userId in listOf<Any>(99.9, Double.NaN, java.math.BigInteger("18446744073709551715"),
+            java.math.BigDecimal("99.000000000000000001"))) {
+            val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "user_id" to userId, "confirmed" to true))
+            assertTrue(result.isError)
+        }
+        verify(exactly = 0) { telegramClient.banChatMember(any(), any()) }
+    }
 }
 

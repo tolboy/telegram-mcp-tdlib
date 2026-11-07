@@ -6,6 +6,7 @@ import dev.telegrammcp.server.exception.InvalidToolInputException
 import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
@@ -37,7 +38,7 @@ class SearchPublicChatsTool(
           "type": "object",
           "properties": {
             "query": { "type": "string", "description": "Search query (username prefix or title)" },
-            "limit": { "type": "number", "description": "Max results (1–100, default 20)" }
+            "limit": { "type": "integer", "description": "Max results (1–100, default 20)" }
           },
           "required": ["query"]
         }
@@ -65,8 +66,7 @@ class SearchPublicChatsTool(
     ) {
             val query = arguments["query"]?.toString()?.takeIf { it.isNotBlank() }
                 ?: throw InvalidToolInputException("query is required")
-            val limit = (arguments["limit"] as? Number)?.toInt()
-                ?: arguments["limit"]?.toString()?.toIntOrNull()
+            val limit = ToolNumbers.optionalInt(arguments, "limit")
                 ?: DEFAULT_LIMIT
 
             log.withTool(TOOL_NAME).info("Searching public chats for '{}'", query)

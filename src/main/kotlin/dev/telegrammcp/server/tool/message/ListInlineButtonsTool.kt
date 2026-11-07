@@ -1,5 +1,6 @@
 ﻿package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.ToolNumbers
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.exception.InvalidToolInputException
@@ -37,8 +38,8 @@ class ListInlineButtonsTool(
         {
           "type": "object",
           "properties": {
-            "chat_id": { "type": ["string", "number"], "description": "Chat identifier (ID/@username/+phone)" },
-            "message_id": { "type": "number", "description": "Target message ID" }
+            "chat_id": { "type": ["string", "integer"], "description": "Chat identifier (ID/@username/+phone)" },
+            "message_id": { "type": "integer", "description": "Target message ID" }
           },
           "required": ["chat_id", "message_id"]
         }
@@ -66,9 +67,7 @@ class ListInlineButtonsTool(
             val chatId = entityResolver.resolve(
                 arguments["chat_id"] ?: throw InvalidToolInputException("chat_id is required"),
             )
-            val messageId = (arguments["message_id"] as? Number)?.toLong()
-                ?: arguments["message_id"]?.toString()?.toLongOrNull()
-                ?: throw InvalidToolInputException("message_id is required and must be a number")
+            val messageId = ToolNumbers.long(arguments["message_id"] ?: throw InvalidToolInputException("message_id is required and must be a number"), "message_id")
 
             guardrailService.validateChatAccess(chatId)
             log.withTool(TOOL_NAME).info("Listing inline buttons for message {} in chat {}", messageId, chatId)

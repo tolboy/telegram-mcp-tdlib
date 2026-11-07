@@ -98,5 +98,13 @@ class AddContactToolTest {
         val text = (result.content.first() as McpSchema.TextContent).text()
         assertTrue(text.contains("first_name is required"))
     }
+
+    @Test
+    fun `fractional and overflowing IDs never add an unintended contact`() {
+        for (userId in listOf<Any>(99.5, java.math.BigInteger("18446744073709551715"))) {
+            assertTrue(tool.executeChecked(exchange, mapOf("user_id" to userId, "first_name" to "John")).isError)
+        }
+        verify(exactly = 0) { telegramClient.addContact(any(), any(), any(), any()) }
+    }
 }
 

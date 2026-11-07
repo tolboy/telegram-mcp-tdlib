@@ -8,6 +8,7 @@ import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
@@ -39,9 +40,9 @@ class ListInviteLinksTool(
         {
           "type": "object",
           "properties": {
-            "chat_id": { "type": ["string", "number"], "description": "Chat identifier (ID/@username)" },
+            "chat_id": { "type": ["string", "integer"], "description": "Chat identifier (ID/@username)" },
             "include_revoked": { "type": "boolean", "description": "List revoked links instead of active ones (default false)" },
-            "limit": { "type": "number", "description": "Max links to return (default 20, max 100)" }
+            "limit": { "type": "integer", "description": "Max links to return (default 20, max 100)" }
           },
           "required": ["chat_id"]
         }
@@ -61,7 +62,7 @@ class ListInviteLinksTool(
                 arguments["chat_id"] ?: throw InvalidToolInputException("chat_id is required"),
             )
             val includeRevoked = arguments["include_revoked"]?.toString()?.toBoolean() ?: false
-            val limit = ((arguments["limit"] as? Number)?.toInt() ?: 20).coerceIn(1, 100)
+            val limit = (ToolNumbers.optionalInt(arguments, "limit") ?: 20).coerceIn(1, 100)
 
             guardrailService.validateChatAccess(chatId)
             log.withTool(TOOL_NAME).info("Listing invite links of chat {} (revoked={}, limit={})", chatId, includeRevoked, limit)
@@ -98,7 +99,7 @@ class RevokeInviteLinkTool(
         {
           "type": "object",
           "properties": {
-            "chat_id": { "type": ["string", "number"], "description": "Chat identifier (ID/@username)" },
+            "chat_id": { "type": ["string", "integer"], "description": "Chat identifier (ID/@username)" },
             "invite_link": { "type": "string", "description": "The exact invite link to revoke" },
             "confirmed": { "type": "boolean", "description": "Required when confirmation mode is enabled" }
           },

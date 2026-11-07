@@ -7,6 +7,7 @@ import dev.telegrammcp.server.model.AuditOutcome
 import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Timer
@@ -39,7 +40,7 @@ class UnblockUserTool(
           "type": "object",
           "properties": {
             "user_id": {
-              "type": "number",
+              "type": "integer",
               "description": "Telegram user ID to unblock"
             }
           },
@@ -60,8 +61,7 @@ class UnblockUserTool(
         return try {
             operationGuardService.checkPermission(TOOL_NAME, arguments)
 
-            val userId = (arguments["user_id"] as? Number)?.toLong()
-                ?: throw InvalidToolInputException("user_id is required")
+            val userId = ToolNumbers.long(arguments["user_id"] ?: throw InvalidToolInputException("user_id is required"), "user_id")
 
             log.withTool(TOOL_NAME).info("Unblocking user {}", userId)
 

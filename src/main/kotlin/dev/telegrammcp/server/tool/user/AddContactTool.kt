@@ -7,6 +7,7 @@ import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
@@ -40,7 +41,7 @@ class AddContactTool(
           "type": "object",
           "properties": {
             "user_id": {
-              "type": "number",
+              "type": "integer",
               "description": "Telegram user ID"
             },
             "first_name": {
@@ -82,8 +83,7 @@ class AddContactTool(
     ) {
             operationGuardService.checkPermission(TOOL_NAME, arguments)
 
-            val userId = (arguments["user_id"] as? Number)?.toLong()
-                ?: throw InvalidToolInputException("user_id is required")
+            val userId = ToolNumbers.long(arguments["user_id"] ?: throw InvalidToolInputException("user_id is required"), "user_id")
             val firstName = arguments["first_name"]?.toString()
                 ?: throw InvalidToolInputException("first_name is required")
             val lastName = arguments["last_name"]?.toString()

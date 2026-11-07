@@ -44,7 +44,7 @@ class EditChatPhotoTool(
         {
           "type": "object",
           "properties": {
-            "chat_id": { "type": ["string", "number"], "description": "Chat identifier" },
+            "chat_id": { "type": ["string", "integer"], "description": "Chat identifier" },
             "file_path": { "type": "string", "description": "Local image path (JPEG/PNG)" }
           },
           "required": ["chat_id", "file_path"]

@@ -45,7 +45,7 @@ class CreatePollTool(
         {
           "type": "object",
           "properties": {
-            "chat_id": { "type": ["string", "number"], "description": "Chat identifier (ID/@username/+phone)" },
+            "chat_id": { "type": ["string", "integer"], "description": "Chat identifier (ID/@username/+phone)" },
             "question": { "type": "string", "description": "Poll question (1-255 chars)" },
             "options": {
               "type": "array",

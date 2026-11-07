@@ -11,6 +11,7 @@ import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.service.SendOperationService
 import dev.telegrammcp.server.service.SendOperationJournal
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.tool.ToolInputParsers
 import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.util.StructuredLogger
@@ -68,7 +69,7 @@ class SendMessageTool(
               "description": "Optional unique send key (1-128 ASCII letters, digits, '.', '_', ':', '-'). Reuse with identical parameters to retrieve the stored receipt without sending again. Keyed calls return a delivery receipt; UNKNOWN requires checking the chat; after a TELEGRAM_FLOOD_WAIT the receipt is REJECTED and the same key may be retried."
             },
             "chat_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Chat identifier: numeric ID, @username, +phone, or the canonical value self"
             },
             "text": {
@@ -81,7 +82,7 @@ class SendMessageTool(
               "description": "Text formatting mode (default: plain)"
             },
             "message_thread_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Optional forum topic message thread ID"
             },
             "reply_markup": {
@@ -142,7 +143,7 @@ class SendMessageTool(
             val chatId = resolveChatId(arguments)
             val text = extractText(arguments)
             val parseMode = ToolInputParsers.parseMode(arguments)
-            val messageThreadId = parseOptionalLong(arguments["message_thread_id"], "message_thread_id")
+            val messageThreadId = ToolNumbers.optionalLong(arguments, "message_thread_id")
             val replyMarkup = parseReplyMarkup(arguments["reply_markup"])
 
             log.withTool(TOOL_NAME).info(
@@ -216,16 +217,6 @@ class SendMessageTool(
             throw InvalidToolInputException("text exceeds maximum length of $MAX_TEXT_LENGTH characters")
         }
         return text
-    }
-
-    private fun parseOptionalLong(raw: Any?, field: String): Long? {
-        if (raw == null) return null
-        return when (raw) {
-            is Number -> raw.toLong()
-            is String -> raw.trim().takeIf { it.isNotBlank() }?.toLongOrNull()
-                ?: throw InvalidToolInputException("$field must be an integer")
-            else -> throw InvalidToolInputException("$field must be an integer")
-        }
     }
 
 }

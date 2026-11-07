@@ -20,7 +20,7 @@ data class ConversationBundle(val chatId: Long, val messages: List<CompactMessag
     val truncated: Boolean, val scope: String = "bounded_history", val budgetUnit: String = "normalized_json_characters")
 
 internal fun Map<String, Any>.integer(name: String, default: Int, min: Int, max: Int): Int {
-    val value = this[name]?.toString()?.toIntOrNull() ?: if (containsKey(name)) throw IllegalArgumentException("$name must be an integer") else default
+    val value = ToolNumbers.optionalInt(this, name) ?: default
     require(value in min..max) { "$name must be in $min..$max" }
     return value
 }
@@ -66,14 +66,14 @@ class InboxSnapshotTool(private val client: TelegramClientService, private val g
 class ConversationBundleTool(private val client: TelegramClientService, private val resolver: EntityResolverService,
     private val guard: GuardrailService, mapper: ObjectMapper, metrics: MeterRegistry) : TaskTool(TOOL_NAME,
     "Compact conversation page with stable message IDs; pass nextMessageId as from_message_id for an exclusive older-than cursor.",
-    """{"type":"object","properties":{"chat_id":{"type":["string","number"]},"limit":{"type":"integer","minimum":1,"maximum":100},"from_message_id":{"type":"integer","minimum":0},"max_chars":{"type":"integer","minimum":512,"maximum":32000}},"required":["chat_id"]}""", mapper, metrics) {
+    """{"type":"object","properties":{"chat_id":{"type":["string","integer"]},"limit":{"type":"integer","minimum":1,"maximum":100},"from_message_id":{"type":"integer","minimum":0},"max_chars":{"type":"integer","minimum":512,"maximum":32000}},"required":["chat_id"]}""", mapper, metrics) {
     companion object { const val TOOL_NAME = "conversation_bundle" }
     override fun run(args: Map<String, Any>): ConversationBundle {
         val chat = resolver.resolve(requireNotNull(args["chat_id"]) { "chat_id is required" })
         guard.validateChatAccess(chat)
         val limit = args.integer("limit", 20, 1, 100)
         val budget = args.integer("max_chars", 8000, 512, 32000)
-        val cursor = args["from_message_id"]?.toString()?.toLongOrNull() ?: if (args.containsKey("from_message_id")) throw IllegalArgumentException("Invalid cursor") else 0L
+        val cursor = ToolNumbers.optionalLong(args, "from_message_id") ?: 0L
         require(cursor >= 0)
         val raw = client.getHistory(chat, cursor, 0, limit)
         require(raw.all { it.chatId == chat && it.messageId > 0 }) { "History returned an unexpected chat or message ID" }
@@ -119,7 +119,7 @@ class ChangesSinceTool(private val journal: ChangeJournal, private val accounts:
 class ExportJobTool(private val jobs: ExportJobService, private val resolver: EntityResolverService,
     mapper: ObjectMapper, metrics: MeterRegistry) : TaskTool(TOOL_NAME,
     "Persistent pull-driven export: start, resume one page, status, read page, cancel or delete. Jobs are scoped to account and client.",
-    """{"type":"object","properties":{"action":{"type":"string","enum":["start","resume","status","page","cancel","delete"]},"chat_id":{"type":["string","number"]},"job_id":{"type":"string"},"page":{"type":"integer","minimum":0}},"required":["action"]}""", mapper, metrics) {
+    """{"type":"object","properties":{"action":{"type":"string","enum":["start","resume","status","page","cancel","delete"]},"chat_id":{"type":["string","integer"]},"job_id":{"type":"string"},"page":{"type":"integer","minimum":0}},"required":["action"]}""", mapper, metrics) {
     companion object { const val TOOL_NAME = "export_job" }
     override fun run(args: Map<String, Any>): ExportJobResult {
         val action = requireNotNull(args["action"]) { "action is required" }.toString()

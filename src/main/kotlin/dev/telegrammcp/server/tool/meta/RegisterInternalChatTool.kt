@@ -8,6 +8,7 @@ import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
 import dev.telegrammcp.server.tool.ToolSupport
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
 import io.modelcontextprotocol.server.McpSyncServerExchange
@@ -45,7 +46,7 @@ class RegisterInternalChatTool(
           "type": "object",
           "properties": {
             "chat_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Numeric Telegram chat ID to register as internal admin context"
             },
             "confirmed": {
@@ -80,12 +81,7 @@ class RegisterInternalChatTool(
         operationGuardService.checkPermission(TOOL_NAME, arguments)
 
         val raw = arguments["chat_id"] ?: throw InvalidToolInputException("chat_id is required")
-        val chatId = when (raw) {
-            is Number -> raw.toLong()
-            is String -> raw.trim().toLongOrNull()
-                ?: throw InvalidToolInputException("chat_id must be numeric")
-            else -> throw InvalidToolInputException("chat_id must be numeric")
-        }
+        val chatId = ToolNumbers.long(raw, "chat_id")
 
         guardrailService.validateChatAccess(chatId)
         antiSpamGuardService.registerInternalChat(chatId)

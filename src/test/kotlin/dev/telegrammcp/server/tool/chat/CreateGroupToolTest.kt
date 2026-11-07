@@ -100,6 +100,15 @@ class CreateGroupToolTest {
         val text = (result.content.first() as McpSchema.TextContent).text()
         assertTrue(text.contains("must not be empty"))
     }
+
+    @Test
+    fun `invalid member entries reject the whole request without silently changing membership`() {
+        for (invalid in listOf<Any?>(null, true, "not-an-id", 2.5, java.math.BigInteger("18446744073709551618"))) {
+            val result = tool.executeChecked(exchange, mapOf("title" to "Test", "user_ids" to listOf(1, invalid)))
+            assertTrue(result.isError)
+        }
+        verify(exactly = 0) { telegramClient.createBasicGroup(any(), any()) }
+    }
 }
 
 

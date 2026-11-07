@@ -43,7 +43,7 @@ class ArchiveChatTool(
           "type": "object",
           "properties": {
             "chat_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Chat identifier to archive"
             }
           },

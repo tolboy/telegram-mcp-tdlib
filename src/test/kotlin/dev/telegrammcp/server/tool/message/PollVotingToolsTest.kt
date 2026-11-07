@@ -86,6 +86,16 @@ class VotePollToolTest {
 
         assertTrue(result.isError)
     }
+
+    @Test
+    fun `fractional and overflowing poll options cannot select a different answer`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        for (option in listOf<Any>(1.25, 4_294_967_297L, "invalid")) {
+            val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_id" to 100, "option_ids" to listOf(0, option)))
+            assertTrue(result.isError)
+        }
+        verify(exactly = 0) { telegramClient.setPollAnswer(any(), any(), any()) }
+    }
 }
 
 class ClosePollToolTest {

@@ -141,7 +141,7 @@ class DownloadMediaToolTest {
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
-        assertTrue(text.contains("message_id must be a valid number"))
+        assertTrue(text.contains("message_id must be an exact 64-bit integer"))
     }
 
     @Test

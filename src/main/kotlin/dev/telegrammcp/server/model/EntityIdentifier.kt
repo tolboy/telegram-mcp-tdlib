@@ -1,6 +1,7 @@
 ﻿package dev.telegrammcp.server.model
 
 import dev.telegrammcp.server.exception.InvalidToolInputException
+import dev.telegrammcp.server.util.ExactNumbers
 
 /**
  * Sealed hierarchy representing the supported Telegram entity identifier formats.
@@ -62,11 +63,7 @@ sealed interface EntityIdentifier {
 
         /** Do not truncate fractions or wrap an oversized JSON integer into another chat ID. */
         private fun parseExactLong(value: Number): Long = try {
-            // Outside the mantissa's safe range a floating-point value may
-            // already represent a different ID from the JSON integer supplied.
-            require(value !is Double || (value.isFinite() && kotlin.math.abs(value) <= 9_007_199_254_740_991.0))
-            require(value !is Float || (value.isFinite() && kotlin.math.abs(value) <= 16_777_215f))
-            value.toString().toBigDecimal().longValueExact()
+            ExactNumbers.long(value)
         } catch (_: IllegalArgumentException) {
             throw InvalidToolInputException("Numeric identifier must be an exact 64-bit integer")
         } catch (_: ArithmeticException) {

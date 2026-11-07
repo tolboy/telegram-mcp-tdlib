@@ -8,6 +8,7 @@ import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
@@ -45,9 +46,9 @@ class SetSlowModeTool(
         {
           "type": "object",
           "properties": {
-            "chat_id": { "type": ["string", "number"], "description": "Supergroup identifier (ID/@username)" },
+            "chat_id": { "type": ["string", "integer"], "description": "Supergroup identifier (ID/@username)" },
             "delay_seconds": {
-              "type": "number",
+              "type": "integer",
               "description": "Seconds between messages per member: 0 (off), 10, 30, 60, 300, 900, or 3600"
             },
             "confirmed": { "type": "boolean", "description": "Required when confirmation mode is enabled" }
@@ -71,8 +72,7 @@ class SetSlowModeTool(
             val chatId = entityResolver.resolve(
                 arguments["chat_id"] ?: throw InvalidToolInputException("chat_id is required"),
             )
-            val delay = (arguments["delay_seconds"] as? Number)?.toInt()
-                ?: arguments["delay_seconds"]?.toString()?.toIntOrNull()
+            val delay = ToolNumbers.optionalInt(arguments, "delay_seconds")
                 ?: throw InvalidToolInputException("delay_seconds is required and must be a number")
             if (delay !in ALLOWED_DELAYS) {
                 throw InvalidToolInputException(

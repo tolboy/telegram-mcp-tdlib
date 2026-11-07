@@ -36,7 +36,7 @@ class WaitForChangesTool(
               "type": "object",
               "properties": {
                 "cursor": {"type": "string", "description": "Resume a changes_since or wait_for_changes cursor. Omit to start at the current journal tail."},
-                "chat_id": {"type": ["string", "number"], "description": "Optional chat filter; access is validated before waiting."},
+                "chat_id": {"type": ["string", "integer"], "description": "Optional chat filter; access is validated before waiting."},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 200},
                 "timeout_seconds": {"type": "integer", "minimum": 0, "maximum": 30, "default": 20}
               }

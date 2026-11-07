@@ -11,6 +11,7 @@ import dev.telegrammcp.server.service.GuardrailService
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import io.modelcontextprotocol.server.McpSyncServerExchange
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -104,6 +105,16 @@ class ListChatsToolTest {
         val text = (result.content.first() as io.modelcontextprotocol.spec.McpSchema.TextContent).text()
         assertTrue(text.contains("Allowed"))
         assertFalse(text.contains("Private"))
+    }
+
+    @Test
+    fun `invalid limits cannot wrap truncate or use the absent-argument default`() {
+        for (limit in listOf<Any?>(null, "invalid", 20.5, java.math.BigInteger("4294967346"))) {
+            @Suppress("UNCHECKED_CAST")
+            val arguments = mapOf("limit" to limit) as Map<String, Any>
+            assertTrue(tool.executeChecked(exchange, arguments).isError)
+        }
+        verify(exactly = 0) { telegramClient.getChats(any()) }
     }
 }
 

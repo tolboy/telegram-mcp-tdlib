@@ -9,6 +9,7 @@ import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
@@ -47,11 +48,11 @@ class TranscribeVoiceNoteTool(
           "type": "object",
           "properties": {
             "chat_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Chat identifier: numeric ID, @username, +phone, or the canonical value self"
             },
             "message_id": {
-              "type": "number",
+              "type": "integer",
               "description": "ID of the voice-note message to transcribe"
             }
           },
@@ -102,11 +103,6 @@ class TranscribeVoiceNoteTool(
         args["chat_id"] ?: throw InvalidToolInputException("chat_id is required"),
     )
 
-    private fun extractMessageId(args: Map<String, Any>): Long = when (val raw = args["message_id"]) {
-        is Number -> raw.toLong()
-        is String -> raw.toLongOrNull()
-            ?: throw InvalidToolInputException("message_id must be a valid number")
-        null -> throw InvalidToolInputException("message_id is required")
-        else -> throw InvalidToolInputException("message_id must be a number")
-    }
+    private fun extractMessageId(args: Map<String, Any>): Long =
+        ToolNumbers.long(args["message_id"] ?: throw InvalidToolInputException("message_id is required"), "message_id")
 }

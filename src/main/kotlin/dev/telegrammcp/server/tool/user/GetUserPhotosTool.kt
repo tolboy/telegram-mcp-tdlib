@@ -7,6 +7,7 @@ import dev.telegrammcp.server.model.AuditOutcome
 import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Timer
@@ -37,8 +38,8 @@ class GetUserPhotosTool(
         {
           "type": "object",
           "properties": {
-            "user_id": { "type": ["string", "number"], "description": "User identifier (ID/@username/+phone)" },
-            "limit": { "type": "number", "description": "Max photos (1–100, default 20)" }
+            "user_id": { "type": ["string", "integer"], "description": "User identifier (ID/@username/+phone)" },
+            "limit": { "type": "integer", "description": "Max photos (1–100, default 20)" }
           },
           "required": ["user_id"]
         }
@@ -58,8 +59,7 @@ class GetUserPhotosTool(
             val userId = entityResolver.resolve(
                 arguments["user_id"] ?: throw InvalidToolInputException("user_id is required"),
             )
-            val limit = (arguments["limit"] as? Number)?.toInt()
-                ?: arguments["limit"]?.toString()?.toIntOrNull()
+            val limit = ToolNumbers.optionalInt(arguments, "limit")
                 ?: DEFAULT_LIMIT
 
             log.withTool(TOOL_NAME).info("Getting profile photos for user {} (limit={})", userId, limit)

@@ -54,6 +54,14 @@ class ExportChatHistoryToolTest {
     }
 
     @Test
+    fun `epoch bounds reject fractional overflowing and unsupported seconds before fetching`() {
+        for (since in listOf<Any>(42.5, java.math.BigInteger("18446744073709551658"), Long.MAX_VALUE)) {
+            assertTrue(tool.executeChecked(exchange, mapOf("chat_id" to 42, "since" to since)).isError)
+        }
+        verify(exactly = 0) { telegramClient.getHistory(any(), any(), any(), any()) }
+    }
+
+    @Test
     fun `exports history and filters by date`() {
         val older = msg(1, "old", "2026-01-01T00:00:00Z")
         val fresh = msg(2, "fresh", "2026-05-01T23:15:00Z")

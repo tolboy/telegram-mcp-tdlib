@@ -41,7 +41,7 @@ class SetChatDescriptionTool(
         {
           "type": "object",
           "properties": {
-            "chat_id": { "type": ["string", "number"], "description": "Chat identifier (ID/@username)" },
+            "chat_id": { "type": ["string", "integer"], "description": "Chat identifier (ID/@username)" },
             "description": { "type": "string", "description": "New description (max 255 chars; empty string clears it)" }
           },
           "required": ["chat_id", "description"]

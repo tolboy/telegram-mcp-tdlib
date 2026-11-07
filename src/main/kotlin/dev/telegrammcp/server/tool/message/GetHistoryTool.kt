@@ -1,5 +1,6 @@
 package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.ToolNumbers
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.exception.InvalidToolInputException
@@ -56,15 +57,15 @@ class GetHistoryTool(
           "type": "object",
           "properties": {
             "chat_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Chat identifier: numeric ID, @username, +phone, or the canonical value self"
             },
             "limit": {
-              "type": "number",
+              "type": "integer",
               "description": "Number of messages to retrieve (1–100, default 20)"
             },
             "from_message_id": {
-              "type": "number",
+              "type": "integer",
               "description": "Start from this message ID for pagination (0 = latest)"
             }
           },
@@ -110,24 +111,16 @@ class GetHistoryTool(
     }
 
     private fun extractLimit(args: Map<String, Any>): Int {
-        val raw = args["limit"] ?: return DEFAULT_LIMIT
-        val limit = when (raw) {
-            is Number -> raw.toInt()
-            is String -> raw.toIntOrNull()
-                ?: throw InvalidToolInputException("limit must be a valid integer")
-            else -> throw InvalidToolInputException("limit must be a number")
-        }
+        if (!args.containsKey("limit")) return DEFAULT_LIMIT
+        val raw = args["limit"]
+        val limit = ToolNumbers.int(raw, "limit")
         return limit.coerceIn(1, MAX_LIMIT)
     }
 
     private fun extractFromMessageId(args: Map<String, Any>): Long {
-        val raw = args["from_message_id"] ?: return 0L
-        return when (raw) {
-            is Number -> raw.toLong()
-            is String -> raw.toLongOrNull()
-                ?: throw InvalidToolInputException("from_message_id must be a valid number")
-            else -> throw InvalidToolInputException("from_message_id must be a number")
-        }
+        if (!args.containsKey("from_message_id")) return 0L
+        val raw = args["from_message_id"]
+        return ToolNumbers.long(raw, "from_message_id")
     }
 }
 
