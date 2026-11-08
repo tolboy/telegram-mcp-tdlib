@@ -5,11 +5,18 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
-- Windows session checks use effective replace rights: an ALLOW entry cancelled
-  by a DENY entry for the same principal no longer counts. The session directory
-  fails startup when a broad principal other than BUILTIN\Users can still replace
-  it. `session clear` keeps a protected backup and restores the session if that
-  copy fails.
+- Windows session checks respect ACE order for each principal and permission;
+  a later DENY cannot erase an earlier ALLOW. Dangerous replace rights for
+  BUILTIN\Users are rejected too. This conservative check does not simulate
+  overlapping Windows group memberships.
+- `session clear` publishes a complete, owner-only backup before deletion,
+  rechecks the staged lock before copying, and reports failed restoration with
+  its recovery path. Session storage junctions are refused, and file tools
+  cannot read or overwrite the backup tree.
+- Serialize native factory acquisition and actual close across configured and
+  interactive account owners on a protected lifecycle worker. Caller interrupts
+  cannot detach native teardown; an ambiguous close failure blocks new factories
+  until restart. Cold JNI setup has its own native-test deadline.
 
 - Split TDLib calls into read, message, and admin adapters behind
   `TelegramClientService`. Flood control, deadlines, the breaker, and the
@@ -20,6 +27,10 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   scheduler. Auth-ready, change-journal, and human-approval waits stop on that
   signal. Login, the journal, and an elicitation already in flight are not
   cancelled. A send already handed to TDLib stays UNKNOWN.
+- Bound outstanding SDK elicitation requests to eight, retaining capacity until
+  each prompt actually completes even when its local caller cancels. Journal
+  readers can cancel while a writer or another process holds the store lock;
+  already-started disk writes continue.
 
 - Review fixes: cancellation is authenticated and session-owned before the
   notification is accepted; early cancellation and research workers share the

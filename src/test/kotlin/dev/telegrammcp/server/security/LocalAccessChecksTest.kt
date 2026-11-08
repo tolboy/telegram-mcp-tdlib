@@ -143,34 +143,54 @@ class LocalAccessChecksTest {
     }
 
     @Test
-    fun `a deny entry removes that permission from the effective grant`() {
+    fun `an earlier deny rejects a permission before a later allow can grant it`() {
         check(
-            allow("Jeder", AclEntryPermission.WRITE_DATA, AclEntryPermission.DELETE),
             deny("Jeder", AclEntryPermission.WRITE_DATA, AclEntryPermission.DELETE),
+            allow("Jeder", AclEntryPermission.WRITE_DATA, AclEntryPermission.DELETE),
         )
         val error = assertThrows<IllegalArgumentException> {
             check(
-                allow("Jeder", AclEntryPermission.WRITE_DATA, AclEntryPermission.DELETE),
                 deny("Jeder", AclEntryPermission.WRITE_DATA),
+                allow("Jeder", AclEntryPermission.WRITE_DATA, AclEntryPermission.DELETE),
             )
         }
         assertContains(error.message.orEmpty(), "Jeder")
     }
 
     @Test
-    fun `builtin users replace rights are logged and not enforced`() {
-        val findings = LocalAccessChecks.classify(
-            listOf(
-                allow("VORDEFINIERT\\Benutzer", AclEntryPermission.DELETE),
-                allow("Jeder", AclEntryPermission.DELETE),
+    fun `a later deny cannot hide a dangerous access bit already allowed`() {
+        assertThrows<IllegalArgumentException> {
+            check(
+                allow("Jeder", AclEntryPermission.WRITE_DATA),
+                deny("Jeder", AclEntryPermission.WRITE_DATA),
+            )
+        }
+        // One first decision per permission: a denied WRITE bit does not hide
+        // DELETE allowed before its own later deny.
+        assertThrows<IllegalArgumentException> {
+            check(
+                deny("Jeder", AclEntryPermission.WRITE_DATA),
+                allow("Jeder", AclEntryPermission.WRITE_DATA, AclEntryPermission.DELETE),
                 deny("Jeder", AclEntryPermission.DELETE),
-            ),
-            owner,
-            resolver,
-            setOf(AclEntryPermission.DELETE),
+            )
+        }
+    }
+
+    @Test
+    fun `builtin users may read but cannot have effective session replace rights`() {
+        val replace = setOf(AclEntryPermission.DELETE_CHILD, AclEntryPermission.WRITE_ACL, AclEntryPermission.WRITE_OWNER)
+        LocalAccessChecks.checkWindowsAcl(
+            listOf(allow("VORDEFINIERT\\Benutzer", AclEntryPermission.READ_DATA, AclEntryPermission.READ_ATTRIBUTES)),
+            owner, resolver, replace, "TDLIB_DATA_DIR", "directory",
         )
-        assertEquals(listOf("VORDEFINIERT\\Benutzer (S-1-5-32-545)"), findings.broad)
-        assertEquals(emptyList(), LocalAccessChecks.enforcedBroadReplace(findings))
+        for (permission in replace) {
+            assertThrows<IllegalArgumentException> {
+                LocalAccessChecks.checkWindowsAcl(
+                    listOf(allow("VORDEFINIERT\\Benutzer", permission)),
+                    owner, resolver, replace, "TDLIB_DATA_DIR", "directory",
+                )
+            }
+        }
     }
 
     @Test

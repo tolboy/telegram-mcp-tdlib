@@ -12,8 +12,8 @@ import io.modelcontextprotocol.spec.McpSchema
 import jakarta.annotation.PreDestroy
 import org.springframework.stereotype.Service
 import java.util.Collections
-import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 
@@ -55,6 +55,7 @@ class DestructiveApprovalService(
         }
 
     private val log = StructuredLogger.forClass<DestructiveApprovalService>()
+    private val elicitationExecutor = ElicitationExecutor()
 
     /** Sessions already told that their client cannot render an elicitation prompt. */
     private val warnedSessions: MutableSet<String> = Collections.synchronizedSet(mutableSetOf())
@@ -161,17 +162,14 @@ class DestructiveApprovalService(
             mapOf("type" to "object", "properties" to emptyMap<String, Any>()),
             emptyMap(),
         )
-        // The SDK call blocks inside the session. Run it off this thread so an
-        // MCP cancellation can stop the local wait without cancelling the
-        // elicitation that is already in flight.
-        val pending = CompletableFuture<McpSchema.ElicitResult>()
-        Thread({
-            try {
-                pending.complete(exchange.createElicitation(request))
-            } catch (error: Throwable) {
-                pending.completeExceptionally(error)
-            }
-        }, "approval-elicitation").apply { isDaemon = true }.start()
+        McpCallCancellation.throwIfLocalWait("approval")
+        // The SDK prompt outlives a cancelled local wait, so capacity belongs
+        // to its actual completion rather than to the tool/client permit.
+        val pending = try {
+            elicitationExecutor.submit { exchange.createElicitation(request) }
+        } catch (_: RejectedExecutionException) {
+            throw ApprovalUnavailableException(toolName, "too many approval requests are still in flight or the server is shutting down")
+        }
         val waitNanos = props.confirmation.approvalTimeout.toNanos().takeIf { it > 0 } ?: Long.MAX_VALUE
         val result = try {
             McpCallCancellation.await(pending, waitNanos)
@@ -319,6 +317,7 @@ class DestructiveApprovalService(
     fun shutdown() {
         // Never force the endpoint into existence just to close it.
         if (loopbackServer.isInitialized()) loopbackServer.value.close()
+        elicitationExecutor.close()
     }
 
     private companion object {

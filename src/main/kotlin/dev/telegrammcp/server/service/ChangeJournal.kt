@@ -3,10 +3,12 @@ package dev.telegrammcp.server.service
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.SerializationFeature
 import dev.telegrammcp.server.client.McpCallCancellation
+import dev.telegrammcp.server.client.McpCallCancelledException
 import dev.telegrammcp.server.client.TelegramAccountRegistry
 import dev.telegrammcp.server.client.ToolCallDeadline
 import dev.telegrammcp.server.exception.TelegramApiException
 import dev.telegrammcp.server.exception.TelegramBusyException
+import dev.telegrammcp.server.exception.TelegramTimeoutException
 import dev.telegrammcp.server.util.StructuredLogger
 import it.tdlight.client.SimpleTelegramClientBuilder
 import it.tdlight.jni.TdApi
@@ -19,9 +21,11 @@ import java.time.Duration
 import java.util.UUID
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.Semaphore
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantLock
@@ -79,7 +83,6 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
 
     // Guarded by lock; the writer holds it only while committing a batch.
     private val lock = ReentrantLock()
-    private val progress = lock.newCondition()
     private val logs = HashMap<String, AccountLog>()
     private val waiters = ConcurrentHashMap<String, Semaphore>()
     private val failed = HashSet<String>()
@@ -105,17 +108,16 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
         require(limit in 1..200)
         val label = TelegramAccountRegistry.normalizeLabel(account)
         awaitWriter()
-        return lock.withLock {
-            readPage(label, cursor, limit, allowed)
-        }
+        if (!acquireReadLock(TimeUnit.SECONDS.toNanos(2))) throw journalBusy(label)
+        return try { readPage(label, cursor, limit, allowed) } finally { lock.unlock() }
     }
 
     /**
      * Waits for visible changes without polling Telegram or changing read receipts.
      * An omitted cursor starts at the current tail; a supplied cursor resumes exactly
      * like [page]. Filtered entries advance the cursor without resetting the deadline.
-     * The condition and page scan share one lock, so a concurrent append cannot be
-     * lost between checking the page and registering the wait.
+     * Each page scan holds the journal lock. Between scans the caller polls off
+     * that lock, so a writer stalled on disk cannot trap it in condition re-acquisition.
      */
     fun waitForChanges(account: String, cursor: String?, limit: Int, timeout: Duration,
         allowed: (Long) -> Boolean): ChangeWaitResult {
@@ -130,24 +132,24 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
             ToolCallDeadline.remainingNanos()?.minus(TimeUnit.MILLISECONDS.toNanos(50)) ?: Long.MAX_VALUE)
         try {
             awaitWriter(remaining().coerceIn(0L, TimeUnit.SECONDS.toNanos(2)))
-            lock.lockInterruptibly()
-            try {
-                var next = cursor ?: withLog(label) { "${it.epoch}:${it.sequence}" }
-                while (true) {
+            var next = cursor
+            while (true) {
+                if (!acquireReadLock(remaining().coerceAtLeast(0))) throw journalBusy(label)
+                val left: Long
+                try {
+                    if (next == null) next = withLog(label) { "${it.epoch}:${it.sequence}" }
                     if (closed) throw TelegramApiException(406, "Canceled change wait: journal closed", readOnlyRequest = true)
                     val page = readPage(label, next, limit, allowed)
                     next = page.nextCursor
                     if (page.entries.isNotEmpty() || page.gap) return page.waitResult(false)
-                    val left = remaining()
+                    left = remaining()
                     if (left <= 0) return page.waitResult(true)
                     if (page.hasMore) continue
-                    // A different process can append to this durable journal too.
-                    // Recheck its file at most once per second even without a local signal.
-                    // MCP cancellation is a local stop: the journal and its cursor stay.
-                    McpCallCancellation.throwIfLocalWait("change-journal")
-                    progress.awaitNanos(minOf(left, 50_000_000L))
-                }
-            } finally { lock.unlock() }
+                } finally { lock.unlock() }
+                // A different process can append too. Poll its durable state
+                // without holding or waiting to re-acquire the writer's lock.
+                pauseReader(minOf(left, 50_000_000L))
+            }
         } catch (interrupted: InterruptedException) {
             Thread.currentThread().interrupt()
             throw TelegramApiException(406, "Canceled change wait: interrupted", interrupted, readOnlyRequest = true)
@@ -195,23 +197,58 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
     /** Flushes queued updates; later ones are dropped and covered by the next start's restart marker. */
     override fun close() {
         closed = true
-        lock.withLock { progress.signalAll() }
         writer?.join(TimeUnit.SECONDS.toMillis(5))
     }
 
     /** Makes updates observed before this call readable, unless the writer is stalled. */
     private fun awaitWriter(timeoutNanos: Long = TimeUnit.SECONDS.toNanos(2)) {
         val target = enqueued.get()
-        var remaining = timeoutNanos
-        lock.withLock {
-            while (handled < target && remaining > 0) {
-                McpCallCancellation.throwIfLocalWait("change-journal")
-                val slice = minOf(remaining, 50_000_000L)
-                val leftover = progress.awaitNanos(slice)
-                remaining -= slice - leftover.coerceAtLeast(0)
-            }
+        val started = System.nanoTime()
+        val budget = timeoutNanos.coerceAtLeast(0)
+        while (true) {
+            val remaining = (budget - (System.nanoTime() - started)).coerceAtLeast(0)
+            if (!acquireReadLock(remaining)) return
+            try { if (handled >= target) return } finally { lock.unlock() }
+            val pause = budget - (System.nanoTime() - started)
+            if (pause <= 0) return
+            pauseReader(minOf(pause, 50_000_000L))
         }
     }
+
+    private fun pauseReader(nanos: Long) {
+        try {
+            McpCallCancellation.await(CompletableFuture<Unit>(), nanos)
+        } catch (_: TimeoutException) {
+            // Recheck the journal after this bounded local pause.
+        } catch (cancelled: McpCallCancelledException) {
+            McpCallCancellation.throwIfLocalWait("change-journal")
+            throw cancelled
+        }
+    }
+
+    /** Only the local reader stops; the writer and any already-started disk I/O stay intact. */
+    private fun acquireReadLock(budgetNanos: Long): Boolean {
+        val started = System.nanoTime()
+        while (true) {
+            McpCallCancellation.throwIfLocalWait("change-journal")
+            val toolRemaining = ToolCallDeadline.remainingNanos() ?: Long.MAX_VALUE
+            if (toolRemaining <= 0) {
+                throw TelegramTimeoutException(
+                    "change-journal", TelegramTimeoutException.Reason.TOOL_DEADLINE,
+                    requestSent = false, retryable = !ToolCallDeadline.writeDispatched(),
+                    waitedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started),
+                ).apply { healthFailure = false }
+            }
+            // An immediate read remains valid even for a zero long-poll budget.
+            if (lock.tryLock()) return true
+            val remaining = budgetNanos - (System.nanoTime() - started)
+            if (remaining <= 0) return false
+            if (lock.tryLock(minOf(remaining, toolRemaining, 50_000_000L), TimeUnit.NANOSECONDS)) return true
+        }
+    }
+
+    private fun journalBusy(account: String) =
+        TelegramBusyException("change-journal:$account", 1, retryable = !ToolCallDeadline.writeDispatched())
 
     private fun drain() {
         val batch = ArrayList<Observed>(MAX_BATCH)
@@ -222,7 +259,7 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
             queue.drainTo(batch, MAX_BATCH - 1)
             lock.withLock {
                 try { batch.groupBy { it.account }.forEach { (account, items) -> persist(account, items) } }
-                finally { handled += batch.size; progress.signalAll() }
+                finally { handled += batch.size }
             }
             dispatch(batch)
             batch.clear()

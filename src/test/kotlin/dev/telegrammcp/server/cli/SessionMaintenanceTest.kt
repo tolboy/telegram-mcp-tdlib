@@ -11,6 +11,10 @@ import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
+import java.nio.file.attribute.AclEntryPermission
+import java.nio.file.attribute.AclEntryType
+import java.nio.file.attribute.AclFileAttributeView
+import java.nio.file.attribute.PosixFilePermission
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -80,6 +84,87 @@ class SessionMaintenanceTest {
         files.forEach { (name, size) -> Files.write(directory.resolve(name), ByteArray(size)) }
         Files.writeString(directory.resolve("db_files").resolve("photo.jpg"), "x")
         return directory
+    }
+
+    @Test
+    fun `completed backup preserves bytes and is not readable by another principal`() {
+        session("td.binlog" to 16)
+        val result = SessionMaintenance(tempDir, emptyMap()).clear("default", true)
+        val backup = assertNotNull(result.backupDirectory)
+        assertEquals(16, Files.readAllBytes(backup.resolve("td.binlog")).size)
+        val file = backup.resolve("td.binlog")
+        if ("posix" in file.fileSystem.supportedFileAttributeViews()) {
+            val mode = Files.getPosixFilePermissions(file)
+            assertTrue(mode.none { it in setOf(PosixFilePermission.GROUP_READ, PosixFilePermission.OTHERS_READ,
+                PosixFilePermission.GROUP_WRITE, PosixFilePermission.OTHERS_WRITE) })
+        } else {
+            val acl = Files.getFileAttributeView(file, AclFileAttributeView::class.java)
+            assertNotNull(acl)
+            assertTrue(acl.acl.none { it.type() == AclEntryType.ALLOW && it.principal() != acl.owner &&
+                AclEntryPermission.READ_DATA in it.permissions() })
+        }
+    }
+
+    @Test
+    fun `partial backup failure restores the original and never publishes an incomplete backup`() {
+        val original = session("td.binlog" to 16)
+        val fs = object : SessionMaintenanceFileSystem() {
+            override fun copyTree(source: Path, target: Path) {
+                super.copyTree(source, target)
+                throw IOException("copy failed before completion")
+            }
+        }
+        val maintenance = SessionMaintenance(tempDir, emptyMap(), fs)
+        val error = assertThrows<IllegalStateException> { maintenance.clear("default", true) }
+        assertTrue(error.message.orEmpty().contains("Restored '$original'"))
+        assertEquals(16L, Files.size(original.resolve("td.binlog")))
+        assertTrue(maintenance.doctor().accounts.single().stagedDirectories.isEmpty())
+        assertEquals(emptyList(), Files.list(tempDir.resolve("tdlib-backups/default")).use { it.toList() })
+    }
+
+    @Test
+    fun `failed backup and failed restore name the actual recoverable staged directory`() {
+        val original = session("td.binlog" to 16)
+        val fs = object : SessionMaintenanceFileSystem() {
+            override fun copyTree(source: Path, target: Path) { throw IOException("backup failed") }
+            override fun move(source: Path, target: Path, atomic: Boolean) {
+                if (!atomic) throw IOException("restore failed")
+                super.move(source, target, atomic)
+            }
+        }
+        val maintenance = SessionMaintenance(tempDir, emptyMap(), fs)
+        val error = assertThrows<IllegalStateException> { maintenance.clear("default", true) }
+        val staged = maintenance.doctor().accounts.single().stagedDirectories.single()
+        assertFalse(Files.exists(original))
+        assertEquals(16L, Files.size(staged.resolve("td.binlog")))
+        assertTrue(error.message.orEmpty().contains("'$original' was not restored"))
+        assertTrue(error.message.orEmpty().contains(staged.toString()))
+        assertTrue(error.cause!!.suppressed.isNotEmpty())
+    }
+
+    @Test
+    fun `a staged ownership lock prevents copying an active database`() {
+        session("td.binlog" to 16)
+        var copied = false
+        val fs = object : SessionMaintenanceFileSystem() {
+            override fun probeLock(lockFile: Path): SessionLock =
+                if (lockFile.parent.fileName.toString().contains(".clearing-")) SessionLock.LOCKED else SessionLock.UNLOCKED
+            override fun copyTree(source: Path, target: Path) { copied = true; super.copyTree(source, target) }
+        }
+        assertThrows<IllegalStateException> { SessionMaintenance(tempDir, emptyMap(), fs).clear("default", true) }
+        assertFalse(copied)
+        assertFalse(Files.exists(tempDir.resolve("tdlib-backups")))
+    }
+
+    @Test
+    fun `backup directory links are refused before session bytes can escape`() {
+        val original = session("td.binlog" to 16)
+        val outside = Files.createDirectory(tempDir.resolve("outside"))
+        val linked = runCatching { Files.createSymbolicLink(tempDir.resolve("tdlib-backups"), outside) }.isSuccess
+        org.junit.jupiter.api.Assumptions.assumeTrue(linked, "Creating symbolic links is unavailable")
+        assertThrows<IllegalStateException> { SessionMaintenance(tempDir, emptyMap()).clear("default", true) }
+        assertEquals(16L, Files.size(original.resolve("td.binlog")))
+        assertEquals(emptyList(), Files.list(outside).use { it.toList() })
     }
 
     private fun <T> holding(file: Path, action: () -> T): T =
@@ -323,6 +408,36 @@ class SessionMaintenanceTest {
                 assertTrue(Files.exists(dir.resolve("td.sqlite")))
                 assertEquals("x", Files.readString(dir.resolve("db_files/photo.jpg")))
             }
+        }
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    fun `clear refuses a junction to a session outside standard storage`() {
+        val outside = Files.createDirectories(tempDir.resolve("outside-session"))
+        Files.writeString(outside.resolve("td.binlog"), "outside-session-data")
+        val parent = Files.createDirectories(tempDir.resolve("tdlib"))
+        val junction = parent.resolve("default")
+        val builder = ProcessBuilder(
+            "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+            "New-Item -ItemType Junction -Path ${'$'}env:TEST_JUNCTION_PATH -Target ${'$'}env:TEST_JUNCTION_TARGET | Out-Null",
+        ).redirectErrorStream(true)
+        builder.environment()["TEST_JUNCTION_PATH"] = junction.toString()
+        builder.environment()["TEST_JUNCTION_TARGET"] = outside.toString()
+        try {
+            val process = builder.start()
+            assertTrue(process.waitFor(15, TimeUnit.SECONDS), "Junction creation did not finish")
+            assertEquals(0, process.exitValue(), process.inputStream.bufferedReader().readText())
+            val error = assertThrows<IllegalArgumentException> {
+                SessionMaintenance(tempDir, emptyMap()).clear("default", true)
+            }
+            assertTrue(error.message.orEmpty().contains("symbolic links or junctions"))
+            assertEquals("outside-session-data", Files.readString(outside.resolve("td.binlog")))
+            assertTrue(Files.isDirectory(junction))
+            assertFalse(Files.exists(tempDir.resolve("tdlib-backups")))
+        } finally {
+            // Delete only the junction itself, never traverse its target.
+            Files.deleteIfExists(junction)
         }
     }
 

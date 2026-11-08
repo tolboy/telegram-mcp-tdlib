@@ -2,6 +2,7 @@
 
 import dev.telegrammcp.server.client.DelegatingTelegramClientService
 import dev.telegrammcp.server.client.MessageSendTracker
+import dev.telegrammcp.server.client.TdLibFactoryLifecycle
 import dev.telegrammcp.server.client.TdLibClientService
 import dev.telegrammcp.server.client.TdLibClientServiceFactory
 import dev.telegrammcp.server.client.TelegramConnectionStates
@@ -348,7 +349,7 @@ class TelegramAuthOrchestrator(
         ensureNativeInit()
 
         val settings = buildSettings(apiId, apiHash)
-        val factory = SimpleTelegramClientFactory()
+        val factory = TdLibFactoryLifecycle.create()
         val sendTracker = MessageSendTracker()
         try {
             val builder: SimpleTelegramClientBuilder = factory.builder(settings)
@@ -543,7 +544,7 @@ class TelegramAuthOrchestrator(
 
     private fun closeFactory(factory: SimpleTelegramClientFactory, context: String) {
         try {
-            factory.close()
+            TdLibFactoryLifecycle.close(factory)
             log.debug("TDLib factory closed ({})", context)
         } catch (e: Exception) {
             log.warn("Error closing TDLib client factory ({}): {}", context, e.message, e)

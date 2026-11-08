@@ -7,6 +7,7 @@ import it.tdlight.TelegramClient
 import it.tdlight.UpdatesHandler
 import it.tdlight.client.TelegramError
 import it.tdlight.jni.TdApi
+import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
@@ -32,7 +33,6 @@ class TdLibNativeLifecycleTest {
     @Test
     @Timeout(value = 45, unit = TimeUnit.SECONDS)
     fun `common receiver keeps offline clients independent across close and restart`() {
-        Init.init()
         val callbackErrors = ConcurrentLinkedQueue<Throwable>()
 
         FactoryLease().use { firstLease ->
@@ -86,7 +86,6 @@ class TdLibNativeLifecycleTest {
     @Test
     @Timeout(value = 30, unit = TimeUnit.SECONDS)
     fun `a failed client start leaves a later offline client usable`() {
-        Init.init()
         val callbackErrors = ConcurrentLinkedQueue<Throwable>()
         val startup = runCatching {
             FactoryLease().use { lease ->
@@ -114,13 +113,30 @@ class TdLibNativeLifecycleTest {
 
     /** Common factory acquire calls return the same object; each acquire is released exactly once. */
     private class FactoryLease : AutoCloseable {
-        val factory: ClientFactory = ClientFactory.acquireCommonClientFactory()
+        val factory: ClientFactory = TdLibFactoryLifecycle.acquireCommon()
         private val released = AtomicBoolean()
 
         override fun close() {
             if (released.compareAndSet(false, true)) {
                 // The API's blocking close has no timeout of its own.
-                CompletableFuture.runAsync { factory.close() }.get(5, TimeUnit.SECONDS)
+                val closing = CompletableFuture.runAsync { TdLibFactoryLifecycle.close(factory) }
+                val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+                var interrupted = Thread.interrupted()
+                try {
+                    while (true) {
+                        try {
+                            closing.get((deadline - System.nanoTime()).coerceAtLeast(0), TimeUnit.NANOSECONDS)
+                            return
+                        } catch (_: InterruptedException) {
+                            // A lifecycle-test timeout must not detach this
+                            // close and let the next test start a second native
+                            // receiver while the first one is still draining.
+                            interrupted = true
+                        }
+                    }
+                } finally {
+                    if (interrupted) Thread.currentThread().interrupt()
+                }
             }
         }
     }
@@ -193,6 +209,17 @@ class TdLibNativeLifecycleTest {
     }
 
     private companion object {
+        @JvmStatic
+        @BeforeAll
+        @Timeout(value = 90, unit = TimeUnit.SECONDS)
+        fun loadNativeRuntime() {
+            // A cold classifier extraction/JNI load can consume most of a
+            // lifecycle test's 30-second budget. Load before clients exist, so
+            // setup failure aborts the class without interrupting their teardown.
+            Init.init()
+            Init.init() // Initialization is idempotent; neither call creates an account.
+        }
+
         fun expectTelegramError(future: CompletableFuture<*>): TelegramError {
             val failure = org.junit.jupiter.api.assertThrows<ExecutionException> { future.get(5, TimeUnit.SECONDS) }
             return assertIs<TelegramError>(failure.cause)

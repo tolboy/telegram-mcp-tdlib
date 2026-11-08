@@ -61,7 +61,10 @@ class FileSecurityService(
     private val protectedDirectories: List<Path> =
         // Path is Iterable<Path>; adding it directly would append its segments
         // instead of the absolute protected directory.
-        sessionDirectories(tdLibProperties, telegramProperties) + listOf(canonicalizeForComparison(uploadSnapshotDirectory))
+        sessionDirectories(tdLibProperties, telegramProperties) + listOf(
+            canonicalizeForComparison(uploadSnapshotDirectory),
+            canonicalizeForComparison(platformPaths.applicationDataDirectory.resolve("tdlib-backups")),
+        )
 
     companion object {
         /** Characters forbidden in file paths. */

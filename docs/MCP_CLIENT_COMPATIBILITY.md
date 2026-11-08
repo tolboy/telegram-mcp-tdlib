@@ -21,6 +21,12 @@ and `Mcp-Name` are unchanged. If either header is present, it must match the
 JSON-RPC body; a mismatch is HTTP 400 and JSON-RPC code `-32020`. Those
 headers are not required.
 
+At most eight SDK elicitations may remain outstanding. Cancelling the local
+caller does not release that capacity until the actual SDK request completes;
+additional prompts are refused while saturated. Journal readers can stop while
+waiting for the writer or cross-process store lock. Disk I/O already in progress
+is not interrupted.
+
 ## Compatibility Matrix
 
 | Client | Connection data | Verification | Status |

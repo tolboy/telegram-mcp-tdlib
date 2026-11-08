@@ -21,7 +21,6 @@ import it.tdlight.client.InputParameter
 import it.tdlight.client.ParameterInfo
 import it.tdlight.client.SimpleTelegramClient
 import it.tdlight.client.SimpleTelegramClientBuilder
-import it.tdlight.client.SimpleTelegramClientFactory
 import it.tdlight.client.TDLibSettings
 import it.tdlight.jni.TdApi
 import jakarta.annotation.PreDestroy
@@ -227,7 +226,7 @@ class TdLibConfig(
     }
 
     private fun startAccount(config: RuntimeAccountConfig): TelegramAccountRegistry.AccountHandle {
-        val factory = SimpleTelegramClientFactory()
+        val factory = TdLibFactoryLifecycle.create()
         val messageSendTracker = MessageSendTracker()
         return try {
             val builder: SimpleTelegramClientBuilder = factory.builder(buildSettings(config))
@@ -300,13 +299,13 @@ class TdLibConfig(
                     messageSendTracker.close()
                     // A closed client must not leave its last Ready behind for the breaker.
                     clientServices.release(config.label)
-                    factory.close()
+                    TdLibFactoryLifecycle.close(factory)
                 },
             )
         } catch (e: Exception) {
             messageSendTracker.close()
             clientServices.release(config.label)
-            runCatching { factory.close() }
+            runCatching { TdLibFactoryLifecycle.close(factory) }
             throw e
         }
     }

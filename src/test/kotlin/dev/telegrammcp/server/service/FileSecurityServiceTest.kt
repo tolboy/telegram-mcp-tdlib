@@ -219,6 +219,24 @@ class FileSecurityServiceTest {
     }
 
     @Test
+    fun `session backup secrets cannot be uploaded or overwritten even under a broad allowed root`() {
+        val state = tempDir.resolve("state")
+        val backup = state.resolve("tdlib-backups/work/test-backup/td.binlog")
+        Files.createDirectories(backup.parent)
+        Files.writeString(backup, "synthetic backup bytes")
+        val paths = mockk<PlatformPaths> {
+            every { applicationDataDirectory } returns state
+            every { resolveApplicationPath(any(), any()) } answers { Path.of(firstArg<String>()).toAbsolutePath().normalize() }
+        }
+        val service = FileSecurityService(ServerModeProperties(fileSecurity = ServerModeProperties.FileSecurityProps(
+            allowedRoots = listOf(tempDir.toString()))), paths)
+        assertThrows<FileSecurityException> { service.validateForUpload(backup.toString()) }
+        assertThrows<FileSecurityException> { service.validateForDownload(backup.toString()) }
+        assertThrows<FileSecurityException> { service.validateForDownload(backup.resolveSibling("new-backup.bin").toString()) }
+        assertEquals("synthetic backup bytes", Files.readString(backup))
+    }
+
+    @Test
     fun `POSIX hard links cannot alias an outside file into an allowed upload root`() {
         assumeTrue("unix" in tempDir.fileSystem.supportedFileAttributeViews(), "POSIX link-count policy is unavailable")
         val allowed = Files.createDirectory(tempDir.resolve("allowed"))

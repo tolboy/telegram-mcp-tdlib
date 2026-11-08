@@ -1,6 +1,6 @@
 # Session security and retention
 
-Date: 2026-11-07. This is the threat model for TDLib session files and the
+Updated: 2026-11-08. This is the threat model for TDLib session files and the
 send-receipt journal. It does not claim that the session database is encrypted.
 
 ## What TDLight does not provide
@@ -31,20 +31,36 @@ sets it owner-only. It then walks ancestors:
 
 - On POSIX, a group- or world-writable ancestor without the sticky bit stops
   startup. That ancestor can rename the private directory away and replace it.
-- On Windows, effective replace rights are ALLOW bits minus DENY bits for the
-  same principal. Inherited ACEs already on the object count; inherit-only
-  entries do not. Ancestors with those rights are logged. The session directory
-  itself fails startup when Everyone, Authenticated Users, or another broad
-  principal still has replace rights. BUILTIN\Users is logged and does not fail
-  startup, because a normal profile inherits that group. The ACL is not rewritten.
+- On Windows, dangerous bits are evaluated in existing ACE order for each
+  principal: a later DENY does not revoke an earlier ALLOW. Inherited entries
+  already on the object count; inherit-only entries do not. Ancestor findings
+  are logged. The session directory itself rejects dangerous replace grants
+  to every broad group, including BUILTIN\Users; normal READ/EXECUTE grants are
+  unaffected. The ACL is not rewritten. This is a conservative per-principal
+  check, not a full AccessCheck simulation of overlapping group memberships.
+  The ordering follows [Microsoft's DACL access-check contract](https://learn.microsoft.com/en-us/windows/win32/secauthz/how-dacls-control-access-to-an-object).
 
 ## Receipt retention
 
-`session clear` copies the staged session to `tdlib-backups/<account>/<id>`
-before it deletes anything. That directory is access-checked the same way as
-a session directory. If the copy fails, the session is restored and nothing is
-deleted. The backup is not encrypted; it is only kept out of a shared writable
-tree. Clearing a custom TDLib directory is still refused.
+`session clear` rechecks the staged session lock before copying any bytes. It
+copies into a fresh private `.pending-<uuid>/data` directory, flushes each file,
+then atomically publishes `tdlib-backups/<account>/<uuid>/data` before deleting
+the staged source. Backup directories are owner-only on POSIX and have an
+owner-only inheritable Windows ACL; backup ancestors are also audited. Links,
+junctions and nonregular source files are refused. A failed copy removes the
+partial backup and attempts to restore the source without replacing a new
+canonical session. If restoration fails, the error names the recoverable staged
+directory rather than claiming that restoration succeeded. A later deletion
+failure names both the staged directory and complete backup.
+
+Backups are not encrypted and have no automatic expiry. Protect the application
+data directory and include backups in the operator's encrypted retention policy.
+Clearing a custom TDLib directory is still refused. These checks do not provide
+an atomic descriptor-based defence against hostile concurrent ancestor changes.
+Standard session storage that resolves through a symlink or junction is refused
+as well; renaming a link must never authorize removing its external target.
+The entire `tdlib-backups` tree is excluded from upload and download paths even
+when the operator grants a broader parent as an allowed file root.
 
 `SendOperationJournal` deletes a receipt only when its status is `REJECTED`,
 which means Telegram did not execute the send. `SENT`, `SCHEDULED`, and

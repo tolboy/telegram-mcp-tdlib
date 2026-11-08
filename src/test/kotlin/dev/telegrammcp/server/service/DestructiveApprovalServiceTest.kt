@@ -12,6 +12,9 @@ import io.mockk.verify
 import io.modelcontextprotocol.server.McpSyncServerExchange
 import io.modelcontextprotocol.spec.McpSchema
 import org.junit.jupiter.api.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
@@ -85,16 +88,20 @@ class DestructiveApprovalServiceTest {
     @Test
     fun `mcp cancellation stops an elicitation wait without accepting it`() {
         val exchange = exchangeAnswering(null)
+        val requested = CountDownLatch(1)
+        val release = CountDownLatch(1)
         every { exchange.createElicitation(any()) } answers {
-            Thread.sleep(3_000)
+            requested.countDown()
+            release.await(5, TimeUnit.SECONDS)
             McpSchema.ElicitResult(McpSchema.ElicitResult.Action.ACCEPT, emptyMap())
         }
+        val approval = service(ServerModeProperties.ApprovalMode.ELICITATION)
         val key = "elicitation-wait"
         val result = java.util.concurrent.CompletableFuture<Throwable?>()
         val worker = Thread({
             McpCallCancellation.bind(key)
             try {
-                service(ServerModeProperties.ApprovalMode.ELICITATION).requireApproval(exchange, "ban_user", emptyMap())
+                approval.requireApproval(exchange, "ban_user", emptyMap())
                 result.complete(null)
             } catch (error: Throwable) {
                 result.complete(error)
@@ -102,18 +109,62 @@ class DestructiveApprovalServiceTest {
                 McpCallCancellation.unbind()
             }
         }, "elicitation-cancel-test").apply { isDaemon = true; start() }
-        val started = System.nanoTime()
-        while (worker.state != Thread.State.TIMED_WAITING && worker.state != Thread.State.WAITING) {
-            assertTrue(worker.isAlive, "elicitation wait ended before it blocked")
-            assertTrue(java.time.Duration.ofNanos(System.nanoTime() - started) < java.time.Duration.ofSeconds(3))
-            Thread.yield()
+        try {
+            assertTrue(requested.await(2, TimeUnit.SECONDS), "The SDK prompt did not start")
+            McpCallCancellation.cancel(key)
+            val error = result.get(2, TimeUnit.SECONDS)
+            assertTrue(error is TelegramTimeoutException, error.toString())
+            assertEquals(TelegramTimeoutException.Reason.LOCAL_CANCEL, (error as TelegramTimeoutException).reason)
+            assertFalse(error.healthFailure)
+        } finally {
+            release.countDown()
+            worker.join(1_000)
+            approval.shutdown()
         }
-        McpCallCancellation.cancel(key)
-        val error = result.get(2, java.util.concurrent.TimeUnit.SECONDS)
-        assertTrue(error is TelegramTimeoutException, error.toString())
-        assertEquals(TelegramTimeoutException.Reason.LOCAL_CANCEL, (error as TelegramTimeoutException).reason)
-        assertFalse(error.healthFailure)
-        worker.join(1_000)
+    }
+
+    @Test
+    fun `repeated local cancellations cannot spawn unbounded outstanding SDK approval prompts`() {
+        val exchange = exchangeAnswering(null)
+        val currentKey = AtomicReference<String>()
+        val release = CountDownLatch(1)
+        every { exchange.createElicitation(any()) } answers {
+            McpCallCancellation.cancel(currentKey.get())
+            release.await(5, TimeUnit.SECONDS)
+            McpSchema.ElicitResult(McpSchema.ElicitResult.Action.ACCEPT, emptyMap())
+        }
+        val approval = service(ServerModeProperties.ApprovalMode.ELICITATION)
+        try {
+            repeat(8) { index ->
+                val key = "approval-capacity-$index"
+                currentKey.set(key)
+                McpCallCancellation.bind(key)
+                try {
+                    assertFailsWith<TelegramTimeoutException> { approval.requireApproval(exchange, "ban_user", emptyMap()) }
+                } finally { McpCallCancellation.unbind() }
+            }
+            assertFailsWith<ApprovalUnavailableException> { approval.requireApproval(exchange, "ban_user", emptyMap()) }
+            verify(exactly = 8) { exchange.createElicitation(any()) }
+        } finally {
+            release.countDown()
+            approval.shutdown()
+        }
+        assertFailsWith<ApprovalUnavailableException> { approval.requireApproval(exchange, "ban_user", emptyMap()) }
+    }
+
+    @Test
+    fun `already cancelled calls do not send a new approval prompt`() {
+        val exchange = exchangeAnswering(McpSchema.ElicitResult.Action.ACCEPT)
+        val approval = service(ServerModeProperties.ApprovalMode.ELICITATION)
+        McpCallCancellation.bind("already-cancelled-approval")
+        try {
+            McpCallCancellation.cancel("already-cancelled-approval")
+            assertFailsWith<TelegramTimeoutException> { approval.requireApproval(exchange, "ban_user", emptyMap()) }
+            verify(exactly = 0) { exchange.createElicitation(any()) }
+        } finally {
+            McpCallCancellation.unbind()
+            approval.shutdown()
+        }
     }
 
     @Test

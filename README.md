@@ -511,7 +511,7 @@ Docker, mount the secret file into the container and set the container path.
 | `MCP_ALLOWED_ORIGINS` | No | (loopback only) | Extra browser `Origin` values for `/mcp`. A missing Origin is allowed. Any other present Origin gets HTTP 403 |
 | `MCP_ALLOWED_HOSTS` | No | (loopback only) | Extra `Host` values for `/mcp`. A missing Host is allowed. Any other present Host gets HTTP 403 |
 | `MCP_MAX_CONCURRENT_CALLS_PER_CLIENT` | No | `8` | In-flight tool calls per authenticated client |
-| `MCP_DESTRUCTIVE_APPROVAL_TIMEOUT`| No | `120s`        | Loopback-page answer deadline; elicitation uses the MCP host/request deadline |
+| `MCP_DESTRUCTIVE_APPROVAL_TIMEOUT`| No | `120s`        | Local approval answer deadline; an SDK elicitation still in flight retains its slot until completion |
 | `MCP_FILE_ROOTS`           | No       | (deny all)      | Allowed root dirs for file operations    |
 | `MCP_AUDIT_ENABLED`        | No       | `true`          | Enable audit logging                     |
 | `MCP_AUDIT_LOG_ARGS`       | No       | `false`         | Include tool arguments in audit logs     |
