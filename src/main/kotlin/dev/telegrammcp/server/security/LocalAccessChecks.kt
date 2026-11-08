@@ -105,26 +105,52 @@ object LocalAccessChecks {
         dangerous: Set<AclEntryPermission>,
     ): AclFindings {
         val ownerSid = owner?.let { runCatching { sidResolver.sidOf(it) }.getOrNull() }?.uppercase()
+        // Effective mask for one principal: dangerous ALLOW bits minus dangerous DENY bits.
+        // Inherited ACEs are already on the object; INHERIT_ONLY seeds children and grants nothing here.
+        data class Rights(
+            val label: String,
+            val sid: String?,
+            val principal: UserPrincipal,
+            val allowed: MutableSet<AclEntryPermission> = mutableSetOf(),
+            val denied: MutableSet<AclEntryPermission> = mutableSetOf(),
+        )
+        val byPrincipal = linkedMapOf<String, Rights>()
+        for (entry in acl) {
+            if (AclEntryFlag.INHERIT_ONLY in entry.flags()) continue
+            if (entry.type() != AclEntryType.ALLOW && entry.type() != AclEntryType.DENY) continue
+            val relevant = entry.permissions().filter { it in dangerous }.toSet()
+            if (relevant.isEmpty()) continue
+            val principal = entry.principal() ?: continue
+            val label = principal.name ?: "<unnamed>"
+            val sid = runCatching { sidResolver.sidOf(principal) }.getOrNull()?.uppercase()
+            val rights = byPrincipal.getOrPut(sid ?: label) { Rights(label, sid, principal) }
+            if (entry.type() == AclEntryType.ALLOW) rights.allowed += relevant else rights.denied += relevant
+        }
         val broad = mutableListOf<String>()
         val other = mutableListOf<String>()
-        acl.asSequence()
-            .filter { it.type() == AclEntryType.ALLOW }
-            // INHERIT_ONLY entries only seed children; they grant nothing on this object.
-            .filterNot { AclEntryFlag.INHERIT_ONLY in it.flags() }
-            .filter { entry -> entry.permissions().any { it in dangerous } }
-            .forEach { entry ->
-                val principal = entry.principal() ?: return@forEach
-                val label = principal.name ?: "<unnamed>"
-                val sid = runCatching { sidResolver.sidOf(principal) }.getOrNull()?.uppercase()
-                when {
-                    sid == null -> if (isSharedPrincipal(principal.name)) broad += label
-                    isBroadSid(sid) -> broad += "$label ($sid)"
-                    principal == owner || sid == ownerSid || sid in TRUSTED_SIDS -> Unit
-                    else -> other += "$label ($sid)"
-                }
+        for (rights in byPrincipal.values) {
+            if ((rights.allowed - rights.denied).isEmpty()) continue
+            val sid = rights.sid
+            val rendered = if (sid == null) rights.label else "${rights.label} ($sid)"
+            when {
+                sid == null -> if (isSharedPrincipal(rights.principal.name)) broad += rights.label
+                isBroadSid(sid) -> broad += rendered
+                rights.principal == owner || sid == ownerSid || sid in TRUSTED_SIDS -> Unit
+                else -> other += rendered
             }
+        }
         return AclFindings(broad.distinct(), other.distinct())
     }
+
+    /** BUILTIN\Users is a normal profile grant. Everyone and Authenticated Users are not. */
+    internal fun isBuiltinUsers(label: String): Boolean {
+        if ("S-1-5-32-545" in label.uppercase()) return true
+        val simple = label.substringBefore(" (").substringAfterLast('\\').substringAfterLast('/').trim().lowercase()
+        return simple == "users"
+    }
+
+    internal fun enforcedBroadReplace(findings: AclFindings): List<String> =
+        findings.broad.filterNot(::isBuiltinUsers)
 
     /**
      * A group- or world-writable parent without the sticky bit lets another
@@ -158,6 +184,32 @@ object LocalAccessChecks {
             Files.setPosixFilePermissions(path, ownerOnly)
         }
         auditSessionAncestors(path)
+        enforceWindowsSessionDirectory(path)
+    }
+
+    /**
+     * Fails when Everyone, Authenticated Users, or another broad principal can
+     * still replace this directory after DENY entries are subtracted. BUILTIN\Users
+     * is logged: a normal profile inherits that group, and refusing it would
+     * stop startup. The ACL is not rewritten.
+     */
+    internal fun enforceWindowsSessionDirectory(path: Path) {
+        if (Files.getFileAttributeView(path, java.nio.file.attribute.PosixFileAttributeView::class.java) != null) return
+        val view = Files.getFileAttributeView(path, AclFileAttributeView::class.java, LinkOption.NOFOLLOW_LINKS) ?: return
+        val findings = classify(view.acl, view.owner, defaultSidResolver, DIRECTORY_REPLACE_PERMISSIONS)
+        val enforced = enforcedBroadReplace(findings)
+        require(enforced.isEmpty()) {
+            "Session directory $path can be replaced by shared Windows groups after deny entries are applied: " +
+                "${enforced.joinToString()}. Remove those replace rights. BUILTIN\\Users is not refused."
+        }
+        val users = findings.broad.filter(::isBuiltinUsers)
+        if (users.isNotEmpty()) {
+            log.warn(
+                "Session directory {} grants replace rights to BUILTIN\\Users after deny entries: {}",
+                path,
+                users.joinToString(),
+            )
+        }
     }
 
     /**

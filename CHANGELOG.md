@@ -5,6 +5,12 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- Windows session checks use effective replace rights: an ALLOW entry cancelled
+  by a DENY entry for the same principal no longer counts. The session directory
+  fails startup when a broad principal other than BUILTIN\Users can still replace
+  it. `session clear` keeps a protected backup and restores the session if that
+  copy fails.
+
 - Split TDLib calls into read, message, and admin adapters behind
   `TelegramClientService`. Flood control, deadlines, the breaker, and the
   bulkhead stay in one `TdLibRequestExecutor`.

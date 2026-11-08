@@ -31,12 +31,20 @@ sets it owner-only. It then walks ancestors:
 
 - On POSIX, a group- or world-writable ancestor without the sticky bit stops
   startup. That ancestor can rename the private directory away and replace it.
-- On Windows, the walk logs shared principals that can delete or rewrite an
-  ancestor. It does not fail startup: a normal profile grants broad read, and
-  refusing those grants would lock the operator out. The directory itself is
-  not rewritten, for the same reason as before.
+- On Windows, effective replace rights are ALLOW bits minus DENY bits for the
+  same principal. Inherited ACEs already on the object count; inherit-only
+  entries do not. Ancestors with those rights are logged. The session directory
+  itself fails startup when Everyone, Authenticated Users, or another broad
+  principal still has replace rights. BUILTIN\Users is logged and does not fail
+  startup, because a normal profile inherits that group. The ACL is not rewritten.
 
 ## Receipt retention
+
+`session clear` copies the staged session to `tdlib-backups/<account>/<id>`
+before it deletes anything. That directory is access-checked the same way as
+a session directory. If the copy fails, the session is restored and nothing is
+deleted. The backup is not encrypted; it is only kept out of a shared writable
+tree. Clearing a custom TDLib directory is still refused.
 
 `SendOperationJournal` deletes a receipt only when its status is `REJECTED`,
 which means Telegram did not execute the send. `SENT`, `SCHEDULED`, and

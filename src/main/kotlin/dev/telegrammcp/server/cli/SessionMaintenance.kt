@@ -1,6 +1,7 @@
 package dev.telegrammcp.server.cli
 
 import dev.telegrammcp.server.client.TelegramAccountRegistry
+import dev.telegrammcp.server.security.LocalAccessChecks
 import dev.telegrammcp.server.service.PlatformPaths
 import java.io.IOException
 import java.nio.channels.FileChannel
@@ -71,6 +72,16 @@ class SessionMaintenance internal constructor(
         } catch (e: IOException) {
             throw IllegalStateException("Refusing to clear '$label': could not stage '$directory' at '$staged' (${e.javaClass.simpleName}); nothing was deleted", e)
         }
+        val backup = try {
+            protectedBackup(label, staged)
+        } catch (e: Exception) {
+            restoreStaged(staged, directory, e)
+            throw IllegalStateException(
+                "Refusing to clear '$label': could not keep a protected backup (${e.javaClass.simpleName}). " +
+                    "Restored '$directory'; nothing was deleted",
+                e,
+            )
+        }
         if (inspectLock(staged) !in setOf(SessionLock.UNLOCKED, SessionLock.LOCK_FILE_MISSING)) {
             try {
                 // ATOMIC_MOVE may replace a newly created destination file.
@@ -86,7 +97,32 @@ class SessionMaintenance internal constructor(
         } catch (e: Exception) {
             throw IllegalStateException("TDLib session for '$label' was detached to '$staged' but could not be fully removed (${e.javaClass.simpleName}); inspect it manually before retrying", e)
         }
-        return SessionClearReport(label, directory, deleted = true, message = "TDLib local session data cleared")
+        return SessionClearReport(
+            label, directory, deleted = true,
+            message = "TDLib local session data cleared. Protected backup kept at $backup",
+            backupDirectory = backup,
+        )
+    }
+
+    /**
+     * Copies [staged] under the application data directory before anything is deleted.
+     * The backup root is access-checked. A failure leaves the caller to restore the session.
+     */
+    private fun protectedBackup(label: String, staged: Path): Path {
+        val root = applicationDataDirectory.resolve("tdlib-backups").resolve(label).normalize()
+        LocalAccessChecks.prepareOwnerDirectory(root)
+        val backup = root.resolve(System.nanoTime().toString())
+        fileSystem.copyTree(staged, backup)
+        return backup
+    }
+
+    private fun restoreStaged(staged: Path, directory: Path, cause: Exception) {
+        if (!Files.exists(staged)) return
+        try {
+            fileSystem.move(staged, directory, atomic = false)
+        } catch (restore: IOException) {
+            cause.addSuppressed(restore)
+        }
     }
 
     private fun stagedDirectories(label: String): List<Path> {
@@ -200,6 +236,7 @@ data class SessionClearReport(
     val databaseDirectory: Path,
     val deleted: Boolean,
     val message: String,
+    val backupDirectory: Path? = null,
 )
 
 /** Narrow filesystem seam for deterministic staging and recovery failure tests. */
@@ -223,6 +260,18 @@ internal open class SessionMaintenanceFileSystem {
         }
     } catch (_: IOException) {
         SessionLock.UNAVAILABLE
+    }
+
+    open fun copyTree(source: Path, target: Path) {
+        Files.createDirectories(target)
+        Files.walk(source).use { paths ->
+            paths.forEach { path ->
+                val dest = target.resolve(source.relativize(path).toString())
+                if (path == source) return@forEach
+                if (Files.isDirectory(path, NOFOLLOW_LINKS)) Files.createDirectories(dest)
+                else Files.copy(path, dest, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+            }
+        }
     }
 
     open fun deleteTree(directory: Path) {

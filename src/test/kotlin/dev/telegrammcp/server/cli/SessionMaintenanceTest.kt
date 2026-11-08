@@ -14,6 +14,7 @@ import java.nio.file.StandardOpenOption
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class SessionMaintenanceTest {
@@ -120,6 +121,9 @@ class SessionMaintenanceTest {
         assertTrue(cleared.deleted)
         assertFalse(Files.exists(dir))
         assertEquals(emptyList(), Files.list(tempDir.resolve("tdlib")).use { it.toList() })
+        val backup = cleared.backupDirectory
+        assertNotNull(backup)
+        assertTrue(Files.isRegularFile(backup.resolve("td.binlog")))
     }
 
     @Test

@@ -143,6 +143,37 @@ class LocalAccessChecksTest {
     }
 
     @Test
+    fun `a deny entry removes that permission from the effective grant`() {
+        check(
+            allow("Jeder", AclEntryPermission.WRITE_DATA, AclEntryPermission.DELETE),
+            deny("Jeder", AclEntryPermission.WRITE_DATA, AclEntryPermission.DELETE),
+        )
+        val error = assertThrows<IllegalArgumentException> {
+            check(
+                allow("Jeder", AclEntryPermission.WRITE_DATA, AclEntryPermission.DELETE),
+                deny("Jeder", AclEntryPermission.WRITE_DATA),
+            )
+        }
+        assertContains(error.message.orEmpty(), "Jeder")
+    }
+
+    @Test
+    fun `builtin users replace rights are logged and not enforced`() {
+        val findings = LocalAccessChecks.classify(
+            listOf(
+                allow("VORDEFINIERT\\Benutzer", AclEntryPermission.DELETE),
+                allow("Jeder", AclEntryPermission.DELETE),
+                deny("Jeder", AclEntryPermission.DELETE),
+            ),
+            owner,
+            resolver,
+            setOf(AclEntryPermission.DELETE),
+        )
+        assertEquals(listOf("VORDEFINIERT\\Benutzer (S-1-5-32-545)"), findings.broad)
+        assertEquals(emptyList(), LocalAccessChecks.enforcedBroadReplace(findings))
+    }
+
+    @Test
     fun `broad read access, deny entries, and inherit-only entries do not count as writes`() {
         check(
             allow(owner.name, AclEntryPermission.WRITE_DATA),
