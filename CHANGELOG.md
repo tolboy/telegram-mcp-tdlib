@@ -5,6 +5,10 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- Split TDLib calls into read, message, and admin adapters behind
+  `TelegramClientService`. Flood control, deadlines, the breaker, and the
+  bulkhead stay in one `TdLibRequestExecutor`.
+
 - STDIO `notifications/cancelled` stops the same local waits as Streamable HTTP.
   The tool thread is bound to the JSON-RPC id, including on the SDK elastic
   scheduler. Auth-ready, change-journal, and human-approval waits stop on that
