@@ -32,7 +32,7 @@ internal class TdLibAdminAdapter(
                 return withResilience("createChatFolder") {
                     send<TdApi.ChatFolderInfo>(TdApi.CreateChatFolder(folder.toTdLib()))
                 }.toChatFolderInfo()
-            
+
     }
 
 
@@ -42,7 +42,7 @@ internal class TdLibAdminAdapter(
                 return withResilience("editChatFolder") {
                     send<TdApi.ChatFolderInfo>(TdApi.EditChatFolder(folderId, folder.toTdLib()))
                 }.toChatFolderInfo()
-            
+
     }
 
 
@@ -53,7 +53,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.DeleteChatFolder(folderId, longArrayOf()))
                 }
                 return true
-            
+
     }
 
 
@@ -66,7 +66,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.ReorderChatFolders(folderIds.toIntArray(), mainChatListPosition))
                 }
                 return true
-            
+
     }
 
 
@@ -83,7 +83,7 @@ internal class TdLibAdminAdapter(
                 }
 
                 return reads.getChat(result.chatId)
-            
+
     }
 
 
@@ -98,7 +98,7 @@ internal class TdLibAdminAdapter(
                     throw IllegalStateException(formatFailedToAddMembers("add_chat_members", chatId, failedMembers))
                 }
                 return true
-            
+
     }
 
 
@@ -107,7 +107,7 @@ internal class TdLibAdminAdapter(
 
                 withResilience("leaveChat") { send<TdApi.Ok>(TdApi.LeaveChat(chatId)) }
                 return true
-            
+
     }
 
 
@@ -119,7 +119,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.BanChatMember(chatId, sender, 0, false))
                 }
                 return true
-            
+
     }
 
 
@@ -135,7 +135,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.SetChatMemberStatus(chatId, sender, newStatus))
                 }
                 return true
-            
+
     }
 
 
@@ -164,7 +164,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.SetChatMemberStatus(chatId, sender, newStatus))
                 }
                 return true
-            
+
     }
 
 
@@ -175,7 +175,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.SetUserPrivacySettingRules(tdPrivacySetting(rules.setting), tdRules))
                 }
                 return true
-            
+
     }
 
 
@@ -186,7 +186,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.SetCommands(tdBotCommandScope(scope), languageCode, tdCommands))
                 }
                 return true
-            
+
     }
 
 
@@ -196,7 +196,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.SetChatPermissions(chatId, chatPermissionsToTd(permissions)))
                 }
                 return true
-            
+
     }
 
 
@@ -213,7 +213,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.SetChatMemberStatus(chatId, TdApi.MessageSenderUser(userId), status))
                 }
                 return true
-            
+
     }
 
 
@@ -224,7 +224,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.SetChatMemberStatus(chatId, TdApi.MessageSenderUser(userId), status))
                 }
                 return true
-            
+
     }
 
 
@@ -235,7 +235,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.SetChatTitle(chatId, title))
                 }
                 return true
-            
+
     }
 
 
@@ -246,7 +246,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.SetChatDescription(chatId, description))
                 }
                 return true
-            
+
     }
 
 
@@ -257,7 +257,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.SetChatSlowModeDelay(chatId, delaySeconds))
                 }
                 return true
-            
+
     }
 
 
@@ -268,7 +268,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.AddChatToList(chatId, TdApi.ChatListArchive()))
                 }
                 return true
-            
+
     }
 
 
@@ -279,7 +279,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.AddChatToList(chatId, TdApi.ChatListMain()))
                 }
                 return true
-            
+
     }
 
 
@@ -295,7 +295,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.SetChatNotificationSettings(chatId, settings))
                 }
                 return true
-            
+
     }
 
 
@@ -311,7 +311,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.SetChatNotificationSettings(chatId, settings))
                 }
                 return true
-            
+
     }
 
 
@@ -330,7 +330,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.AddContact(userId, contact, false))
                 }
                 return true
-            
+
     }
 
 
@@ -341,7 +341,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.RemoveContacts(userIds.toLongArray()))
                 }
                 return true
-            
+
     }
 
 
@@ -353,7 +353,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.SetMessageSenderBlockList(sender, TdApi.BlockListMain()))
                 }
                 return true
-            
+
     }
 
 
@@ -365,7 +365,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.SetMessageSenderBlockList(sender, null))
                 }
                 return true
-            
+
     }
 
 
@@ -389,7 +389,7 @@ internal class TdLibAdminAdapter(
                 }
                 val info = withResilience("createForumTopic") { send<TdApi.ForumTopicInfo>(request) }
                 return info.toForumTopicInfoModel(isPinned = false, unreadCount = 0)
-            
+
     }
 
 
@@ -420,7 +420,7 @@ internal class TdLibAdminAdapter(
                     )
                 }
                 return true
-            
+
     }
 
 
@@ -454,7 +454,7 @@ internal class TdLibAdminAdapter(
                     )
                 }
                 return true
-            
+
     }
 
 
@@ -519,7 +519,7 @@ internal class TdLibAdminAdapter(
                 }
 
                 return refreshed.toChatInfo()
-            
+
     }
 
 
@@ -535,7 +535,7 @@ internal class TdLibAdminAdapter(
                 }
                 val link = withResilience("createChatInviteLink") { send<TdApi.ChatInviteLink>(request) }
                 return link.toInviteLinkInfo(chatId)
-            
+
     }
 
 
@@ -546,7 +546,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.ChatInviteLinks>(TdApi.RevokeChatInviteLink(chatId, inviteLink))
                 }
                 return links.inviteLinks?.map { it.toInviteLinkInfo(chatId) } ?: emptyList()
-            
+
     }
 
 
@@ -567,7 +567,7 @@ internal class TdLibAdminAdapter(
                             "Telegram requires approval by guard bot ${result.botUserId} before joining",
                         )
                 }
-            
+
     }
 
 
@@ -583,7 +583,7 @@ internal class TdLibAdminAdapter(
                 TdLibClientService.requireExpectedPublicChatId(chat.id, expectedChatId)
                 withResilience("joinChat") { send<TdApi.Ok>(TdApi.JoinChat(chat.id)) }
                 return chat.toChatInfo()
-            
+
     }
 
 
@@ -595,7 +595,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.SetChatPhoto(chatId, photo))
                 }
                 return true
-            
+
     }
 
 
@@ -606,7 +606,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.SetChatPhoto(chatId, null))
                 }
                 return true
-            
+
     }
 
 
@@ -630,7 +630,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.SetChatDraftMessage(chatId, null, draft))
                 }
                 return true
-            
+
     }
 
 
@@ -641,7 +641,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.SetChatDraftMessage(chatId, null, null))
                 }
                 return true
-            
+
     }
 
 
@@ -658,7 +658,7 @@ internal class TdLibAdminAdapter(
                     withResilience("setBio") { send<TdApi.Ok>(TdApi.SetBio(bio)) }
                 }
                 return true
-            
+
     }
 
 
@@ -670,7 +670,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.SetProfilePhoto(photo, false))
                 }
                 return true
-            
+
     }
 
 
@@ -689,7 +689,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.DeleteProfilePhoto(idToDelete))
                 }
                 return true
-            
+
     }
 
 
@@ -699,7 +699,7 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.ProcessChatJoinRequest(chatId, userId, approve))
                 }
                 return true
-            
+
     }
 
 
@@ -707,7 +707,7 @@ internal class TdLibAdminAdapter(
                 log.info("Unpinning all messages in chat {}", chatId)
                 withResilience("unpinAllChatMessages") { send<TdApi.Ok>(TdApi.UnpinAllChatMessages(chatId)) }
                 return true
-            
+
     }
 
 
@@ -717,6 +717,6 @@ internal class TdLibAdminAdapter(
                     send<TdApi.Ok>(TdApi.DeleteChatMessagesBySender(chatId, TdLibRequestBuilders.messageSender(senderId)))
                 }
                 return true
-            
+
     }
 }

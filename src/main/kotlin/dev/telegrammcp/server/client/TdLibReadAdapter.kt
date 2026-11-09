@@ -35,7 +35,7 @@ internal class TdLibReadAdapter(
 
                 val chatTitle = getChatTitleSafe(chatId)
                 return messages.messages?.map { it.toTelegramMessage(chatTitle) } ?: emptyList()
-            
+
     }
 
 
@@ -56,7 +56,7 @@ internal class TdLibReadAdapter(
 
                 val chatTitle = getChatTitleSafe(chatId)
                 return result.messages?.map { it.toTelegramMessage(chatTitle) } ?: emptyList()
-            
+
     }
 
 
@@ -83,7 +83,7 @@ internal class TdLibReadAdapter(
                 return chatIds.chatIds.map { id ->
                     withResilience("getChat") { send<TdApi.Chat>(TdApi.GetChat(id)) }.toChatInfo()
                 }
-            
+
     }
 
 
@@ -114,7 +114,7 @@ internal class TdLibReadAdapter(
                 }
 
                 return chat.toChatInfo(fullInfo)
-            
+
     }
 
 
@@ -130,7 +130,7 @@ internal class TdLibReadAdapter(
                     send<TdApi.ChatFolder>(TdApi.GetChatFolder(folderId))
                 }
                 return ChatFolderDetails(folderId, folder.toChatFolderDefinition())
-            
+
     }
 
 
@@ -142,7 +142,7 @@ internal class TdLibReadAdapter(
                 }
 
                 return members.members?.map { it.toChatMember() } ?: emptyList()
-            
+
     }
 
 
@@ -152,7 +152,7 @@ internal class TdLibReadAdapter(
 
                 val me = withResilience("getMe") { send<TdApi.User>(TdApi.GetMe()) }
                 return me.toUserInfo()
-            
+
     }
 
 
@@ -177,7 +177,7 @@ internal class TdLibReadAdapter(
                         ContactInfo(userId = userId, firstName = "User($userId)")
                     }
                 }
-            
+
     }
 
 
@@ -186,7 +186,7 @@ internal class TdLibReadAdapter(
 
                 val user = withResilience("getUser") { send<TdApi.User>(TdApi.GetUser(userId)) }
                 return user.toUserInfo()
-            
+
     }
 
 
@@ -201,7 +201,7 @@ internal class TdLibReadAdapter(
                     ?: throw IllegalStateException("Message $messageId not found in chat $chatId")
 
                 return message.toMediaInfo(chatId)
-            
+
     }
 
 
@@ -231,7 +231,7 @@ internal class TdLibReadAdapter(
                     mimeType = extractMimeType(message),
                     fileSize = downloaded.size,
                 )
-            
+
     }
 
 
@@ -271,7 +271,7 @@ internal class TdLibReadAdapter(
                     status = VoiceTranscriptionStatus.PENDING,
                     partialText = partialText,
                 )
-            
+
     }
 
 
@@ -291,7 +291,7 @@ internal class TdLibReadAdapter(
 
                 val chatTitle = getChatTitleSafe(chatId)
                 return result.messages?.map { it.toTelegramMessage(chatTitle) } ?: emptyList()
-            
+
     }
 
 
@@ -306,7 +306,7 @@ internal class TdLibReadAdapter(
 
                 withResilience("viewMessages") { send<TdApi.Ok>(request) }
                 return true
-            
+
     }
 
 
@@ -326,7 +326,7 @@ internal class TdLibReadAdapter(
                     val chatTitle = getChatTitleSafe(msg.chatId)
                     msg.toTelegramMessage(chatTitle)
                 } ?: emptyList()
-            
+
     }
 
 
@@ -337,7 +337,7 @@ internal class TdLibReadAdapter(
                 }
                 val chatTitle = getChatTitleSafe(chatId)
                 return messages.messages?.map { it.toScheduledMessage(chatTitle) } ?: emptyList()
-            
+
     }
 
 
@@ -347,7 +347,7 @@ internal class TdLibReadAdapter(
                     send<TdApi.UserPrivacySettingRules>(TdApi.GetUserPrivacySettingRules(tdPrivacySetting(setting)))
                 }
                 return PrivacySettingRules(setting, result.rules.map(::privacyRuleFromTd))
-            
+
     }
 
 
@@ -357,7 +357,7 @@ internal class TdLibReadAdapter(
                     send<TdApi.BotCommands>(TdApi.GetCommands(tdBotCommandScope(scope), languageCode))
                 }
                 return result.commands.map { BotCommand(it.command, it.description) }
-            
+
     }
 
 
@@ -365,7 +365,7 @@ internal class TdLibReadAdapter(
                 log.info("Getting default permissions for chat {}", chatId)
                 val chat = withResilience("getChat") { send<TdApi.Chat>(TdApi.GetChat(chatId)) }
                 return chatPermissionsFromTd(chat.permissions)
-            
+
     }
 
 
@@ -377,7 +377,7 @@ internal class TdLibReadAdapter(
                     send<TdApi.Chat>(TdApi.SearchPublicChat(username))
                 }
                 return chat.id
-            
+
     }
 
 
@@ -388,7 +388,7 @@ internal class TdLibReadAdapter(
                     send<TdApi.User>(TdApi.SearchUserByPhoneNumber(phoneNumber, false))
                 }
                 return user.id
-            
+
     }
 
 
@@ -402,7 +402,7 @@ internal class TdLibReadAdapter(
                     send<TdApi.Chat>(TdApi.CreatePrivateChat(me.id, true))
                 }
                 return chat.id
-            
+
     }
 
 
@@ -491,7 +491,7 @@ internal class TdLibReadAdapter(
                 } ?: emptyList()
 
                 return summary(reactions, canGetAddedReactions = true)
-            
+
     }
 
 
@@ -512,7 +512,7 @@ internal class TdLibReadAdapter(
                         viewDate = if (viewer.viewDate > 0) Instant.ofEpochSecond(viewer.viewDate.toLong()) else null,
                     )
                 } ?: emptyList()
-            
+
     }
 
 
@@ -529,7 +529,7 @@ internal class TdLibReadAdapter(
 
                 val chatTitle = getChatTitleSafe(chatId)
                 return messages.messages?.map { it.toTelegramMessage(chatTitle) } ?: emptyList()
-            
+
     }
 
 
@@ -571,7 +571,7 @@ internal class TdLibReadAdapter(
                     }
                 }
                 return result
-            
+
     }
 
 
@@ -592,7 +592,7 @@ internal class TdLibReadAdapter(
                     val info = topic.info ?: return@mapNotNull null
                     info.toForumTopicInfoModel(isPinned = topic.isPinned, unreadCount = topic.unreadCount)
                 } ?: emptyList()
-            
+
     }
 
 
@@ -610,7 +610,7 @@ internal class TdLibReadAdapter(
                 }
                 val links = withResilience("getChatInviteLinks") { send<TdApi.ChatInviteLinks>(request) }
                 return links.inviteLinks?.map { it.toInviteLinkInfo(chatId) } ?: emptyList()
-            
+
     }
 
 
@@ -623,7 +623,7 @@ internal class TdLibReadAdapter(
                     )
                 }
                 return members.members?.map { it.toChatMember() } ?: emptyList()
-            
+
     }
 
 
@@ -636,7 +636,7 @@ internal class TdLibReadAdapter(
                     )
                 }
                 return members.members?.map { it.toChatMember() } ?: emptyList()
-            
+
     }
 
 
@@ -660,7 +660,7 @@ internal class TdLibReadAdapter(
                             isOwned = s.isOwned,
                         )
                     } ?: emptyList()
-            
+
     }
 
 
@@ -689,7 +689,7 @@ internal class TdLibReadAdapter(
                         date = if (draft.date > 0) Instant.ofEpochSecond(draft.date.toLong()) else null,
                     )
                 }
-            
+
     }
 
 
@@ -711,7 +711,7 @@ internal class TdLibReadAdapter(
                         fileSize = largest?.photo?.size,
                     )
                 } ?: emptyList()
-            
+
     }
 
 
@@ -748,7 +748,7 @@ internal class TdLibReadAdapter(
                         null
                     }
                 }
-            
+
     }
 
 
@@ -773,7 +773,7 @@ internal class TdLibReadAdapter(
                         null
                     }
                 }
-            
+
     }
 
 
@@ -795,7 +795,7 @@ internal class TdLibReadAdapter(
                         null
                     }
                 } ?: emptyList()
-            
+
     }
 
 
@@ -811,7 +811,7 @@ internal class TdLibReadAdapter(
                     is TdApi.UserStatusLastMonth -> "last month"
                     else -> "unknown"
                 }
-            
+
     }
 
 
@@ -860,7 +860,7 @@ internal class TdLibReadAdapter(
                         details = details,
                     )
                 } ?: emptyList()
-            
+
     }
 
 
@@ -875,7 +875,7 @@ internal class TdLibReadAdapter(
                     ?: throw IllegalStateException("Link does not resolve to a specific message")
                 val chatTitle = getChatTitleSafe(info.chatId)
                 return message.toTelegramMessage(chatTitle)
-            
+
     }
 
 
@@ -906,7 +906,7 @@ internal class TdLibReadAdapter(
                     link = result.link,
                     isPublic = result.isPublic,
                 )
-            
+
     }
 
 
@@ -918,7 +918,7 @@ internal class TdLibReadAdapter(
                 }
                 val last = chat.lastMessage ?: return null
                 return last.toTelegramMessage(chat.title)
-            
+
     }
 
 
@@ -935,7 +935,7 @@ internal class TdLibReadAdapter(
                         null
                     }
                 }
-            
+
     }
 
 
@@ -951,7 +951,7 @@ internal class TdLibReadAdapter(
                         ChatJoinRequestInfo(it.userId, Instant.ofEpochSecond(it.date.toLong()), it.bio.orEmpty())
                     },
                 )
-            
+
     }
 
 
@@ -961,6 +961,6 @@ internal class TdLibReadAdapter(
                     send<TdApi.ChatStatistics>(TdApi.GetChatStatistics(chatId, false))
                 }
                 return TdLibRequestBuilders.chatStatistics(chatId, statistics)
-            
+
     }
 }

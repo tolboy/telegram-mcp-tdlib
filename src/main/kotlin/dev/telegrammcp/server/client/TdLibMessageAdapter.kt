@@ -53,7 +53,7 @@ internal class TdLibMessageAdapter(
 
                 val message = sendAndAwaitFinal("sendMessage", request)
                 return message.toTelegramMessage(getChatTitleSafe(chatId))
-            
+
     }
 
 
@@ -90,7 +90,7 @@ internal class TdLibMessageAdapter(
                     throw IllegalStateException("Telegram did not attach reply to message $replyToMessageId in chat $chatId")
                 }
                 return sent
-            
+
     }
 
 
@@ -110,7 +110,7 @@ internal class TdLibMessageAdapter(
 
                 val message = withResilience("editMessageText") { send<TdApi.Message>(request) }
                 return message.toTelegramMessage(getChatTitleSafe(chatId))
-            
+
     }
 
 
@@ -132,7 +132,7 @@ internal class TdLibMessageAdapter(
 
                 val message = sendAndAwaitFinal("sendMessage", request)
                 return message.toTelegramMessage(getChatTitleSafe(chatId))
-            
+
     }
 
 
@@ -144,7 +144,7 @@ internal class TdLibMessageAdapter(
                     send<TdApi.Ok>(TdApi.DeleteMessages(chatId, messageIds.toLongArray(), revoke))
                 }
                 return true
-            
+
     }
 
 
@@ -161,7 +161,7 @@ internal class TdLibMessageAdapter(
                 val delivered = holdingBulkhead("forwardMessages") { forwardAndAwait(request, toChatId, messageIds) }
                 val chatTitle = getChatTitleSafe(toChatId)
                 return delivered.map { it.toTelegramMessage(chatTitle) }
-            
+
     }
 
 
@@ -172,7 +172,7 @@ internal class TdLibMessageAdapter(
                     send<TdApi.Ok>(TdApi.PinChatMessage(chatId, messageId, disableNotification, false))
                 }
                 return true
-            
+
     }
 
 
@@ -183,7 +183,7 @@ internal class TdLibMessageAdapter(
                     send<TdApi.Ok>(TdApi.UnpinChatMessage(chatId, messageId))
                 }
                 return true
-            
+
     }
 
 
@@ -210,7 +210,7 @@ internal class TdLibMessageAdapter(
                 }
                 val message = sendAndAwaitFinal("sendMessage", request)
                 return message.toScheduledMessage(getChatTitleSafe(chatId))
-            
+
     }
 
 
@@ -256,7 +256,7 @@ internal class TdLibMessageAdapter(
                         "Telegram rescheduled message $messageId in chat $chatId, " +
                             "but the replacement could not be identified",
                     )
-            
+
     }
 
 
@@ -266,7 +266,7 @@ internal class TdLibMessageAdapter(
                     send<TdApi.Ok>(TdApi.DeleteMessages(chatId, longArrayOf(messageId), true))
                 }
                 return true
-            
+
     }
 
 
@@ -283,7 +283,7 @@ internal class TdLibMessageAdapter(
                 }
                 withResilience("addMessageReaction") { send<TdApi.Ok>(request) }
                 return true
-            
+
     }
 
 
@@ -293,7 +293,7 @@ internal class TdLibMessageAdapter(
                 val request = TdApi.RemoveMessageReaction(chatId, messageId, TdApi.ReactionTypeEmoji(emoji))
                 withResilience("removeMessageReaction") { send<TdApi.Ok>(request) }
                 return true
-            
+
     }
 
 
@@ -326,7 +326,7 @@ internal class TdLibMessageAdapter(
 
                 val message = sendAndAwaitFinal("sendMessage", request)
                 return message.toTelegramMessage(getChatTitleSafe(chatId))
-            
+
     }
 
 
@@ -337,7 +337,7 @@ internal class TdLibMessageAdapter(
                     send<TdApi.Ok>(TdApi.SetPollAnswer(chatId, messageId, optionIds.toIntArray()))
                 }
                 return true
-            
+
     }
 
 
@@ -348,7 +348,7 @@ internal class TdLibMessageAdapter(
                     send<TdApi.Ok>(TdApi.StopPoll(chatId, messageId, null))
                 }
                 return true
-            
+
     }
 
 
@@ -387,7 +387,7 @@ internal class TdLibMessageAdapter(
                     }
                     else -> throw IllegalStateException("Button type '${target.type}' is not supported for automated press")
                 }
-            
+
     }
 
 
@@ -402,7 +402,7 @@ internal class TdLibMessageAdapter(
                 }
                 val message = sendAndAwaitFinal("sendMessage", request)
                 return message.toTelegramMessage(getChatTitleSafe(chatId))
-            
+
     }
 
 
@@ -416,7 +416,7 @@ internal class TdLibMessageAdapter(
                 }
                 val message = sendAndAwaitFinal("sendMessage", request)
                 return message.toTelegramMessage(getChatTitleSafe(chatId))
-            
+
     }
 
 
@@ -428,7 +428,7 @@ internal class TdLibMessageAdapter(
                 val delivered = holdingBulkhead("sendMessageAlbum") { albumAndAwait(request, chatId) }
                 val chatTitle = getChatTitleSafe(chatId)
                 return delivered.map { it.toTelegramMessage(chatTitle) }
-            
+
     }
 
 
@@ -438,27 +438,27 @@ internal class TdLibMessageAdapter(
                     send<TdApi.Ok>(TdApi.SendChatAction(chatId, null, "", TdLibRequestBuilders.chatAction(action)))
                 }
                 return true
-            
+
     }
 
 
     fun sendLocation(chatId: Long, latitude: Double, longitude: Double, horizontalAccuracy: Double): TelegramMessage = with(support) {
                 log.info("Sending location to chat {}", chatId)
                 return sendContent(chatId, TdLibRequestBuilders.locationContent(latitude, longitude, horizontalAccuracy))
-            
+
     }
 
 
     fun sendVenue(chatId: Long, venue: VenueSpec): TelegramMessage = with(support) {
                 log.info("Sending venue to chat {}", chatId)
                 return sendContent(chatId, TdLibRequestBuilders.venueContent(venue))
-            
+
     }
 
 
     fun sendContact(chatId: Long, contact: ContactSpec): TelegramMessage = with(support) {
                 log.info("Sending contact card to chat {}", chatId)
                 return sendContent(chatId, TdLibRequestBuilders.contactContent(contact))
-            
+
     }
 }
