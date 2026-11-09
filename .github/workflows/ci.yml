@@ -60,7 +60,9 @@ jobs:
           build/mcp-client-venv/bin/python scripts/mcp-result-smoke.py --jar build/libs/telegram-mcp-server.jar
 
       - name: Verify production image build
-        run: docker build --build-arg APP_VERSION=ci -t telegram-mcp-server:ci .
+        run: |
+          docker build --build-arg APP_VERSION=ci -t telegram-mcp-server:ci .
+          docker run --rm --network none --entrypoint test telegram-mcp-server:ci -s /app/licenses/tdlight/NOTICE.md
 
   windows-daemon-lifetime:
     runs-on: windows-latest

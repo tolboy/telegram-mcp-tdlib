@@ -15,6 +15,12 @@ App-image launchers do not require Java, Gradle, Git, Python or Node.js on
 `PATH`. The standalone JAR remains available for managed deployments and
 requires Java 25 or newer.
 
+TDLight and native dependency licenses, notices, and source references are
+in `META-INF/licenses/tdlight/` inside the JAR, `support/tdlight-licenses/`
+in the app-image archive, and `/app/licenses/tdlight/` in the container.
+The [notice index](../licenses/tdlight/NOTICE.md) lists the reviewed upstream
+versions and explains how to run with a modified TDLight library.
+
 Intel macOS is not published as a release archive. The current TDLight native
 line used by this project has no `macos_amd64` classifier, so shipping an
 archive would be misleading: Java would start but TDLib could not initialize.

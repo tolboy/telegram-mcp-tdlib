@@ -215,6 +215,7 @@ tasks.register<Test>("nativeTest") {
 
 tasks.bootJar {
     archiveFileName.set("telegram-mcp-server.jar")
+    from("licenses/tdlight") { into("META-INF/licenses/tdlight") }
     // `java -jar` gets the same native access as the Docker image and daemon
     // launcher (TDLight JNI, Windows SID lookup) without a restricted-method warning.
     manifest {
@@ -260,8 +261,31 @@ tasks.register("verifyNativeRuntimeCoverage") {
         check(nativeVersions.size == 1) {
             "Boot JAR ${bootJar.name} must contain exactly one TDLight natives version, found: $nativeVersions"
         }
+        val reviewedJars = setOf("tdlight-java-3.5.9+td.1.8.68.jar", "tdlight-api-4.0.565.jar") +
+            requiredClassifiers.map { "tdlight-natives-4.0.597-$it.jar" }
+        val bundledTdlight = entries.filter { it.startsWith("BOOT-INF/lib/tdlight-") && it.endsWith(".jar") }
+            .map { it.substringAfterLast('/') }.toSet()
+        check(bundledTdlight == reviewedJars) {
+            "TDLight dependencies changed; review licenses/tdlight and update the reviewed JAR list: $bundledTdlight"
+        }
+        val requiredNotices = listOf(
+            "NOTICE.md", "upstream/TDLight-Java-LGPL-3.0.txt", "upstream/GPL-3.0.txt",
+            "upstream/JTDLib-LICENSE.txt", "upstream/TDLight-JNI-BSL-1.0.txt", "upstream/TDLight-BSL-1.0.txt",
+            "upstream/SQLite-LICENSE.txt", "upstream/OpenSSL-LICENSE.txt", "upstream/OpenSSL-ACKNOWLEDGEMENTS.md",
+            "upstream/zlib-LICENSE.txt",
+        )
+        ZipFile(bootJar).use { zip ->
+            requiredNotices.forEach { name ->
+                val source = rootProject.file("licenses/tdlight/$name")
+                val entry = zip.getEntry("META-INF/licenses/tdlight/$name")
+                check(source.isFile && source.length() > 0 && entry != null &&
+                    zip.getInputStream(entry).use { it.readBytes().contentEquals(source.readBytes()) }) {
+                    "Boot JAR ${bootJar.name} must carry the reviewed TDLight notice $name"
+                }
+            }
+        }
         logger.lifecycle(
-            "Verified TDLight native runtime coverage: ${requiredClassifiers.joinToString()} " +
+            "Verified TDLight notices and native runtime coverage: ${requiredClassifiers.joinToString()} " +
                 "(tdlight-natives ${nativeVersions.single()})",
         )
     }
