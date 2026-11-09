@@ -8,8 +8,8 @@ A free companion skill for the open-source, TDLib-powered telegram-mcp-tdlib ser
 
 By default, it samples at most 20 recent chats and inspects at most 5 relevant conversations, up to 10 messages each. This is a sampled digest, not a claim to process your entire inbox.
 
-## Updated for server 1.19.0
-Skill 0.1.3 recommends server 1.19.0 and keeps compatibility with server 1.17.2 or later. It adds guidance for optional read-only MCP resources and explicitly requested subscription monitoring. Resources remain off by default and are not required for inbox triage. Reads and re-reads keep the same account and budget; monitoring ends with unsubscription. HTTP 413 means reduce an oversized request, not widen server limits.
+## Updated for server 1.20.0
+Skill 0.1.4 recommends server 1.20.0 and keeps minimum compatibility at 1.17.2. Server 1.20.0 handles MCP cancellation on STDIO and Streamable HTTP. Interrupted reads are reported as incomplete. Optional read-only resources remain off by default. Explicitly requested subscription monitoring keeps the same account and budget and ends with unsubscription. Reduce the request size if HTTP returns 413.
 
 The server's new media and moderation tools do not expand this skill's read-only scope.
 
@@ -29,4 +29,4 @@ Source and skill: https://github.com/tolboy/telegram-mcp-tdlib/tree/master/skill
 Setup: https://github.com/tolboy/telegram-mcp-tdlib/blob/master/skills/telegram-inbox-assistant/SETUP.md
 Validation: https://github.com/tolboy/telegram-mcp-tdlib/blob/master/skills/VALIDATION.md
 
-Skill version 0.1.3. Recommended server: 1.19.0; minimum compatible server: 1.17.2. Source license: Apache-2.0. Also available free on GitHub; marketplace delivery terms apply separately.
+Skill version 0.1.4. Recommended server 1.20.0. Minimum compatible server 1.17.2. The skill is available free under Apache-2.0. Marketplace delivery terms apply separately.

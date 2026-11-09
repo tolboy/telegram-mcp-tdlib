@@ -16,10 +16,14 @@ Use the runtime-inclusive package for your OS from the project's
 The packaged server needs no separately installed JDK. Check the installed
 version with `telegram-mcp version`.
 
-Use **telegram-mcp-tdlib 1.19.0 (recommended), minimum 1.17.2** for this skill. This includes the
+Use **telegram-mcp-tdlib 1.20.0 (recommended), minimum 1.17.2** for this skill. This includes the
 Codex result-annotation compatibility fix and independent Windows daemon task
 ownership, so closing the launching app does not terminate a shared daemon.
 Installing the skill does not update an older server.
+
+Server 1.20.0 supports MCP cancellation on STDIO and Streamable HTTP. Before
+upgrading, check the [session path permissions](https://github.com/tolboy/telegram-mcp-tdlib/blob/v1.20.0/docs/SESSION_SECURITY_AND_RETENTION.md#upgrade-check-for-existing-installations).
+Download the server from the [1.20.0 release](https://github.com/tolboy/telegram-mcp-tdlib/releases/tag/v1.20.0).
 
 Version 1.19.0 adds media/moderation tools and optional MCP resources, but this
 skill remains read-only. Resources are off by default and are not required for
