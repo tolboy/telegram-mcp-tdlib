@@ -4,3 +4,5 @@
 *.cmd text eol=crlf
 *.sh text eol=lf
 gradlew text eol=lf
+
+licenses/tdlight/upstream/** -text

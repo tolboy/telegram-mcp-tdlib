@@ -81,6 +81,8 @@ try {
     }
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'docs/CLAUDE_DESKTOP_BRIDGE.md') -Destination $supportDirectory
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE') -Destination $supportDirectory
+    $tdlightNotices = Join-Path $repositoryRoot 'licenses/tdlight'
+    Copy-Item -LiteralPath $tdlightNotices -Destination (Join-Path $supportDirectory 'tdlight-licenses') -Recurse
     @"
 Telegram MCP Server $Version
 Target: $Target
@@ -96,6 +98,7 @@ Commands:
 On macOS the executable is telegram-mcp.app/Contents/MacOS/telegram-mcp.
 Optional Claude Desktop shared-daemon tools bridge: see support/CLAUDE_DESKTOP_BRIDGE.md.
 The bridge additionally requires Python 3.11+ and its pinned SDK dependency.
+TDLight and native dependency notices and sources: support/tdlight-licenses/NOTICE.md.
 "@ | Set-Content -LiteralPath (Join-Path $bundleRoot 'README.txt')
 
     if ($Target -eq 'windows-x64') {
@@ -123,6 +126,15 @@ The bridge additionally requires Python 3.11+ and its pinned SDK dependency.
     }
 
     $bundleName = [IO.Path]::GetFileName($bundleRoot)
+    $archivedNotices = Join-Path $smokeExtractRoot "$bundleName/support/tdlight-licenses"
+    foreach ($notice in Get-ChildItem -LiteralPath $tdlightNotices -File -Recurse) {
+        $relativeNotice = [IO.Path]::GetRelativePath($tdlightNotices, $notice.FullName)
+        $archivedNotice = Join-Path $archivedNotices $relativeNotice
+        if (-not (Test-Path -LiteralPath $archivedNotice -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $archivedNotice).Hash -ne (Get-FileHash -LiteralPath $notice.FullName).Hash) {
+            throw "Release archive has a missing or changed TDLight notice: $relativeNotice"
+        }
+    }
     $archivedExecutable = Join-Path $smokeExtractRoot (Join-Path $bundleName $launcher)
     if (-not (Test-Path -LiteralPath $archivedExecutable -PathType Leaf)) {
         throw "Release archive launcher is missing: $archivedExecutable"

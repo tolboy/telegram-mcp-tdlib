@@ -20,10 +20,11 @@ RUN ./gradlew dependencies --no-daemon || true
 # Build the application
 ARG APP_VERSION
 COPY src/ src/
+COPY licenses/tdlight/ licenses/tdlight/
 RUN if [ -n "$APP_VERSION" ]; then \
-            ./gradlew bootJar --no-daemon -x test -PreleaseVersion="$APP_VERSION"; \
+            ./gradlew bootJar verifyNativeRuntimeCoverage --no-daemon -x test -PreleaseVersion="$APP_VERSION"; \
         else \
-            ./gradlew bootJar --no-daemon -x test; \
+            ./gradlew bootJar verifyNativeRuntimeCoverage --no-daemon -x test; \
         fi
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
@@ -40,6 +41,7 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY --from=build /app/build/libs/telegram-mcp-server.jar app.jar
+COPY licenses/tdlight/ /app/licenses/tdlight/
 COPY docker/healthcheck.sh /usr/local/bin/telegram-mcp-healthcheck
 
 RUN chmod 0555 /usr/local/bin/telegram-mcp-healthcheck \

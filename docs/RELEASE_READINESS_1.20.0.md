@@ -35,12 +35,15 @@ and the Actions updates in [PR #63](https://github.com/tolboy/telegram-mcp-tdlib
 - The Windows x64 archive passed launcher version, session doctor, STDIO,
   managed-daemon lifecycle, and both Windows Job Object scenarios.
 
-## Before tagging
+## Distribution notices
 
-Complete the third-party distribution review. The inspected TDLight Java,
-API, and native JARs lack standalone license or notice files. The app-image
-packager adds the project license to its support directory. Verify and include
-the license, notice, and source information for the shipped components in the
-release artifacts. Use the [TDLight Java upstream](https://github.com/tdlight-team/tdlight-java)
-and the [native build upstream](https://github.com/tdlight-team/tdlight-java-natives)
-to match the files to the packaged versions.
+The [notice index](../licenses/tdlight/NOTICE.md) records the wrapper, API,
+and JNI source revisions and the linked OpenSSL and zlib versions. All four
+JNI binary payloads match upstream build run 597 byte for byte. The Linux
+Maven JARs differ from the CI archives in their JAR and Maven metadata.
+
+The JAR gate checks that the reviewed TDLight versions and license files are
+present. The app-image packager verifies that its extracted notices match the
+original files. The container build copies the same directory. A launch from
+the documented exploded classpath reported 1.20.0 and passed the MCP STDIO
+handshake and tool discovery.
