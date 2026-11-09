@@ -5,6 +5,12 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+## 1.20.0 - 2026-11-09
+
+Adds MCP cancellation over Streamable HTTP and STDIO, and strengthens TDLib
+session recovery and send reliability. Before upgrading, review the
+[session path and backup changes](docs/RELEASE_READINESS_1.20.0.md#upgrade-notes).
+
 - Optional numeric query arguments such as `limit` and `from_message_id` use
   the same default for JSON `null` and omission. Required integers and supplied
   mutation arguments remain strict.
