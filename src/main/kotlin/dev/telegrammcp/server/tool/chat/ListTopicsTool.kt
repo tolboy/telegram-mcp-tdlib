@@ -6,6 +6,7 @@ import dev.telegrammcp.server.exception.InvalidToolInputException
 import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
@@ -40,7 +41,7 @@ class ListTopicsTool(
           "type": "object",
           "properties": {
             "chat_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Supergroup chat identifier (ID/@username/+phone)"
             },
             "query": {
@@ -48,7 +49,7 @@ class ListTopicsTool(
               "description": "Filter topics by name (optional)"
             },
             "limit": {
-              "type": "number",
+              "type": "integer",
               "description": "Max topics to return (1-100, default 50)"
             }
           },
@@ -79,7 +80,7 @@ class ListTopicsTool(
                 arguments["chat_id"] ?: throw InvalidToolInputException("chat_id is required"),
             )
             val query = arguments["query"]?.toString() ?: ""
-            val limit = ((arguments["limit"] as? Number)?.toInt() ?: DEFAULT_LIMIT)
+            val limit = (ToolNumbers.optionalInt(arguments, "limit") ?: DEFAULT_LIMIT)
                 .coerceIn(1, MAX_LIMIT)
 
             guardrailService.validateChatAccess(chatId)

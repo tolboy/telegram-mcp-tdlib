@@ -34,6 +34,24 @@ class ScheduledMessageToolsTest {
     private val mapper = jacksonObjectMapper().findAndRegisterModules()
 
     @Test
+    @Suppress("UNCHECKED_CAST")
+    fun `explicit null notification flag does not become a normal notification`() {
+        val tool = ScheduleMessageTool(telegramClient, entityResolver, guardrails, operationGuard, audit, mapper, SimpleMeterRegistry())
+        val future = Instant.now().plusSeconds(600)
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.scheduleMessage(any(), any(), any(), any(), any(), any()) } returns scheduled(42L)
+        val arguments = mapOf(
+            "chat_id" to 42,
+            "text" to "planned",
+            "send_at" to future.toString(),
+            "disable_notification" to null,
+        ) as Map<String, Any>
+        val result = tool.executeChecked(exchange, arguments)
+        assertTrue(result.isError)
+        verify(exactly = 0) { telegramClient.scheduleMessage(any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
     fun `schedules a future ISO instant with normal write safeguards`() {
         val tool = ScheduleMessageTool(telegramClient, entityResolver, guardrails, operationGuard, audit, mapper, SimpleMeterRegistry())
         val future = Instant.now().plusSeconds(600)

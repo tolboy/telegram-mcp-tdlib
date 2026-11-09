@@ -43,6 +43,7 @@ class SendVoiceToolTest {
         guardrailService = mockk(relaxed = true)
         operationGuardService = mockk(relaxed = true)
         fileSecurityService = mockk(relaxed = true)
+        every { fileSecurityService.validateForUpload(any()) } answers { Path.of(firstArg<String>()) }
         auditService = mockk(relaxed = true)
         objectMapper = jacksonObjectMapper().findAndRegisterModules()
         exchange = mockk(relaxed = true)
@@ -68,7 +69,10 @@ class SendVoiceToolTest {
     fun `sends voice note successfully`() {
         val msg = TelegramMessage(1, 42, "Test", "Alice", text = null, date = Instant.now(), mediaType = "voiceNote")
         every { entityResolver.resolve(42 as Any) } returns 42L
-        every { fileSecurityService.validateForUpload("/tmp/voice.ogg") } returns Path.of("/tmp/voice.ogg")
+        every { fileSecurityService.withStagedUpload<Any?>("/tmp/voice.ogg", any()) } answers {
+            @Suppress("UNCHECKED_CAST")
+            (args[1] as (Path) -> Any?).invoke(Path.of("/tmp/voice.ogg"))
+        }
         every { telegramClient.sendVoice(42L, any(), 30, "caption") } returns msg
 
         val result = tool.executeChecked(
@@ -78,7 +82,7 @@ class SendVoiceToolTest {
 
         assertFalse(result.isError)
         verify { operationGuardService.checkPermission("send_voice", any()) }
-        verify { fileSecurityService.validateForUpload("/tmp/voice.ogg") }
+        verify { fileSecurityService.withStagedUpload("/tmp/voice.ogg", any()) }
     }
 
     @Test
@@ -92,5 +96,16 @@ class SendVoiceToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         val result = tool.executeChecked(exchange, mapOf("chat_id" to 42))
         assertTrue(result.isError)
+    }
+
+    @Test
+    fun `invalid voice duration fails before reading or sending the file`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        for (duration in listOf<Any>(30.9, 4_294_967_297L, "invalid")) {
+            val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "file_path" to "/tmp/voice.ogg", "duration" to duration))
+            assertTrue(result.isError)
+        }
+        verify(exactly = 0) { fileSecurityService.withStagedUpload(any(), any()) }
+        verify(exactly = 0) { telegramClient.sendVoice(any(), any(), any(), any()) }
     }
 }

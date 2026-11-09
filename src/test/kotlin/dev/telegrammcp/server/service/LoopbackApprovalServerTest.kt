@@ -1,6 +1,8 @@
 package dev.telegrammcp.server.service
 
 import com.sun.net.httpserver.HttpServer
+import dev.telegrammcp.server.client.McpCallCancellation
+import dev.telegrammcp.server.exception.TelegramTimeoutException
 import dev.telegrammcp.server.service.LoopbackApprovalServer.ApprovalResult
 import org.junit.jupiter.api.Test
 import java.io.IOException
@@ -29,6 +31,42 @@ import kotlin.test.assertTrue
  * refuses rather than waits forever.
  */
 class LoopbackApprovalServerTest {
+
+    @Test
+    fun `mcp cancellation stops the approval wait without recording a denial`() {
+        val server = LoopbackApprovalServer(
+            Duration.ofSeconds(30),
+            announce = { _ -> },
+            printLink = true,
+            openBrowser = { false },
+        )
+        val key = "approval-wait"
+        val result = CompletableFuture<Any>()
+        val worker = Thread({
+            McpCallCancellation.bind(key)
+            try {
+                result.complete(server.requestApproval("ban_user", "chat_id=1"))
+            } catch (error: Throwable) {
+                result.complete(error)
+            } finally {
+                McpCallCancellation.unbind()
+            }
+        }, "approval-cancel-test").apply { isDaemon = true; start() }
+        val started = System.nanoTime()
+        while (worker.state != Thread.State.TIMED_WAITING) {
+            assertTrue(worker.isAlive, "approval wait ended before it blocked")
+            assertTrue(Duration.ofNanos(System.nanoTime() - started) < Duration.ofSeconds(3))
+            Thread.yield()
+        }
+        McpCallCancellation.cancel(key)
+        val outcome = result.get(2, TimeUnit.SECONDS)
+        assertTrue(outcome is TelegramTimeoutException, outcome.toString())
+        val timeout = outcome as TelegramTimeoutException
+        assertEquals(TelegramTimeoutException.Reason.LOCAL_CANCEL, timeout.reason)
+        assertFalse(timeout.healthFailure)
+        server.close()
+        worker.join(1_000)
+    }
 
     @Test
     fun `approval timeout must be positive`() {

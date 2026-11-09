@@ -1,13 +1,22 @@
 package dev.telegrammcp.server.service
 
+import dev.telegrammcp.server.client.McpCallCancellation
+import dev.telegrammcp.server.client.McpCallCancelledException
+import dev.telegrammcp.server.client.ToolCallDeadline
+import dev.telegrammcp.server.exception.TelegramTimeoutException
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
+import java.nio.channels.FileLock
+import java.nio.channels.OverlappingFileLockException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption.*
 import java.nio.file.StandardOpenOption.*
 import java.nio.file.attribute.*
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 /** Never publish a cursor before its data. Fail closed if atomic replacement is unavailable. */
 internal object DurableFiles {
@@ -31,8 +40,35 @@ internal object DurableFiles {
     /** Cross-process lock for a directory already secured by [privateDirectory]. */
     fun <T> lockedPrepared(directory: Path, action: () -> T): T =
         FileChannel.open(directory.resolve("store.lock"), CREATE, WRITE).use { channel ->
-            channel.lock().use { action() }
+            acquireStoreLock(channel).use { action() }
         }
+
+    /** Wait only for the lock; cancellation never interrupts already-started disk writes. */
+    private fun acquireStoreLock(channel: FileChannel): FileLock {
+        val started = System.nanoTime()
+        val pause = CompletableFuture<Unit>()
+        while (true) {
+            McpCallCancellation.throwIfLocalWait("state-store")
+            val remaining = ToolCallDeadline.remainingNanos() ?: Long.MAX_VALUE
+            if (remaining <= 0) {
+                throw TelegramTimeoutException(
+                    "state-store", TelegramTimeoutException.Reason.TOOL_DEADLINE,
+                    requestSent = false, retryable = !ToolCallDeadline.writeDispatched(),
+                    waitedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started),
+                ).apply { healthFailure = false }
+            }
+            val acquired = try { channel.tryLock() } catch (_: OverlappingFileLockException) { null }
+            if (acquired != null) return acquired
+            try {
+                McpCallCancellation.await(pause, minOf(remaining, 50_000_000L))
+            } catch (_: TimeoutException) {
+                // Another process or another local store instance still owns it.
+            } catch (cancelled: McpCallCancelledException) {
+                McpCallCancellation.throwIfLocalWait("state-store")
+                throw cancelled
+            }
+        }
+    }
 
     /** Append and flush. A failed write is cut back so no torn record precedes later appends. */
     fun append(path: Path, bytes: ByteArray) {

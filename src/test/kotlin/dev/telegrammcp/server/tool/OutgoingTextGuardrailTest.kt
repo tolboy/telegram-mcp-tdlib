@@ -50,8 +50,16 @@ class OutgoingTextGuardrailTest {
     private val message = TelegramMessage(1L, 42L, "Test", "Me", text = null, date = Instant.EPOCH, mediaType = "photo")
 
     init {
+        every { files.validateForUpload(any()) } answers { Path.of(firstArg<String>()) }
         every { resolver.resolve(42 as Any) } returns 42L
-        every { files.validateForUpload(any<String>()) } answers { Path.of(firstArg<String>()) }
+        every { files.withStagedUpload<Any?>(any(), any()) } answers {
+            @Suppress("UNCHECKED_CAST")
+            (args[1] as (Path) -> Any?).invoke(Path.of(args[0] as String))
+        }
+        every { files.withStagedUploads<Any?>(any(), any()) } answers {
+            @Suppress("UNCHECKED_CAST")
+            (args[1] as (List<Path>) -> Any?).invoke((args[0] as List<String>).map { Path.of(it) })
+        }
         every { client.sendFile(any(), any(), any()) } returns message
         every { client.sendAlbum(any(), any()) } returns listOf(message, message.copy(messageId = 2L))
         every { client.sendVenue(any(), any()) } returns message

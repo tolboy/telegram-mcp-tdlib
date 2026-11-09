@@ -1,7 +1,9 @@
 package dev.telegrammcp.server.cli
 
 import dev.telegrammcp.server.client.TelegramAccountRegistry
+import dev.telegrammcp.server.security.LocalAccessChecks
 import dev.telegrammcp.server.service.PlatformPaths
+import dev.telegrammcp.server.service.DurableFiles
 import java.io.IOException
 import java.nio.channels.FileChannel
 import java.nio.channels.OverlappingFileLockException
@@ -13,6 +15,9 @@ import java.nio.file.SimpleFileVisitor
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.nio.file.attribute.BasicFileAttributes
+import java.nio.file.attribute.PosixFileAttributeView
+import java.nio.file.attribute.PosixFilePermissions
+import java.util.UUID
 
 /** Offline-safe session inspection and clearing. It never initializes TDLib. */
 class SessionMaintenance internal constructor(
@@ -43,7 +48,7 @@ class SessionMaintenance internal constructor(
         )
     }
 
-    fun clear(accountLabel: String, confirmed: Boolean): SessionClearReport {
+    fun clear(accountLabel: String, confirmed: Boolean, keepBackup: Boolean = true): SessionClearReport {
         require(confirmed) { "Refusing to clear a TDLib session without --yes" }
         val label = TelegramAccountRegistry.normalizeLabel(accountLabel)
         require(label in configuredLabels()) { "Account '$label' is not configured in the current environment" }
@@ -58,6 +63,10 @@ class SessionMaintenance internal constructor(
         }
         if (!Files.exists(directory)) return SessionClearReport(label, directory, deleted = false, message = "No TDLib session directory exists")
         require(!Files.isSymbolicLink(directory)) { "Refusing to clear a symbolic-link TDLib session directory" }
+        val realStandardDirectory = applicationDataDirectory.toRealPath().resolve("tdlib").resolve(label)
+        require(directory.toRealPath() == realStandardDirectory) {
+            "Refusing to clear a TDLib session through symbolic links or junctions"
+        }
 
         when (inspectLock(directory)) {
             SessionLock.UNLOCKED, SessionLock.LOCK_FILE_MISSING -> Unit
@@ -81,12 +90,80 @@ class SessionMaintenance internal constructor(
             }
             throw IllegalStateException("Refusing to clear '$label': staged lock is not safely available; restored '$directory'; nothing was deleted")
         }
+        val backup = try {
+            if (keepBackup) protectedBackup(label, staged) else null
+        } catch (e: Exception) {
+            val restored = restoreStaged(staged, directory, e)
+            val recovery = if (restored) "Restored '$directory'; nothing was deleted"
+                else "'$directory' was not restored; session data remains at '$staged'; nothing was deleted"
+            throw IllegalStateException(
+                "Refusing to clear '$label': could not keep a protected backup (${e.javaClass.simpleName}). $recovery",
+                e,
+            )
+        }
         try {
             deleteTree(staged, standardDirectory)
         } catch (e: Exception) {
-            throw IllegalStateException("TDLib session for '$label' was detached to '$staged' but could not be fully removed (${e.javaClass.simpleName}); inspect it manually before retrying", e)
+            val recovery = if (backup == null) "No new backup was made" else "Complete backup remains at '$backup'"
+            throw IllegalStateException("TDLib session for '$label' was detached to '$staged' but could not be fully removed (${e.javaClass.simpleName}). $recovery. Inspect the staged directory before retrying", e)
         }
-        return SessionClearReport(label, directory, deleted = true, message = "TDLib local session data cleared")
+        return SessionClearReport(
+            label, directory, deleted = true,
+            message = if (backup == null) "TDLib local session data cleared without a new backup"
+                else "TDLib local session data cleared. Unencrypted backup containing session credentials kept at $backup",
+            backupDirectory = backup,
+        )
+    }
+
+    /**
+     * Copies [staged] under the application data directory before anything is deleted.
+     * The backup root is access-checked. A failure leaves the caller to restore the session.
+     */
+    private fun protectedBackup(label: String, staged: Path): Path {
+        // Resolve the trusted application root once; refuse links/junctions in
+        // our backup subtree before any session bytes are copied.
+        val applicationRoot = applicationDataDirectory.toRealPath()
+        val backupRoot = applicationRoot.resolve("tdlib-backups")
+        val root = backupRoot.resolve(label)
+        privateBackupDirectory(backupRoot)
+        privateBackupDirectory(root)
+        LocalAccessChecks.auditSessionAncestors(root)
+        val id = UUID.randomUUID().toString()
+        val pending = root.resolve(".pending-$id")
+        Files.createDirectory(pending)
+        try {
+            DurableFiles.privateDirectory(pending)
+            val data = pending.resolve("data")
+            fileSystem.copyTree(staged, data)
+            // Publish only a complete backup. A failed/partial copy never gets
+            // a normal backup name and never authorizes deleting the source.
+            val ready = root.resolve(id)
+            Files.move(pending, ready, StandardCopyOption.ATOMIC_MOVE)
+            return ready.resolve("data")
+        } catch (failure: Exception) {
+            check(pending.parent == root && pending.fileName.toString() == ".pending-$id")
+            runCatching { fileSystem.deleteTree(pending) }.exceptionOrNull()?.let(failure::addSuppressed)
+            throw failure
+        }
+    }
+
+    private fun privateBackupDirectory(path: Path) {
+        if (!Files.exists(path, NOFOLLOW_LINKS)) Files.createDirectory(path)
+        require(Files.isDirectory(path, NOFOLLOW_LINKS) && !Files.isSymbolicLink(path) && path.toRealPath() == path) {
+            "Backup directory must be a real directory without symbolic links or junctions: $path"
+        }
+        DurableFiles.privateDirectory(path)
+    }
+
+    private fun restoreStaged(staged: Path, directory: Path, cause: Exception): Boolean {
+        if (!Files.exists(staged, NOFOLLOW_LINKS)) return false
+        try {
+            fileSystem.move(staged, directory, atomic = false)
+            return true
+        } catch (restore: IOException) {
+            cause.addSuppressed(restore)
+            return false
+        }
     }
 
     private fun stagedDirectories(label: String): List<Path> {
@@ -200,6 +277,7 @@ data class SessionClearReport(
     val databaseDirectory: Path,
     val deleted: Boolean,
     val message: String,
+    val backupDirectory: Path? = null,
 )
 
 /** Narrow filesystem seam for deterministic staging and recovery failure tests. */
@@ -225,8 +303,46 @@ internal open class SessionMaintenanceFileSystem {
         SessionLock.UNAVAILABLE
     }
 
+    open fun copyTree(source: Path, target: Path) {
+        val canonicalSource = source.toRealPath()
+        require(!Files.isSymbolicLink(source) && canonicalSource == source.parent.toRealPath().resolve(source.fileName)) {
+            "Session backup refuses a symbolic-link or junction source"
+        }
+        Files.createDirectory(target)
+        DurableFiles.privateDirectory(target)
+        Files.walk(source).use { paths ->
+            paths.forEach { path ->
+                val dest = target.resolve(source.relativize(path).toString())
+                if (path == source) return@forEach
+                val expected = canonicalSource.resolve(source.relativize(path)).normalize()
+                require(!Files.isSymbolicLink(path) && path.toRealPath() == expected) {
+                    "Session backup refuses symbolic links or junctions: $path"
+                }
+                if (Files.isDirectory(path, NOFOLLOW_LINKS)) {
+                    Files.createDirectory(dest)
+                    DurableFiles.privateDirectory(dest)
+                } else {
+                    require(Files.isRegularFile(path, NOFOLLOW_LINKS)) { "Session backup requires regular files: $path" }
+                    Files.copy(path, dest, NOFOLLOW_LINKS)
+                    Files.getFileAttributeView(dest, PosixFileAttributeView::class.java)?.setPermissions(
+                        PosixFilePermissions.fromString("rw-------"),
+                    )
+                    FileChannel.open(dest, StandardOpenOption.WRITE, NOFOLLOW_LINKS).use { it.force(true) }
+                }
+            }
+        }
+    }
+
     open fun deleteTree(directory: Path) {
+        val expectedRoot = directory.parent.toRealPath().resolve(directory.fileName)
         Files.walkFileTree(directory, object : SimpleFileVisitor<Path>() {
+            override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
+                require(dir.toRealPath() == expectedRoot.resolve(directory.relativize(dir))) {
+                    "Refusing to traverse a linked directory while clearing session data: $dir"
+                }
+                return FileVisitResult.CONTINUE
+            }
+
             override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
                 Files.delete(file)
                 return FileVisitResult.CONTINUE

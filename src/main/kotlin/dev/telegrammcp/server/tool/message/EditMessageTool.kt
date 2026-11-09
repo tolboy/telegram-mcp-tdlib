@@ -1,5 +1,6 @@
 package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.ToolNumbers
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.exception.InvalidToolInputException
@@ -55,11 +56,11 @@ class EditMessageTool(
           "type": "object",
           "properties": {
             "chat_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Chat identifier: numeric ID, @username, +phone, or the canonical value self"
             },
             "message_id": {
-              "type": "number",
+              "type": "integer",
               "description": "ID of the message to edit"
             },
             "text": {
@@ -117,12 +118,7 @@ class EditMessageTool(
 
     private fun extractMessageId(args: Map<String, Any>): Long {
         val raw = args["message_id"] ?: throw InvalidToolInputException("message_id is required")
-        return when (raw) {
-            is Number -> raw.toLong()
-            is String -> raw.toLongOrNull()
-                ?: throw InvalidToolInputException("message_id must be a valid number")
-            else -> throw InvalidToolInputException("message_id must be a number")
-        }
+        return ToolNumbers.long(raw, "message_id")
     }
 
     private fun extractText(args: Map<String, Any>): String {

@@ -44,7 +44,7 @@ class EditChatPhotoTool(
         {
           "type": "object",
           "properties": {
-            "chat_id": { "type": ["string", "number"], "description": "Chat identifier" },
+            "chat_id": { "type": ["string", "integer"], "description": "Chat identifier" },
             "file_path": { "type": "string", "description": "Local image path (JPEG/PNG)" }
           },
           "required": ["chat_id", "file_path"]
@@ -70,11 +70,12 @@ class EditChatPhotoTool(
             val rawPath = arguments["file_path"]?.toString()
                 ?: throw InvalidToolInputException("file_path is required")
 
-            val validatedPath = fileSecurityService.validateForUpload(rawPath)
             guardrailService.validateChatAccess(chatId)
 
-            log.withTool(TOOL_NAME).info("Setting chat photo for {} from '{}'", chatId, validatedPath)
-            telegramClient.setChatPhoto(chatId, validatedPath.toString())
+            log.withTool(TOOL_NAME).info("Setting chat photo for {} from '{}'", chatId, rawPath)
+            fileSecurityService.withStagedUpload(rawPath) { staged ->
+                telegramClient.setChatPhoto(chatId, staged.toString())
+            }
             auditService.record(TOOL_NAME, arguments, AuditOutcome.SUCCESS)
 
             val json = objectMapper.writeValueAsString(mapOf("chat_id" to chatId, "updated" to true))

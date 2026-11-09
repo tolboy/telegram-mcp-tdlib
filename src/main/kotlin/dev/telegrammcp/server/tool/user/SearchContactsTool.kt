@@ -6,6 +6,7 @@ import dev.telegrammcp.server.exception.InvalidToolInputException
 import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
@@ -37,7 +38,7 @@ class SearchContactsTool(
           "type": "object",
           "properties": {
             "query": { "type": "string", "description": "Search query (name or username prefix)" },
-            "limit": { "type": "number", "description": "Max results (1–200, default 50)" }
+            "limit": { "type": "integer", "description": "Max results (1–200, default 50)" }
           },
           "required": ["query"]
         }
@@ -65,8 +66,7 @@ class SearchContactsTool(
     ) {
             val query = arguments["query"]?.toString()?.takeIf { it.isNotBlank() }
                 ?: throw InvalidToolInputException("query is required")
-            val limit = (arguments["limit"] as? Number)?.toInt()
-                ?: arguments["limit"]?.toString()?.toIntOrNull()
+            val limit = ToolNumbers.optionalInt(arguments, "limit")
                 ?: DEFAULT_LIMIT
 
             log.withTool(TOOL_NAME).info("Searching contacts for '{}' (limit={})", query, limit)

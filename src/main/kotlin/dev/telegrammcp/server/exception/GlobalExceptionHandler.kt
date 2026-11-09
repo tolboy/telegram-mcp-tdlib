@@ -1,5 +1,6 @@
 ﻿package dev.telegrammcp.server.exception
 
+import jakarta.servlet.http.HttpServletResponse
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
@@ -8,6 +9,8 @@ import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
 import org.springframework.web.servlet.resource.NoResourceFoundException
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException
 
 /**
  * Translates domain exceptions into RFC-9457 Problem Detail responses.
@@ -150,6 +153,19 @@ class GlobalExceptionHandler {
     fun handleNoResource(ex: NoResourceFoundException): ProblemDetail {
         log.debug("No resource: {}", ex.resourcePath)
         return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, "No such endpoint")
+    }
+
+    /** An expired SSE response cannot be replaced with an RFC-9457 JSON body. */
+    @ExceptionHandler(AsyncRequestTimeoutException::class)
+    fun handleAsyncTimeout(ex: AsyncRequestTimeoutException, response: HttpServletResponse) {
+        log.debug("HTTP asynchronous request timed out")
+        if (!response.isCommitted) response.status = HttpServletResponse.SC_SERVICE_UNAVAILABLE
+    }
+
+    /** A disconnected client's response is unusable; attempting another write only causes another failure. */
+    @ExceptionHandler(AsyncRequestNotUsableException::class)
+    fun handleAsyncDisconnect(ex: AsyncRequestNotUsableException) {
+        log.debug("HTTP asynchronous response is no longer usable")
     }
 
     @ExceptionHandler(Exception::class)

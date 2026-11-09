@@ -8,11 +8,24 @@ after `initialize`. API-key deployments accept `Authorization: Bearer <key>`;
 
 Recipe prompts are advertised. They are fixed instructions and do not add
 tools. A tool call that includes `_meta.progressToken` gets a start progress
-notification and a finish notification. `notifications/cancelled` is not
-delivered to tool code by MCP Java SDK 2.1.0. Clients that omit `Mcp-Method`
+notification and a finish notification. On Streamable HTTP and STDIO, `notifications/cancelled` stops the server's
+local wait for that JSON-RPC id and releases its concurrency permit. STDIO
+binds the `tools/call` id on the tool thread, including when the SDK runs the
+handler on its elastic scheduler. A send that was already handed to TDLib
+stays `UNKNOWN`. The notification does not cancel the Telegram request, and
+closing the HTTP connection is not treated as cancellation. The same signal
+ends an auth-ready wait, a change-journal wait, and a human-approval wait
+(loopback or elicitation) without cancelling login, the journal, or an
+elicitation that was already sent. Clients that omit `Mcp-Method`
 and `Mcp-Name` are unchanged. If either header is present, it must match the
 JSON-RPC body; a mismatch is HTTP 400 and JSON-RPC code `-32020`. Those
 headers are not required.
+
+At most eight SDK elicitations may remain outstanding. Cancelling the local
+caller does not release that capacity until the actual SDK request completes;
+additional prompts are refused while saturated. Journal readers can stop while
+waiting for the writer or cross-process store lock. Disk I/O already in progress
+is not interrupted.
 
 ## Compatibility Matrix
 

@@ -23,6 +23,14 @@ class LocalAccessChecksTest {
     lateinit var tempDir: Path
 
     @Test
+    fun `a posix ancestor may be replaced only when shared write lacks the sticky bit`() {
+        assertTrue(LocalAccessChecks.posixAncestorAllowsReplacement(0b000_000_010))
+        assertTrue(LocalAccessChecks.posixAncestorAllowsReplacement(0b000_010_000))
+        assertFalse(LocalAccessChecks.posixAncestorAllowsReplacement(0b001_000_000_010))
+        assertFalse(LocalAccessChecks.posixAncestorAllowsReplacement(0b111_000_000))
+    }
+
+    @Test
     fun `shared windows principals include the multi-user builtin group and SID forms`() {
         assertTrue(LocalAccessChecks.isSharedPrincipal("Everyone"))
         assertTrue(LocalAccessChecks.isSharedPrincipal("NT AUTHORITY\\Authenticated Users"))
@@ -135,6 +143,57 @@ class LocalAccessChecksTest {
     }
 
     @Test
+    fun `an earlier deny rejects a permission before a later allow can grant it`() {
+        check(
+            deny("Jeder", AclEntryPermission.WRITE_DATA, AclEntryPermission.DELETE),
+            allow("Jeder", AclEntryPermission.WRITE_DATA, AclEntryPermission.DELETE),
+        )
+        val error = assertThrows<IllegalArgumentException> {
+            check(
+                deny("Jeder", AclEntryPermission.WRITE_DATA),
+                allow("Jeder", AclEntryPermission.WRITE_DATA, AclEntryPermission.DELETE),
+            )
+        }
+        assertContains(error.message.orEmpty(), "Jeder")
+    }
+
+    @Test
+    fun `a later deny cannot hide a dangerous access bit already allowed`() {
+        assertThrows<IllegalArgumentException> {
+            check(
+                allow("Jeder", AclEntryPermission.WRITE_DATA),
+                deny("Jeder", AclEntryPermission.WRITE_DATA),
+            )
+        }
+        // One first decision per permission: a denied WRITE bit does not hide
+        // DELETE allowed before its own later deny.
+        assertThrows<IllegalArgumentException> {
+            check(
+                deny("Jeder", AclEntryPermission.WRITE_DATA),
+                allow("Jeder", AclEntryPermission.WRITE_DATA, AclEntryPermission.DELETE),
+                deny("Jeder", AclEntryPermission.DELETE),
+            )
+        }
+    }
+
+    @Test
+    fun `builtin users may read but cannot have effective session replace rights`() {
+        val replace = setOf(AclEntryPermission.DELETE_CHILD, AclEntryPermission.WRITE_ACL, AclEntryPermission.WRITE_OWNER)
+        LocalAccessChecks.checkWindowsAcl(
+            listOf(allow("VORDEFINIERT\\Benutzer", AclEntryPermission.READ_DATA, AclEntryPermission.READ_ATTRIBUTES)),
+            owner, resolver, replace, "TDLIB_DATA_DIR", "directory",
+        )
+        for (permission in replace) {
+            assertThrows<IllegalArgumentException> {
+                LocalAccessChecks.checkWindowsAcl(
+                    listOf(allow("VORDEFINIERT\\Benutzer", permission)),
+                    owner, resolver, replace, "TDLIB_DATA_DIR", "directory",
+                )
+            }
+        }
+    }
+
+    @Test
     fun `broad read access, deny entries, and inherit-only entries do not count as writes`() {
         check(
             allow(owner.name, AclEntryPermission.WRITE_DATA),
@@ -202,5 +261,24 @@ class LocalAccessChecksTest {
         // /tmp-style sticky directories are fine: others cannot rename our file.
         Files.setAttribute(dir, "unix:mode", "1777".toInt(8))
         LocalAccessChecks.rejectSharedWrite(file, "test secret")
+    }
+
+    @Test
+    fun `posix group writable parent cannot replace an owner-only policy file`() {
+        val dir = Files.createDirectory(tempDir.resolve("group-shared"))
+        val file = Files.writeString(dir.resolve("permissions.json"), "{}")
+        val ownerOnly = setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)
+        if (runCatching { Files.setPosixFilePermissions(file, ownerOnly) }.isFailure) return
+        Files.setAttribute(dir, "unix:mode", "0770".toInt(8))
+
+        val failure = assertThrows<IllegalArgumentException> {
+            LocalAccessChecks.rejectSharedWrite(file, "MCP_PERMISSIONS_FILE")
+        }
+        assertContains(failure.message.orEmpty(), "parent folder")
+
+        // A sticky parent prevents a group member from replacing another
+        // owner's file, just as it does for a world-writable /tmp directory.
+        Files.setAttribute(dir, "unix:mode", "1770".toInt(8))
+        LocalAccessChecks.rejectSharedWrite(file, "MCP_PERMISSIONS_FILE")
     }
 }

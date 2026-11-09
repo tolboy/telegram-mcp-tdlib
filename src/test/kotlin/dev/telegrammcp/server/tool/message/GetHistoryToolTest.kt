@@ -102,5 +102,27 @@ class GetHistoryToolTest {
 
         verify { telegramClient.getHistory(1L, 500L, 0, 20) }
     }
+
+    @Test
+    @Suppress("UNCHECKED_CAST")
+    fun `malformed supplied limits fail instead of truncating wrapping or using the default`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        for (limit in listOf(20.5, 4_294_967_297L, "invalid")) {
+            val arguments = mapOf("chat_id" to 42, "limit" to limit) as Map<String, Any>
+            assertTrue(tool.executeChecked(exchange, arguments).isError)
+        }
+        verify(exactly = 0) { telegramClient.getHistory(any(), any(), any(), any()) }
+    }
+
+    @Test
+    @Suppress("UNCHECKED_CAST")
+    fun `null limit and cursor use the same bounded defaults as omission`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.getHistory(42L, 0L, 0, 20) } returns emptyList()
+        val arguments = mapOf("chat_id" to 42, "limit" to null, "from_message_id" to null) as Map<String, Any>
+
+        assertFalse(tool.executeChecked(exchange, arguments).isError)
+        verify(exactly = 1) { telegramClient.getHistory(42L, 0L, 0, 20) }
+    }
 }
 

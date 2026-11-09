@@ -72,12 +72,19 @@ class TelegramAuthGate(
         }
 
         // The wait counts toward the tool call's deadline and never outlasts it.
+        // MCP cancellation ends this call only. Login itself keeps running.
         val waitMillis = minOf(
             readyTimeout.toMillis(),
             ToolCallDeadline.remainingNanos()?.let { TimeUnit.NANOSECONDS.toMillis(it).coerceAtLeast(0) } ?: Long.MAX_VALUE,
         )
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(waitMillis)
         try {
-            terminal.await(waitMillis, TimeUnit.MILLISECONDS)
+            while (state.get() === AuthState.Pending) {
+                McpCallCancellation.throwIfLocalWait("authentication")
+                val left = deadline - System.nanoTime()
+                if (left <= 0) break
+                if (terminal.await(minOf(left, 50_000_000L), TimeUnit.NANOSECONDS)) break
+            }
         } catch (interrupted: InterruptedException) {
             Thread.currentThread().interrupt()
             throw authError("Interrupted while waiting for Telegram account '$label' to authenticate")

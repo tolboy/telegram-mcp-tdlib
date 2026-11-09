@@ -8,6 +8,9 @@ shows where this server sits.
 If you want the dated, engineering-grade review of specific competing repositories
 (including features this project deliberately declined), see
 [PUBLIC_BENCHMARK_AND_ROADMAP.md](PUBLIC_BENCHMARK_AND_ROADMAP.md).
+The [TDLib source review of November 7, 2026](TDLIB_OPEN_SOURCE_REVIEW_2026-11-07.md)
+separately examines direct TDLib MCP competitors and established TDLib clients,
+with pinned source references, test evidence, and licensing considerations.
 
 ## The three architectures
 
@@ -28,11 +31,14 @@ or Node toolchain, and sessions often live unencrypted next to the script.
 
 ### TDLib servers (this project)
 
-TDLib is Telegram's official client library — the same core that powers Telegram X
-and the desktop clients. It provides a real user account with first-party update
-handling, local database encryption, and battle-tested session management. This
-server builds on TDLib (via [tdlight-java](https://github.com/tdlight-team/tdlight-java))
-and adds an MCP-specific safety layer on top.
+TDLib is Telegram's official client library and is used by
+[Telegram X](https://github.com/TGX-Android/Telegram-X). It provides real user-account
+access, update handling, and support for local database encryption. This server
+builds on TDLib via [tdlight-java](https://github.com/tdlight-team/tdlight-java) and
+adds an MCP-specific safety layer. The current TDLight integration does not
+configure a secret database-encryption key: protect its session directory as
+sensitive account credentials. See [session maintenance](SESSION_MAINTENANCE.md)
+and the [implementation limits](HARDENING_REVIEW_2026-11-01.md).
 
 ## Feature comparison
 

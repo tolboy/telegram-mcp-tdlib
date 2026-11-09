@@ -20,8 +20,9 @@ import org.springframework.web.bind.annotation.RestController
 /**
  * HTTP API for interactive Telegram authentication.
  *
- * These endpoints support a local setup wizard and are exempted from API-key
- * authentication only for localhost/Docker-internal callers.
+ * These endpoints support local setup and require a direct loopback request
+ * even with an API key or OAuth token. State can contain sensitive QR tokens
+ * and password hints. Forwarded requests are not direct loopback.
  */
 @RestController
 @RequestMapping("/auth")

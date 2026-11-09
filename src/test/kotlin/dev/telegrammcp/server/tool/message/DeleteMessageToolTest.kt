@@ -120,5 +120,16 @@ class DeleteMessageToolTest {
         val text = (result.content.first() as McpSchema.TextContent).text()
         assertTrue(text.contains("must not be empty"))
     }
+
+    @Test
+    fun `invalid entries reject the entire delete batch without deleting valid neighbours`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        val invalid = listOf<Any?>(2.5, java.math.BigInteger("9223372036854775808"), "not-an-id", null, true)
+        for (entry in invalid) {
+            val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "message_ids" to listOf(1, entry, 3)))
+            assertTrue(result.isError, "Invalid entry must reject the whole batch: $entry")
+        }
+        verify(exactly = 0) { telegramClient.deleteMessages(any(), any(), any()) }
+    }
 }
 

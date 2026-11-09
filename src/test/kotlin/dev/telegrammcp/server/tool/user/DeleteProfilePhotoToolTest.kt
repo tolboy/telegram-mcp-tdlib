@@ -16,6 +16,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class DeleteProfilePhotoToolTest {
 
@@ -66,5 +67,15 @@ class DeleteProfilePhotoToolTest {
 
         assertFalse(result.isError)
         verify { telegramClient.deleteProfilePhoto(123L) }
+    }
+
+    @Test
+    fun `malformed optional photo ID never falls back to deleting the current photo`() {
+        for (photoId in listOf<Any?>(null, "invalid", 123.5, java.math.BigInteger("18446744073709551739"))) {
+            @Suppress("UNCHECKED_CAST")
+            val arguments = mapOf("photo_id" to photoId, "confirmed" to true) as Map<String, Any>
+            assertTrue(tool.executeChecked(exchange, arguments).isError)
+        }
+        verify(exactly = 0) { telegramClient.deleteProfilePhoto(any()) }
     }
 }

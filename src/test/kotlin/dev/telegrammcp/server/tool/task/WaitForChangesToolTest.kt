@@ -5,7 +5,9 @@ import dev.telegrammcp.server.client.TelegramAccountContext
 import dev.telegrammcp.server.config.McpSecurityProperties
 import dev.telegrammcp.server.config.McpToolProfile
 import dev.telegrammcp.server.config.TelegramProperties
+import dev.telegrammcp.server.config.assertToolError
 import dev.telegrammcp.server.exception.ChatNotAllowedException
+import dev.telegrammcp.server.exception.InvalidToolInputException
 import dev.telegrammcp.server.security.AccessPermissionService
 import dev.telegrammcp.server.security.PermissionDocument
 import dev.telegrammcp.server.security.PermissionGrant
@@ -84,10 +86,14 @@ class WaitForChangesToolTest {
         val tool = tool(journal, GuardrailService(McpSecurityProperties(), TelegramProperties()))
         val result = tool.run(mapOf("cursor" to cursor, "chat_id" to "@target", "timeout_seconds" to 0))
         assertEquals(listOf(43L), result.entries.map { it.chatId })
-        for (args in listOf(mapOf("timeout_seconds" to -1), mapOf("timeout_seconds" to 1.5),
+        for (args in listOf(mapOf("timeout_seconds" to -1),
             mapOf("limit" to 0), mapOf("limit" to 201), mapOf("cursor" to 123), mapOf("cursor" to ""))) {
             assertFailsWith<IllegalArgumentException> { tool.run(args) }
+            assertToolError("INVALID_INPUT") { tool.executeChecked(mockk(), args) }
         }
+        val fractionalTimeout = mapOf("timeout_seconds" to 1.5)
+        assertFailsWith<InvalidToolInputException> { tool.run(fractionalTimeout) }
+        assertToolError("INVALID_INPUT") { tool.executeChecked(mockk(), fractionalTimeout) }
     }
 
     @Test fun `all profiles expose waits as read only operations`() {

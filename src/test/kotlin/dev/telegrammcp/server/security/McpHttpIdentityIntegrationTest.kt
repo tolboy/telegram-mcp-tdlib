@@ -26,12 +26,16 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.nio.file.Files
 import java.time.Duration
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /** Real servlet/SSE + SDK execution boundary; never calls Telegram. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = [
+    "mcp.max-concurrent-calls-per-client=1",
     "spring.ai.mcp.server.streamable-http.disallow-delete=false",
     "mcp.security.clients[0].id=reader", "mcp.security.clients[0].api-key=reader-key",
     "mcp.security.clients[0].allowed-accounts[0]=default",
@@ -118,8 +122,56 @@ class McpHttpIdentityIntegrationTest {
         }
     }
 
+    @Test fun `HTTP cancellation respects session ownership and releases the actual SDK tool call`() {
+        HttpClient.newHttpClient().use { http ->
+            fun request(body: String, session: String? = null, key: String? = "reader-key"): HttpRequest =
+                HttpRequest.newBuilder(URI("$baseUrl/mcp"))
+                    .timeout(Duration.ofSeconds(10))
+                    .header("Accept", "application/json, text/event-stream")
+                    .header("Content-Type", "application/json")
+                    .apply {
+                        if (key != null) header("Authorization", "Bearer $key")
+                        if (session != null) header("Mcp-Session-Id", session)
+                    }
+                    .POST(HttpRequest.BodyPublishers.ofString(body)).build()
+            val initialized = http.send(request("""{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"cancel-test","version":"1"}}}"""), HttpResponse.BodyHandlers.ofString())
+            assertEquals(200, initialized.statusCode())
+            val session = initialized.headers().firstValue("Mcp-Session-Id").orElseThrow()
+            http.send(request("""{"jsonrpc":"2.0","method":"notifications/initialized"}""", session), HttpResponse.BodyHandlers.discarding())
+            val call = http.sendAsync(request("""{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"cancellation_probe","arguments":{"account":"default"}}}""", session), HttpResponse.BodyHandlers.ofString())
+            assertTrue(cancellationStarted.await(5, TimeUnit.SECONDS), "Tool callback did not reach its wait")
+            val cancel = """{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":7}}"""
+            assertEquals(401, http.send(request(cancel, session, null), HttpResponse.BodyHandlers.discarding()).statusCode())
+            assertEquals(401, http.send(request(cancel, session, "invalid-key"), HttpResponse.BodyHandlers.discarding()).statusCode())
+            assertEquals(403, http.send(request(cancel, session, "writer-key"), HttpResponse.BodyHandlers.discarding()).statusCode())
+            assertFalse(call.isDone, "Another principal must not cancel this session's call")
+            assertEquals(202, http.send(request(cancel, session), HttpResponse.BodyHandlers.discarding()).statusCode())
+            val stopped = call.get(3, TimeUnit.SECONDS)
+            assertEquals(200, stopped.statusCode())
+            assertTrue(stopped.body().contains("TELEGRAM_TIMEOUT") && stopped.body().contains("cancelled"),
+                "The SDK callback must observe the HTTP filter's signal")
+            val next = http.send(request("""{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"identity_probe","arguments":{"account":"default"}}}""", session), HttpResponse.BodyHandlers.ofString())
+            assertEquals(200, next.statusCode())
+            assertTrue(next.body().contains("reader"))
+            assertFalse(next.body().contains("TELEGRAM_TIMEOUT"), "A new request must not inherit cancellation")
+        }
+    }
+
     @TestConfiguration
     class Probes {
+        @Bean fun cancellationProbe(): McpToolHandler = object : McpToolHandler {
+            override fun definition() = dev.telegrammcp.server.tool.ToolSupport.definition(
+                "cancellation_probe", "Offline test of cancellation through the actual HTTP transport",
+                mapOf("type" to "object", "properties" to emptyMap<String, Any>()),
+            )
+            override fun execute(exchange: McpSyncServerExchange, arguments: Map<String, Any>): McpSchema.CallToolResult {
+                cancellationStarted.countDown()
+                dev.telegrammcp.server.client.TdLibRequestAwaiter.await(
+                    CompletableFuture(), it.tdlight.jni.TdApi.GetMe(), 30,
+                )
+                error("The offline probe should only finish through cancellation")
+            }
+        }
         @Bean fun identityProbe(accountContext: TelegramAccountContext): McpToolHandler = object : McpToolHandler {
             override fun definition(): McpSchema.Tool = McpSchema.Tool.builder().name("identity_probe")
                 .description("Tests server-validated HTTP identity")
@@ -134,6 +186,7 @@ class McpHttpIdentityIntegrationTest {
     }
 
     companion object {
+        private val cancellationStarted = CountDownLatch(1)
         private val permissions = Files.createTempFile("mcp-http-permissions-", ".json").also {
             Files.writeString(it, jacksonObjectMapper().writeValueAsString(PermissionDocument(1, listOf(
                 PermissionGrant("reader", "default", setOf("read"), null),

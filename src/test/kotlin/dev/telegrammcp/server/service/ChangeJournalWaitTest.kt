@@ -1,19 +1,26 @@
 package dev.telegrammcp.server.service
 
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import dev.telegrammcp.server.client.McpCallCancellation
 import dev.telegrammcp.server.client.ToolCallDeadline
+import dev.telegrammcp.server.exception.TelegramTimeoutException
 import dev.telegrammcp.server.exception.TelegramApiException
 import dev.telegrammcp.server.exception.TelegramBusyException
 import dev.telegrammcp.server.exception.TelegramErrorKind
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.assertTimeoutPreemptively
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
+import java.nio.channels.FileChannel
+import java.nio.file.StandardOpenOption.WRITE
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
@@ -49,6 +56,116 @@ class ChangeJournalWaitTest {
             check(worker.isAlive) { "Waiter exited before waiting" }
             Thread.yield()
         }
+    }
+
+    @Test
+    fun `mcp cancellation ends a change wait and leaves the journal open`() {
+        val journal = journal()
+        val key = "change-wait"
+        val result = CompletableFuture<Throwable?>()
+        val worker = thread(isDaemon = true) {
+            McpCallCancellation.bind(key)
+            try {
+                journal.waitForChanges("default", null, 10, Duration.ofSeconds(30)) { true }
+                result.complete(null)
+            } catch (error: Throwable) {
+                result.complete(error)
+            } finally {
+                McpCallCancellation.unbind()
+            }
+        }
+        threads += worker
+        awaitWaiting(worker)
+        McpCallCancellation.cancel(key)
+        val error = result.get(2, TimeUnit.SECONDS)
+        assertIs<TelegramTimeoutException>(error)
+        assertEquals(TelegramTimeoutException.Reason.LOCAL_CANCEL, error.reason)
+        assertFalse(error.requestSent)
+        assertFalse(error.healthFailure)
+        assertTrue(journal.waitForChanges("default", null, 10, Duration.ZERO) { true }.timedOut)
+    }
+
+    @Test
+    fun `cancellation releases a waiter blocked behind the writer before its first scan`() =
+        cancelWhileWriterStalled(startWaitFirst = false)
+
+    @Test
+    fun `cancellation releases a polling reader when the writer stalls between scans`() =
+        cancelWhileWriterStalled(startWaitFirst = true)
+
+    private fun cancelWhileWriterStalled(startWaitFirst: Boolean) {
+        val journal = journal(waiters = 1)
+        val cursor = journal.page("default", null, 10) { true }.nextCursor
+        val writing = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val key = "blocked-journal-writer-$startWaitFirst"
+        fun startWaiter() = worker {
+            McpCallCancellation.bind(key)
+            try { journal.waitForChanges("default", cursor, 10, Duration.ofSeconds(30)) { true } }
+            finally { McpCallCancellation.unbind() }
+        }
+        var waiting: Pair<Thread, CompletableFuture<ChangeWaitResult>>? = null
+        mockkObject(DurableFiles)
+        try {
+            every { DurableFiles.append(any(), any()) } answers {
+                writing.countDown()
+                release.await(10, TimeUnit.SECONDS)
+                callOriginal()
+            }
+            if (startWaitFirst) {
+                waiting = startWaiter()
+                awaitWaiting(waiting.first)
+            }
+            journal.append("default", "new", 42, 100)
+            assertTrue(writing.await(2, TimeUnit.SECONDS), "Writer did not reach the disk barrier")
+            if (!startWaitFirst) {
+                waiting = startWaiter()
+                awaitWaiting(waiting.first)
+            }
+            McpCallCancellation.cancel(key)
+            val stopped = assertFailsWith<ExecutionException> { waiting!!.second.get(2, TimeUnit.SECONDS) }
+            val error = assertIs<TelegramTimeoutException>(stopped.cause)
+            assertEquals(TelegramTimeoutException.Reason.LOCAL_CANCEL, error.reason)
+            assertFalse(error.requestSent)
+            assertEquals(1L, release.count, "Cancelling the reader must not release the writer's disk operation")
+            val busy = assertFailsWith<TelegramBusyException> {
+                journal.waitForChanges("default", cursor, 10, Duration.ZERO) { true }
+            }
+            assertEquals("change-journal:default", busy.account, "The cancelled account waiter permit must be free")
+            release.countDown()
+            assertEquals(listOf(100L), journal.page("default", cursor, 10) { true }.entries.map { it.messageId })
+        } finally {
+            release.countDown()
+            journal.close()
+            unmockkObject(DurableFiles)
+        }
+    }
+
+    @Test
+    fun `cancellation leaves another store lock held and the journal cursor intact`() {
+        val journal = journal(waiters = 1)
+        val cursor = journal.page("default", null, 10) { true }.nextCursor
+        val key = "blocked-journal-store"
+        FileChannel.open(root.resolve("changes/store.lock"), WRITE).use { owner ->
+            owner.lock().use { held ->
+                val waiting = worker {
+                    McpCallCancellation.bind(key)
+                    try { journal.waitForChanges("default", cursor, 10, Duration.ofSeconds(30)) { true } }
+                    finally { McpCallCancellation.unbind() }
+                }
+                awaitWaiting(waiting.first)
+                McpCallCancellation.cancel(key)
+                val stopped = assertFailsWith<ExecutionException> { waiting.second.get(2, TimeUnit.SECONDS) }
+                val error = assertIs<TelegramTimeoutException>(stopped.cause)
+                assertEquals(TelegramTimeoutException.Reason.LOCAL_CANCEL, error.reason)
+                assertFalse(error.requestSent)
+                assertTrue(held.isValid, "Cancelling this reader must not release another owner's OS lock")
+            }
+        }
+        val page = journal.page("default", cursor, 10) { true }
+        assertEquals(cursor, page.nextCursor)
+        assertTrue(page.entries.isEmpty())
+        assertTrue(journal.waitForChanges("default", cursor, 10, Duration.ZERO) { true }.timedOut)
     }
 
     @Test fun `concurrent waiters receive the same later durable change without consuming it`() {

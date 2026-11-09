@@ -188,6 +188,19 @@ class ToolErrorTest {
     }
 
     @Test
+    fun `local cancellation never invents a timeout gate or automatic retry delay`() {
+        for (sent in listOf(false, true)) {
+            val error = dev.telegrammcp.server.exception.TelegramTimeoutException("GetChat",
+                dev.telegrammcp.server.exception.TelegramTimeoutException.Reason.LOCAL_CANCEL, sent, true, 10)
+            val rendered = renderedError(error)
+            assertEquals(ToolError.TELEGRAM_TIMEOUT, rendered["code"])
+            assertEquals(null, rendered["retry_after_seconds"])
+            assertTrue("cancelled" in rendered["next_action"].toString())
+            assertFalse("gated" in rendered["next_action"].toString())
+        }
+    }
+
+    @Test
     fun `busy account is retryable and keyed sends get a status lookup hint`() {
         val busy = renderedError(dev.telegrammcp.server.exception.TelegramBusyException("telegram-work", 25, retryable = true))
         assertEquals(ToolError.TELEGRAM_BUSY, busy["code"])

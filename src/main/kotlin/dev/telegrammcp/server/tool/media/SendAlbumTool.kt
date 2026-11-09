@@ -53,7 +53,7 @@ class SendAlbumTool(
           "type": "object",
           "properties": {
             "chat_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Chat identifier: numeric ID, @username, +phone, or the canonical value self"
             },
             "items": {
@@ -107,20 +107,21 @@ class SendAlbumTool(
             }
             val parsed = rawItems.mapIndexed { index, raw -> parseItem(index, raw) }
             groupingError(parsed.map { it.type })?.let { throw InvalidToolInputException(it) }
-            // Validate every file before anything is uploaded.
-            val validated = parsed.map { it to fileSecurityService.validateForUpload(it.filePath) }
-            val items = validated.map { (item, path) -> item.copy(filePath = path.toString()) }
-
             guardrailService.validateChatAccess(chatId)
-            // Captions are outgoing text: same input filter as send_file.
-            items.mapNotNull { it.caption }.forEach(guardrailService::validateInput)
-            log.withTool(TOOL_NAME).info("Sending album of {} items to chat {}", items.size, chatId)
-            val canonical = validated.map { (item, path) ->
-                listOf(path.toString(), item.type.name, item.caption, RecoverableSend.fileFingerprint(arguments, path))
-            }
-            RecoverableSend.execute(sendOperations, operationGuardService, TOOL_NAME, arguments, chatId, canonical,
-                expectedCount = items.size) {
-                telegramClient.sendAlbum(chatId, items)
+            parsed.mapNotNull { it.caption }.forEach(guardrailService::validateInput)
+            log.withTool(TOOL_NAME).info("Sending album of {} items to chat {}", parsed.size, chatId)
+            val sourcePaths = parsed.map { fileSecurityService.validateForUpload(it.filePath) }
+            fileSecurityService.withStagedUploads(parsed.map { it.filePath }) { stagedPaths ->
+                val items = parsed.zip(stagedPaths) { item, path -> item.copy(filePath = path.toString()) }
+                val canonical = parsed.indices.map { index ->
+                    val item = parsed[index]
+                    listOf(sourcePaths[index].toString(), item.type.name, item.caption,
+                        RecoverableSend.fileFingerprint(arguments, stagedPaths[index]))
+                }
+                RecoverableSend.execute(sendOperations, operationGuardService, TOOL_NAME, arguments, chatId, canonical,
+                    expectedCount = items.size) {
+                    telegramClient.sendAlbum(chatId, items)
+                }
             }
         }
 

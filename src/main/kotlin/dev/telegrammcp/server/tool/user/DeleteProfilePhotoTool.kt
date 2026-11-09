@@ -6,6 +6,7 @@ import dev.telegrammcp.server.model.AuditOutcome
 import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Timer
@@ -35,7 +36,7 @@ class DeleteProfilePhotoTool(
         {
           "type": "object",
           "properties": {
-            "photo_id": { "type": "number", "description": "Optional specific photo ID (defaults to primary photo)" },
+            "photo_id": { "type": "integer", "description": "Optional specific photo ID (defaults to primary photo)" },
             "confirmed": { "type": "boolean", "description": "Set to true to confirm this destructive operation" }
           },
           "required": []
@@ -55,8 +56,7 @@ class DeleteProfilePhotoTool(
         return try {
             operationGuardService.checkPermission(TOOL_NAME, arguments)
 
-            val photoId = (arguments["photo_id"] as? Number)?.toLong()
-                ?: arguments["photo_id"]?.toString()?.toLongOrNull()
+            val photoId = ToolNumbers.specifiedLong(arguments, "photo_id")
 
             log.withTool(TOOL_NAME).info("Deleting profile photo (id={})", photoId)
             telegramClient.deleteProfilePhoto(photoId)

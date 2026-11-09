@@ -43,6 +43,7 @@ class SendStickerToolTest {
         guardrailService = mockk(relaxed = true)
         operationGuardService = mockk(relaxed = true)
         fileSecurityService = mockk(relaxed = true)
+        every { fileSecurityService.validateForUpload(any()) } answers { Path.of(firstArg<String>()) }
         auditService = mockk(relaxed = true)
         objectMapper = jacksonObjectMapper().findAndRegisterModules()
         exchange = mockk(relaxed = true)
@@ -68,7 +69,10 @@ class SendStickerToolTest {
     fun `sends sticker successfully`() {
         val msg = TelegramMessage(1, 42, "Test", "Alice", text = null, date = Instant.now(), mediaType = "sticker")
         every { entityResolver.resolve(42 as Any) } returns 42L
-        every { fileSecurityService.validateForUpload("/tmp/sticker.webp") } returns Path.of("/tmp/sticker.webp")
+        every { fileSecurityService.withStagedUpload<Any?>("/tmp/sticker.webp", any()) } answers {
+            @Suppress("UNCHECKED_CAST")
+            (args[1] as (Path) -> Any?).invoke(Path.of("/tmp/sticker.webp"))
+        }
         every { telegramClient.sendSticker(42L, any(), null) } returns msg
 
         val result = tool.executeChecked(
@@ -78,7 +82,7 @@ class SendStickerToolTest {
 
         assertFalse(result.isError)
         verify { operationGuardService.checkPermission("send_sticker", any()) }
-        verify { fileSecurityService.validateForUpload("/tmp/sticker.webp") }
+        verify { fileSecurityService.withStagedUpload("/tmp/sticker.webp", any()) }
     }
 
     @Test

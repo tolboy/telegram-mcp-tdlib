@@ -105,39 +105,59 @@ object LocalAccessChecks {
         dangerous: Set<AclEntryPermission>,
     ): AclFindings {
         val ownerSid = owner?.let { runCatching { sidResolver.sidOf(it) }.getOrNull() }?.uppercase()
+        // Windows evaluates ACEs in order. For an individual access bit, its
+        // first applicable ALLOW/DENY decides; a later DENY cannot revoke a bit
+        // already allowed (including explicit ALLOW before inherited DENY).
+        // Evaluate each SID separately: cross-group token membership is not
+        // inferred, so this deliberately errs toward reporting an unsafe grant.
+        data class Rights(
+            val label: String,
+            val sid: String?,
+            val principal: UserPrincipal,
+            val allowed: MutableSet<AclEntryPermission> = mutableSetOf(),
+            val decided: MutableSet<AclEntryPermission> = mutableSetOf(),
+        )
+        val byPrincipal = linkedMapOf<String, Rights>()
+        for (entry in acl) {
+            if (AclEntryFlag.INHERIT_ONLY in entry.flags()) continue
+            if (entry.type() != AclEntryType.ALLOW && entry.type() != AclEntryType.DENY) continue
+            val relevant = entry.permissions().filter { it in dangerous }.toSet()
+            if (relevant.isEmpty()) continue
+            val principal = entry.principal() ?: continue
+            val label = principal.name ?: "<unnamed>"
+            val sid = runCatching { sidResolver.sidOf(principal) }.getOrNull()?.uppercase()
+            val rights = byPrincipal.getOrPut(sid ?: label) { Rights(label, sid, principal) }
+            if (entry.type() == AclEntryType.ALLOW) rights.allowed += relevant - rights.decided
+            rights.decided += relevant
+        }
         val broad = mutableListOf<String>()
         val other = mutableListOf<String>()
-        acl.asSequence()
-            .filter { it.type() == AclEntryType.ALLOW }
-            // INHERIT_ONLY entries only seed children; they grant nothing on this object.
-            .filterNot { AclEntryFlag.INHERIT_ONLY in it.flags() }
-            .filter { entry -> entry.permissions().any { it in dangerous } }
-            .forEach { entry ->
-                val principal = entry.principal() ?: return@forEach
-                val label = principal.name ?: "<unnamed>"
-                val sid = runCatching { sidResolver.sidOf(principal) }.getOrNull()?.uppercase()
-                when {
-                    sid == null -> if (isSharedPrincipal(principal.name)) broad += label
-                    isBroadSid(sid) -> broad += "$label ($sid)"
-                    principal == owner || sid == ownerSid || sid in TRUSTED_SIDS -> Unit
-                    else -> other += "$label ($sid)"
-                }
+        for (rights in byPrincipal.values) {
+            if (rights.allowed.isEmpty()) continue
+            val sid = rights.sid
+            val rendered = if (sid == null) rights.label else "${rights.label} ($sid)"
+            when {
+                sid == null -> if (isSharedPrincipal(rights.principal.name)) broad += rights.label
+                isBroadSid(sid) -> broad += rendered
+                rights.principal == owner || sid == ownerSid || sid in TRUSTED_SIDS -> Unit
+                else -> other += rendered
             }
+        }
         return AclFindings(broad.distinct(), other.distinct())
     }
 
     /**
-     * A world-writable parent without the sticky bit lets anyone rename the
-     * file away and drop in their own. Group-writable parents are common with
-     * user-private groups (umask 002), so they are not rejected.
+     * A group- or world-writable parent without the sticky bit lets another
+     * user rename the file away and drop in their own, even if the file itself
+     * is owner-only. We cannot assume a writable group is a user-private group.
      */
     private fun rejectReplaceablePosixParent(path: Path, settingName: String) {
         val parent = path.toAbsolutePath().parent ?: return
         val mode = runCatching { Files.getAttribute(parent, "unix:mode") as Int }.getOrNull() ?: return
-        val othersWrite = mode and 0b000_000_010 != 0
+        val sharedWrite = mode and 0b000_010_010 != 0
         val sticky = mode and 0b001_000_000_000 != 0
-        require(!othersWrite || sticky) {
-            "$settingName parent folder must not be writable by others (or must have the sticky bit set)"
+        require(!sharedWrite || sticky) {
+            "$settingName parent folder must not be writable by group or others (or must have the sticky bit set)"
         }
     }
 
@@ -157,6 +177,62 @@ object LocalAccessChecks {
         if (Files.getFileAttributeView(path, java.nio.file.attribute.PosixFileAttributeView::class.java) != null) {
             Files.setPosixFilePermissions(path, ownerOnly)
         }
+        auditSessionAncestors(path)
+        enforceWindowsSessionDirectory(path)
+    }
+
+    /**
+     * Rejects dangerous replace grants to every broad principal, including
+     * BUILTIN\Users. Normal READ/EXECUTE grants do not match this mask.
+     * The ACL is inspected in its existing order and is not rewritten.
+     */
+    internal fun enforceWindowsSessionDirectory(path: Path) {
+        if (Files.getFileAttributeView(path, java.nio.file.attribute.PosixFileAttributeView::class.java) != null) return
+        val view = Files.getFileAttributeView(path, AclFileAttributeView::class.java, LinkOption.NOFOLLOW_LINKS) ?: return
+        checkWindowsAcl(view.acl, view.owner, defaultSidResolver, DIRECTORY_REPLACE_PERMISSIONS,
+            "Session directory $path", "directory")
+    }
+
+    /**
+     * A protected directory is only as private as the parents that can rename it
+     * away. POSIX ancestors that are group- or world-writable without the sticky
+     * bit fail startup. Windows ancestor ACLs are audited and logged: a normal
+     * profile grants broad read, and refusing those would lock out the operator.
+     */
+    fun auditSessionAncestors(path: Path) {
+        var current = path.toAbsolutePath().normalize().parent
+        while (current != null && current.nameCount > 0) {
+            val mode = runCatching { Files.getAttribute(current, "unix:mode") as Int }.getOrNull()
+            if (mode != null) {
+                require(!posixAncestorAllowsReplacement(mode)) {
+                    "Session directory ancestor $current is writable by group or others without the sticky bit"
+                }
+            } else {
+                runCatching {
+                    val view = Files.getFileAttributeView(
+                        current, AclFileAttributeView::class.java, LinkOption.NOFOLLOW_LINKS,
+                    ) ?: return@runCatching
+                    val findings = classify(view.acl, view.owner, defaultSidResolver, DIRECTORY_REPLACE_PERMISSIONS)
+                    if (findings.broad.isNotEmpty()) {
+                        log.warn(
+                            "Session directory ancestor {} can be replaced by shared Windows groups: {}",
+                            current,
+                            findings.broad.joinToString(),
+                        )
+                    }
+                }
+            }
+            val parent = current.parent
+            if (parent == null || parent == current) break
+            current = parent
+        }
+    }
+
+    /** True when this POSIX mode lets someone other than the owner replace entries and the sticky bit is absent. */
+    internal fun posixAncestorAllowsReplacement(mode: Int): Boolean {
+        val sharedWrite = mode and 0b000_010_010 != 0
+        val sticky = mode and 0b001_000_000_000 != 0
+        return sharedWrite && !sticky
     }
 
     /**

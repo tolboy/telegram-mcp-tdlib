@@ -9,6 +9,7 @@ import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Timer
@@ -43,11 +44,11 @@ class MuteChatTool(
           "type": "object",
           "properties": {
             "chat_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Chat identifier to mute"
             },
             "duration": {
-              "type": "number",
+              "type": "integer",
               "description": "Mute duration in seconds (0 = forever, default: forever)"
             }
           },
@@ -71,7 +72,7 @@ class MuteChatTool(
             val chatId = entityResolver.resolve(
                 arguments["chat_id"] ?: throw InvalidToolInputException("chat_id is required"),
             )
-            val duration = (arguments["duration"] as? Number)?.toInt() ?: Int.MAX_VALUE
+            val duration = ToolNumbers.specifiedInt(arguments, "duration") ?: Int.MAX_VALUE
 
             log.withTool(TOOL_NAME).info("Muting chat {} for {} seconds", chatId, duration)
             guardrailService.validateChatAccess(chatId)

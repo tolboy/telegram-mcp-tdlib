@@ -82,6 +82,12 @@ unchanged retry while another item is still in flight.
 Late successful Telegram responses and send updates observed by the running
 process are saved independently of the original caller's timeout. Status lookup
 and replay reconcile these saved receipts, including after a later restart.
+The callback queues receipt writes on one background worker (up to 256 pending
+writes), so a slow disk cannot stall TDLib's response thread. Receipt lookup may
+briefly return `UNKNOWN` before the queued write commits. Queue saturation, a
+failed write, or shutdown before the queue drains leaves an unresolved operation
+`UNKNOWN`; it never authorizes an automatic resend. Shutdown allows up to five
+seconds for accepted writes to drain.
 An observation waits at most 24 hours. If the process stops before receiving the
 update, or no final response is observed, the result stays `UNKNOWN`; the server
 does not guess from matching text in history. There is no automatic retry of a
@@ -93,10 +99,32 @@ result). A batch remains `UNKNOWN` unless every requested result is observed;
 partial forwarding must never be retried as a new batch automatically. At most
 100 distinct positive message IDs may be forwarded in one call.
 
-Upload fingerprints include the validated path and a SHA-256 content digest.
-Keep that file immutable during upload and retain it for replay: current file
-security is revalidated before reading the journal, and changed file content
-conflicts with the original key. The server does not snapshot user files.
+Upload fingerprints bind the validated original path and a SHA-256 digest of
+the private snapshot actually handed to TDLib. The random snapshot directory
+is never part of that fingerprint, so repeating the same source/key can replay
+its receipt. Snapshots retain the original filename and extension for Telegram.
+Retain the original file for replay: current file security is revalidated before
+reading the journal, and changed file content conflicts with the original key.
+The snapshot directory cannot itself be read through file tools. Copying and
+hashing happen before the replay lookup, so a replay still needs free staging
+capacity and access to its source file.
+
+Snapshots are capped at four times the configured per-file byte limit and 256
+concurrent/retained copies. Cache instances share an OS lock for accounting;
+individual snapshot leases prevent expiry while an upload is still in use.
+Every new upload reclaims idle copies older than 24 hours. A generic callback
+failure, partial delivery, sent-request timeout, or local cancellation retains
+the bytes conservatively; it need not be a proven `SEND_OUTCOME_UNKNOWN` error.
+Confirmed completion and known pre-dispatch rejection attempt immediate cleanup;
+a cleanup failure is logged without changing the send's result. Snapshots and
+their cleanup never remove idempotency receipts.
+
+Source channels reject a final symlink, and roots, file identity metadata, size,
+and modification time are checked around the copy. POSIX sources with multiple
+hard links are rejected. Java NIO on Windows does not expose that link-count
+check, and these checks do not prove atomic source identity against an attacker
+who can repeatedly replace parent directories or rewrite bytes in place while
+preserving metadata. Allowed roots must remain under the operator's control.
 Scheduled receipts can be replayed after their original send time; changing or
 cancelling a scheduled message is a separate operation and does not alter its
 original receipt. Existing version-1 single-message journal records remain readable.

@@ -17,9 +17,11 @@ import dev.telegrammcp.server.service.OperationGuardService
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.verify
 import io.modelcontextprotocol.server.McpSyncServerExchange
 import org.junit.jupiter.api.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -94,6 +96,55 @@ class ChatFolderToolsTest {
                 ),
             )
         }
+    }
+
+    @Test
+    @Suppress("UNCHECKED_CAST")
+    fun `explicit null folder flag is invalid and omission still means false`() {
+        val tool = ConfigureChatFolderTool(telegramClient, entityResolver, guardrails, operationGuard, audit, mapper, SimpleMeterRegistry())
+        every { telegramClient.createChatFolder(any()) } returns ChatFolderInfo(3, "Work")
+        val rejected = (mapOf("title" to "Work", "is_shareable" to null) as Map<String, Any>)
+        val invalid = tool.executeChecked(exchange, rejected)
+        assertTrue(invalid.isError)
+        val created = slot<ChatFolderDefinition>()
+        every { telegramClient.createChatFolder(capture(created)) } returns ChatFolderInfo(3, "Work")
+        val omitted = tool.executeChecked(exchange, mapOf("title" to "Work"))
+        assertFalse(omitted.isError)
+        assertEquals(false, created.captured.isShareable)
+        verify(exactly = 1) { telegramClient.createChatFolder(any()) }
+    }
+
+    @Test
+    @Suppress("UNCHECKED_CAST")
+    fun `supplied null folder membership cannot silently become an empty replacement`() {
+        val tool = ConfigureChatFolderTool(telegramClient, entityResolver, guardrails, operationGuard, audit, mapper, SimpleMeterRegistry())
+        every { telegramClient.createChatFolder(any()) } returns ChatFolderInfo(3, "Work")
+        every { telegramClient.updateChatFolder(any(), any()) } returns ChatFolderInfo(3, "Work")
+        for (field in listOf("pinned_chats", "included_chats", "excluded_chats")) {
+            for (folder in listOf(emptyMap(), mapOf("folder_id" to 3))) {
+                val arguments = (mapOf("title" to "Work", field to null) + folder) as Map<String, Any>
+                val result = tool.executeChecked(exchange, arguments)
+                assertTrue(result.isError, "$field=null must reject both create and update")
+                val error = ((result.structuredContent() as Map<*, *>)["data"] as Map<*, *>)["error"] as Map<*, *>
+                kotlin.test.assertEquals("INVALID_INPUT", error["code"])
+            }
+        }
+        verify(exactly = 0) { telegramClient.createChatFolder(any()) }
+        verify(exactly = 0) { telegramClient.updateChatFolder(any(), any()) }
+    }
+
+    @Test
+    fun `invalid interior folder identifiers reject the complete membership list`() {
+        val tool = ConfigureChatFolderTool(telegramClient, entityResolver, guardrails, operationGuard, audit, mapper, SimpleMeterRegistry())
+        every { entityResolver.resolve("@included" as Any) } returns 11L
+        every { telegramClient.createChatFolder(any()) } returns ChatFolderInfo(3, "Work")
+        for (field in listOf("pinned_chats", "included_chats", "excluded_chats")) {
+            val result = tool.executeChecked(exchange, mapOf("title" to "Work", field to listOf("@included", null)))
+            assertTrue(result.isError)
+            val error = ((result.structuredContent() as Map<*, *>)["data"] as Map<*, *>)["error"] as Map<*, *>
+            kotlin.test.assertEquals("INVALID_INPUT", error["code"])
+        }
+        verify(exactly = 0) { telegramClient.createChatFolder(any()) }
     }
 
     @Test

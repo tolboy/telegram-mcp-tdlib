@@ -5,6 +5,7 @@ import dev.telegrammcp.server.tool.executeChecked
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
+import dev.telegrammcp.server.config.assertToolError
 import dev.telegrammcp.server.model.ChatMember
 import dev.telegrammcp.server.model.MemberStatus
 import dev.telegrammcp.server.service.EntityResolverService
@@ -134,9 +135,10 @@ class GetParticipantsToolTest {
             mapOf("chat_id" to 42, "limit" to "not_a_number"),
         )
 
-        assertTrue(result.isError)
+        assertToolError("INVALID_INPUT") { result }
         val text = (result.content.first() as McpSchema.TextContent).text()
-        assertTrue(text.contains("limit must be a valid integer"))
+        assertTrue(text.contains("limit"))
+        verify(exactly = 0) { telegramClient.getChatMembers(any(), any(), any(), any()) }
     }
 
     @Test
@@ -148,9 +150,10 @@ class GetParticipantsToolTest {
             mapOf("chat_id" to 42, "offset" to "not_a_number"),
         )
 
-        assertTrue(result.isError)
+        assertToolError("INVALID_INPUT") { result }
         val text = (result.content.first() as McpSchema.TextContent).text()
-        assertTrue(text.contains("offset must be a valid integer"))
+        assertTrue(text.contains("offset"))
+        verify(exactly = 0) { telegramClient.getChatMembers(any(), any(), any(), any()) }
     }
 
     @Test

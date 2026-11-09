@@ -5,12 +5,14 @@ import dev.telegrammcp.server.config.McpSecurityProperties
 import dev.telegrammcp.server.service.PlatformPaths
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import org.springframework.mock.web.MockFilterChain
 import org.springframework.mock.web.MockHttpServletRequest
 import org.springframework.mock.web.MockHttpServletResponse
 import org.springframework.security.core.context.SecurityContextHolder
 import jakarta.servlet.DispatcherType
 import kotlin.test.assertEquals
+import kotlin.test.assertContains
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
@@ -301,6 +303,56 @@ class ApiKeyAuthFilterTest {
 
         val token = SecurityContextHolder.getContext().authentication as ApiKeyAuthToken
         assertEquals("work-agent", token.principal)
+        assertEquals(setOf("work"), token.allowedAccounts)
+    }
+
+    @Test
+    fun `named client cannot share the global key principal`() {
+        val filter = createFilter(clients = listOf(
+            McpSecurityProperties.ClientKeyProps(id = "mcp-client", apiKey = "different-key", allowedAccounts = listOf("work")),
+        ))
+
+        val failure = assertThrows<IllegalArgumentException> { filter.validateConfiguration() }
+
+        assertContains(failure.message.orEmpty(), "Duplicate MCP client id")
+    }
+
+    @Test
+    fun `named clients cannot share credentials with different authorities`() {
+        val filter = createFilter(apiKey = "", clients = listOf(
+            McpSecurityProperties.ClientKeyProps(id = "administrator", apiKey = "same-key"),
+            McpSecurityProperties.ClientKeyProps(id = "limited", apiKey = "same-key", allowedAccounts = listOf("work")),
+        ))
+
+        val failure = assertThrows<IllegalArgumentException> { filter.validateConfiguration() }
+
+        assertContains(failure.message.orEmpty(), "duplicates another configured API key")
+    }
+
+    @Test
+    fun `named client cannot reuse the global credential`() {
+        val filter = createFilter(clients = listOf(
+            McpSecurityProperties.ClientKeyProps(id = "limited", apiKey = "secret-key", allowedAccounts = listOf("work")),
+        ))
+
+        val failure = assertThrows<IllegalArgumentException> { filter.validateConfiguration() }
+
+        assertContains(failure.message.orEmpty(), "duplicates another configured API key")
+    }
+
+    @Test
+    fun `named mcp-client is valid when no global key is configured`() {
+        val filter = createFilter(apiKey = "", clients = listOf(
+            McpSecurityProperties.ClientKeyProps(id = "mcp-client", apiKey = "scoped-key", allowedAccounts = listOf("work")),
+        ))
+        filter.validateConfiguration()
+        val request = MockHttpServletRequest("POST", "/mcp")
+        request.addHeader("Authorization", "Bearer scoped-key")
+
+        filter.doFilter(request, MockHttpServletResponse(), MockFilterChain())
+
+        val token = SecurityContextHolder.getContext().authentication as ApiKeyAuthToken
+        assertEquals("mcp-client", token.principal)
         assertEquals(setOf("work"), token.allowedAccounts)
     }
 

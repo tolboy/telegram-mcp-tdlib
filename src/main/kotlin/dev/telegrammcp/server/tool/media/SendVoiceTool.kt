@@ -10,6 +10,7 @@ import dev.telegrammcp.server.service.FileSecurityService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Timer
@@ -45,9 +46,9 @@ class SendVoiceTool(
         {
           "type": "object",
           "properties": {
-            "chat_id": { "type": ["string", "number"], "description": "Chat identifier (ID/@username/+phone)" },
+            "chat_id": { "type": ["string", "integer"], "description": "Chat identifier (ID/@username/+phone)" },
             "file_path": { "type": "string", "description": "Local OGG/Opus voice file path" },
-            "duration": { "type": "number", "description": "Voice duration in seconds (optional)" },
+            "duration": { "type": "integer", "description": "Voice duration in seconds (optional)" },
             "caption": { "type": "string", "description": "Optional caption" }
           },
           "required": ["chat_id", "file_path"]
@@ -72,20 +73,20 @@ class SendVoiceTool(
             )
             val rawPath = arguments["file_path"]?.toString()
                 ?: throw InvalidToolInputException("file_path is required")
-            val duration = (arguments["duration"] as? Number)?.toInt()
-                ?: arguments["duration"]?.toString()?.toIntOrNull()
-                ?: 0
+            val duration = ToolNumbers.specifiedInt(arguments, "duration") ?: 0
             val caption = arguments["caption"]?.toString()
 
-            val validatedPath = fileSecurityService.validateForUpload(rawPath)
             guardrailService.validateChatAccess(chatId)
             if (caption != null) guardrailService.validateInput(caption)
 
-            log.withTool(TOOL_NAME).info("Sending voice '{}' to chat {}", validatedPath, chatId)
-            val message = dev.telegrammcp.server.tool.RecoverableSend.execute(sendOperations, operationGuardService, TOOL_NAME,
-                arguments, chatId, listOf(validatedPath.toString(), duration, caption,
-                    dev.telegrammcp.server.tool.RecoverableSend.fileFingerprint(arguments, validatedPath))) {
-                telegramClient.sendVoice(chatId, validatedPath.toString(), duration, caption)
+            log.withTool(TOOL_NAME).info("Sending voice '{}' to chat {}", rawPath, chatId)
+            val sourcePath = fileSecurityService.validateForUpload(rawPath)
+            val message = fileSecurityService.withStagedUpload(rawPath) { staged ->
+                dev.telegrammcp.server.tool.RecoverableSend.execute(sendOperations, operationGuardService, TOOL_NAME,
+                    arguments, chatId, listOf(sourcePath.toString(), duration, caption,
+                        dev.telegrammcp.server.tool.RecoverableSend.fileFingerprint(arguments, staged))) {
+                    telegramClient.sendVoice(chatId, staged.toString(), duration, caption)
+                }
             }
             auditService.record(TOOL_NAME, arguments, AuditOutcome.SUCCESS)
 

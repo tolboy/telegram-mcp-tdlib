@@ -109,13 +109,27 @@ class TdLibRequestAwaiterTest {
 
     @Test
     fun `every Get, Search and Load request the client sends is classified deliberately`() {
-        val source = java.nio.file.Files.readString(
-            java.nio.file.Path.of("src/main/kotlin/dev/telegrammcp/server/client/TdLibClientService.kt"),
+        // The facade no longer builds requests itself. Keep this inventory
+        // explicit so moving a capability cannot silently remove its retry
+        // classification from this guard; builders and shared helpers count too.
+        val sourceRoot = java.nio.file.Path.of("src/main/kotlin/dev/telegrammcp/server/client")
+        val requestSources = listOf(
+            "TdLibClientService.kt",
+            "TdLibReadAdapter.kt",
+            "TdLibMessageAdapter.kt",
+            "TdLibAdminAdapter.kt",
+            "TdLibClientSupport.kt",
+            "TdLibRequestExecutor.kt",
+            "TdLibRequestBuilders.kt",
         )
+        val source = requestSources.joinToString("\n") { name ->
+            java.nio.file.Files.readString(sourceRoot.resolve(name))
+        }
         val used = Regex("""TdApi\.((?:Get|Search|Load)[A-Za-z]+)\(""").findAll(source).map { it.groupValues[1] }
             .filter { TdApi.Function::class.java.isAssignableFrom(Class.forName("it.tdlight.jni.TdApi\$$it")) }
             .toSet()
-        assertTrue("GetChatHistory" in used && "SearchMessagesFilterPinned" !in used)
+        assertTrue("GetChatHistory" in used && "GetCallbackQueryAnswer" in used && "GetUser" in used)
+        assertFalse("SearchMessagesFilterPinned" in used)
         val knownWrites = setOf("GetCallbackQueryAnswer")
         val unclassified = used - knownWrites - TelegramReadRequests.names
         assertTrue(unclassified.isEmpty(), "add these to TelegramReadRequests or to knownWrites: $unclassified")

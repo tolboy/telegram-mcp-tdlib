@@ -1,5 +1,6 @@
 ﻿package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.ToolNumbers
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.exception.InvalidToolInputException
@@ -43,9 +44,9 @@ class PressInlineButtonTool(
         {
           "type": "object",
           "properties": {
-            "chat_id": { "type": ["string", "number"], "description": "Chat identifier (ID/@username/+phone)" },
-            "message_id": { "type": "number", "description": "Target message ID" },
-            "button_index": { "type": "number", "description": "Zero-based flattened button index" },
+            "chat_id": { "type": ["string", "integer"], "description": "Chat identifier (ID/@username/+phone)" },
+            "message_id": { "type": "integer", "description": "Target message ID" },
+            "button_index": { "type": "integer", "description": "Zero-based flattened button index" },
             "button_text": { "type": "string", "description": "Match button by its visible text (case-insensitive)" }
           },
           "required": ["chat_id", "message_id"]
@@ -68,12 +69,9 @@ class PressInlineButtonTool(
             val chatId = entityResolver.resolve(
                 arguments["chat_id"] ?: throw InvalidToolInputException("chat_id is required"),
             )
-            val messageId = (arguments["message_id"] as? Number)?.toLong()
-                ?: arguments["message_id"]?.toString()?.toLongOrNull()
-                ?: throw InvalidToolInputException("message_id is required and must be a number")
+            val messageId = ToolNumbers.long(arguments["message_id"] ?: throw InvalidToolInputException("message_id is required and must be a number"), "message_id")
 
-            val index = (arguments["button_index"] as? Number)?.toInt()
-                ?: arguments["button_index"]?.toString()?.toIntOrNull()
+            val index = ToolNumbers.specifiedInt(arguments, "button_index")
             val text = arguments["button_text"]?.toString()?.takeIf { it.isNotBlank() }
             if (index == null && text == null) {
                 throw InvalidToolInputException("Either button_index or button_text is required")

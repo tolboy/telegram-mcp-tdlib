@@ -511,7 +511,7 @@ Docker, mount the secret file into the container and set the container path.
 | `MCP_ALLOWED_ORIGINS` | No | (loopback only) | Extra browser `Origin` values for `/mcp`. A missing Origin is allowed. Any other present Origin gets HTTP 403 |
 | `MCP_ALLOWED_HOSTS` | No | (loopback only) | Extra `Host` values for `/mcp`. A missing Host is allowed. Any other present Host gets HTTP 403 |
 | `MCP_MAX_CONCURRENT_CALLS_PER_CLIENT` | No | `8` | In-flight tool calls per authenticated client |
-| `MCP_DESTRUCTIVE_APPROVAL_TIMEOUT`| No | `120s`        | Loopback-page answer deadline; elicitation uses the MCP host/request deadline |
+| `MCP_DESTRUCTIVE_APPROVAL_TIMEOUT`| No | `120s`        | Local approval answer deadline; an SDK elicitation still in flight retains its slot until completion |
 | `MCP_FILE_ROOTS`           | No       | (deny all)      | Allowed root dirs for file operations    |
 | `MCP_AUDIT_ENABLED`        | No       | `true`          | Enable audit logging                     |
 | `MCP_AUDIT_LOG_ARGS`       | No       | `false`         | Include tool arguments in audit logs     |
@@ -614,9 +614,13 @@ Public endpoints (no auth needed):
 
 The well-known descriptor is intentionally small and stable. It helps generic installers or orchestration layers discover a single-purpose connector without turning this server into an in-process aggregator.
 
-Interactive `/auth/**` endpoints are keyless only from loopback. Requests from
-a Docker bridge, reverse proxy, or private LAN must include the configured MCP
-API key; private IP space is not treated as a trusted identity.
+Interactive `/auth/**` endpoints, including state, require direct loopback,
+including with a valid API key or OAuth token. Forwarded requests and Docker
+bridge/private-LAN callers cannot access login administration. Initialize container sessions
+from inside the container's network namespace or use the local CLI wizard before
+remote deployment. A present `Origin` and `Host` must identify loopback.
+Keep `/auth/**` off public ingress because state can contain a sensitive QR link.
+See [interactive authentication](docs/INTERACTIVE_AUTH.md).
 
 CSRF protection applies to state-changing requests, including loopback requests.
 Only validated API-key headers, OAuth Bearer tokens, and the authentication
@@ -982,6 +986,11 @@ src/main/kotlin/dev/telegrammcp/server/
 ```
 
 ## Testing
+
+The [November 7 project audit](docs/PROJECT_AUDIT_2026-11-07.md) records reliability
+and security fixes, verification, and the remaining refactoring work. The
+[TDLib open-source review](docs/TDLIB_OPEN_SOURCE_REVIEW_2026-11-07.md) compares
+eight projects with pinned source/test references and licensing notes.
 
 ```bash
 # Unit tests

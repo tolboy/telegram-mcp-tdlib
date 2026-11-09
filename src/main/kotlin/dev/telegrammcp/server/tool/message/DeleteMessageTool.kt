@@ -9,6 +9,7 @@ import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Timer
@@ -44,12 +45,12 @@ class DeleteMessageTool(
           "type": "object",
           "properties": {
             "chat_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Chat identifier: numeric ID, @username, +phone, or the canonical value self"
             },
             "message_ids": {
               "type": "array",
-              "items": { "type": "number" },
+              "items": { "type": "integer" },
               "description": "List of message IDs to delete"
             },
             "revoke": {
@@ -83,7 +84,7 @@ class DeleteMessageTool(
                 arguments["chat_id"] ?: throw InvalidToolInputException("chat_id is required"),
             )
             val messageIds = (arguments["message_ids"] as? List<*>)
-                ?.mapNotNull { (it as? Number)?.toLong() }
+                ?.map { ToolNumbers.long(it, "message_ids") }
                 ?: throw InvalidToolInputException("message_ids is required and must be a list of numbers")
             val revoke = arguments["revoke"]?.toString()?.toBoolean() ?: true
 

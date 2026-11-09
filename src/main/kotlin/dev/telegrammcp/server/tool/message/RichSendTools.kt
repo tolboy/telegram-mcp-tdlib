@@ -12,6 +12,7 @@ import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.service.SendOperationService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.tool.RecoverableSend
 import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.util.StructuredLogger
@@ -23,7 +24,7 @@ import org.springframework.stereotype.Component
 /** Argument parsing shared by the location, venue, contact and chat-action tools. */
 internal object RichSendArguments {
     const val CHAT_ID_SCHEMA =
-        """{ "type": ["string", "number"], "description": "Chat identifier: numeric ID, @username, +phone, or the canonical value self" }"""
+        """{ "type": ["string", "integer"], "description": "Chat identifier: numeric ID, @username, +phone, or the canonical value self" }"""
 
     fun chatId(entityResolver: EntityResolverService, arguments: Map<String, Any>): Long =
         entityResolver.resolve(arguments["chat_id"] ?: throw InvalidToolInputException("chat_id is required"))
@@ -198,7 +199,7 @@ class SendContactTool(
             "first_name": { "type": "string", "description": "Contact first name (1-64 characters)" },
             "last_name": { "type": "string", "description": "Optional contact last name" },
             "vcard": { "type": "string", "description": "Optional vCard data (up to 2048 characters)" },
-            "user_id": { "type": "number", "description": "Optional Telegram user ID of the contact" }
+            "user_id": { "type": "integer", "description": "Optional Telegram user ID of the contact" }
           },
           "required": ["chat_id", "phone_number", "first_name"]
         }
@@ -212,9 +213,7 @@ class SendContactTool(
         ToolSupport.execute(TOOL_NAME, arguments, objectMapper, meterRegistry, log, "Failed to send contact", auditService) {
             RecoverableSend.check(operationGuardService, TOOL_NAME, arguments)
             val chatId = RichSendArguments.chatId(entityResolver, arguments)
-            val userId = arguments["user_id"]?.let {
-                (it as? Number)?.toLong() ?: throw InvalidToolInputException("user_id must be a number")
-            } ?: 0L
+            val userId = ToolNumbers.specifiedLong(arguments, "user_id") ?: 0L
             if (userId < 0) throw InvalidToolInputException("user_id must be a positive Telegram user ID")
             val contact = ContactSpec(
                 phoneNumber = RichSendArguments.text(arguments, "phone_number", 32, required = true),

@@ -37,7 +37,7 @@ class GetLastInteractionTool(
         {
           "type": "object",
           "properties": {
-            "contact_id": { "type": ["string", "number"], "description": "Contact identifier (ID/@username/+phone)" }
+            "contact_id": { "type": ["string", "integer"], "description": "Contact identifier (ID/@username/+phone)" }
           },
           "required": ["contact_id"]
         }

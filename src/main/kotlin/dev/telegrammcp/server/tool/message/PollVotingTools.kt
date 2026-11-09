@@ -1,5 +1,6 @@
 package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.ToolNumbers
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.exception.InvalidToolInputException
@@ -39,11 +40,11 @@ class VotePollTool(
         {
           "type": "object",
           "properties": {
-            "chat_id": { "type": ["string", "number"], "description": "Chat identifier (ID/@username/+phone)" },
-            "message_id": { "type": "number", "description": "Message ID containing the poll" },
+            "chat_id": { "type": ["string", "integer"], "description": "Chat identifier (ID/@username/+phone)" },
+            "message_id": { "type": "integer", "description": "Message ID containing the poll" },
             "option_ids": {
               "type": "array",
-              "items": { "type": "number" },
+              "items": { "type": "integer" },
               "description": "0-based option indexes to vote for; empty retracts the vote where Telegram allows it"
             }
           },
@@ -70,9 +71,7 @@ class VotePollTool(
             val rawOptions = arguments["option_ids"] as? List<*>
                 ?: throw InvalidToolInputException("option_ids is required and must be a list of numbers")
             val optionIds = rawOptions.map {
-                (it as? Number)?.toInt()
-                    ?: it?.toString()?.toIntOrNull()
-                    ?: throw InvalidToolInputException("option_ids entries must be numbers")
+                ToolNumbers.int(it, "option_ids")
             }
             if (optionIds.any { it < 0 }) throw InvalidToolInputException("option_ids must be non-negative")
 
@@ -107,8 +106,8 @@ class ClosePollTool(
         {
           "type": "object",
           "properties": {
-            "chat_id": { "type": ["string", "number"], "description": "Chat identifier (ID/@username/+phone)" },
-            "message_id": { "type": "number", "description": "Message ID containing the poll" },
+            "chat_id": { "type": ["string", "integer"], "description": "Chat identifier (ID/@username/+phone)" },
+            "message_id": { "type": "integer", "description": "Message ID containing the poll" },
             "confirmed": { "type": "boolean", "description": "Required when confirmation mode is enabled" }
           },
           "required": ["chat_id", "message_id"]
@@ -141,7 +140,5 @@ class ClosePollTool(
 
 private object PollToolInputs {
     fun requiredMessageId(arguments: Map<String, Any>): Long =
-        (arguments["message_id"] as? Number)?.toLong()
-            ?: arguments["message_id"]?.toString()?.toLongOrNull()
-            ?: throw InvalidToolInputException("message_id is required and must be a number")
+        ToolNumbers.long(arguments["message_id"] ?: throw InvalidToolInputException("message_id is required and must be a number"), "message_id")
 }

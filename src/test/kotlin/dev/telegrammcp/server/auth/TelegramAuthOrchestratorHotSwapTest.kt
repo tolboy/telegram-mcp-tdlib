@@ -12,10 +12,16 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
+import io.mockk.verify
+import it.tdlight.client.ClientInteraction
 import it.tdlight.client.GenericUpdateHandler
+import it.tdlight.client.InputParameter
+import it.tdlight.client.SimpleTelegramClient
 import it.tdlight.client.SimpleTelegramClientBuilder
+import it.tdlight.client.SimpleTelegramClientFactory
 import it.tdlight.jni.TdApi
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.io.TempDir
 import org.springframework.boot.info.BuildProperties
 import java.nio.file.Files
@@ -36,11 +42,14 @@ class TelegramAuthOrchestratorHotSwapTest {
 
     private val states = TelegramConnectionStates()
     private val meters = SimpleMeterRegistry()
-    private val delegating = DelegatingTelegramClientService.wrapping(mockk(relaxed = true))
+    private val fallback = mockk<dev.telegrammcp.server.client.TelegramClientService>(relaxed = true)
+    private val delegating = DelegatingTelegramClientService.wrapping(fallback)
+    private val authState = TelegramAuthStateHolder()
+    private val credentials = RuntimeCredentialsHolder()
     private val orchestrator = TelegramAuthOrchestrator(
         props = TdLibProperties(),
-        authStateHolder = TelegramAuthStateHolder(),
-        runtimeCredentials = RuntimeCredentialsHolder(),
+        authStateHolder = authState,
+        runtimeCredentials = credentials,
         rateLimiter = RateLimiter.ofDefaults("hot-swap-test"),
         circuitBreaker = CircuitBreaker.ofDefaults("hot-swap-test"),
         meterRegistry = meters,
@@ -48,6 +57,79 @@ class TelegramAuthOrchestratorHotSwapTest {
         platformPaths = PlatformPaths(),
         clientServices = TdLibClientServiceFactory(states, meters),
     )
+
+    @AfterEach
+    fun shutdown() = orchestrator.shutdownLifecycleExecutor()
+
+    @Test
+    fun `ready received before build completes still installs the live service`() {
+        val authorization = authorizationHandler()
+        authorization.onUpdate(TdApi.UpdateAuthorizationState(TdApi.AuthorizationStateReady()))
+        assertTrue(authState.getState() is AuthState.Ready)
+        assertSame(fallback, delegating.current())
+
+        assertTrue(orchestrator.acceptBuiltClient(0, builtClient()))
+        assertTrue(delegating.current() is dev.telegrammcp.server.client.TdLibClientService)
+    }
+
+    @Test
+    fun `logout invalidates an in-flight build and ignores its late updates`() {
+        val authorization = authorizationHandler()
+        credentials.set(RuntimeCredentialsHolder.Credentials(123, "test-hash"))
+        val pendingCode = authState.awaitCode()
+
+        orchestrator.logout()
+        assertTrue(authState.getState() is AuthState.LoggedOut)
+        assertTrue(pendingCode.isCancelled)
+        assertFalse(credentials.hasCredentials())
+        assertFalse(orchestrator.acceptBuiltClient(0, builtClient()))
+        authorization.onUpdate(TdApi.UpdateAuthorizationState(TdApi.AuthorizationStateReady()))
+        authorization.onUpdate(TdApi.UpdateAuthorizationState(TdApi.AuthorizationStateClosed()))
+        assertTrue(authState.getState() is AuthState.LoggedOut)
+        assertSame(fallback, delegating.current())
+    }
+
+    @Test
+    fun `late interaction cannot replace the current authentication prompt`() {
+        val builder = mockk<SimpleTelegramClientBuilder>(relaxed = true)
+        val interaction = slot<ClientInteraction>()
+        every { builder.setClientInteraction(capture(interaction)) } returns Unit
+        orchestrator.configureBuilder(builder, MessageSendTracker(), "")
+        orchestrator.logout()
+
+        val result = interaction.captured.onParameterRequest(InputParameter.ASK_PASSWORD, mockk())
+        assertTrue(result.isCompletedExceptionally)
+        assertTrue(authState.getState() is AuthState.LoggedOut)
+        assertFalse(authState.submitPassword("stale"))
+    }
+
+    @Test
+    fun `unexpected close detaches the live delegate and shutdown closes the factory`() {
+        val authorization = authorizationHandler()
+        val built = builtClient()
+        orchestrator.acceptBuiltClient(0, built)
+        authorization.onUpdate(TdApi.UpdateAuthorizationState(TdApi.AuthorizationStateReady()))
+        assertTrue(delegating.current() is dev.telegrammcp.server.client.TdLibClientService)
+
+        authorization.onUpdate(TdApi.UpdateAuthorizationState(TdApi.AuthorizationStateClosed()))
+        assertTrue(authState.getState() is AuthState.Error)
+        assertSame(fallback, delegating.current())
+        verify(timeout = 2000, exactly = 1) { built.factory.close() }
+    }
+
+    private fun builtClient() = TelegramAuthOrchestrator.BuiltClient(
+        mockk<SimpleTelegramClientFactory>(relaxed = true),
+        mockk<SimpleTelegramClient>(relaxed = true),
+        MessageSendTracker(),
+    )
+
+    private fun authorizationHandler(): GenericUpdateHandler<TdApi.UpdateAuthorizationState> {
+        val builder = mockk<SimpleTelegramClientBuilder>(relaxed = true)
+        val handler = slot<GenericUpdateHandler<TdApi.UpdateAuthorizationState>>()
+        every { builder.addUpdateHandler(TdApi.UpdateAuthorizationState::class.java, capture(handler)) } returns Unit
+        orchestrator.configureBuilder(builder, MessageSendTracker(), "")
+        return handler.captured
+    }
 
     /** Builds the wizard's client handlers and returns its connection-state handler. */
     private fun connectionHandler(): GenericUpdateHandler<TdApi.UpdateConnectionState> {

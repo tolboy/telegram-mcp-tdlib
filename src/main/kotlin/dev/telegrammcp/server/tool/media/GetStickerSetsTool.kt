@@ -5,6 +5,7 @@ import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.model.AuditOutcome
 import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Timer
@@ -36,7 +37,7 @@ class GetStickerSetsTool(
         {
           "type": "object",
           "properties": {
-            "limit": { "type": "number", "description": "Max sticker sets to return (1–200, default 50)" }
+            "limit": { "type": "integer", "description": "Max sticker sets to return (1–200, default 50)" }
           },
           "required": []
         }
@@ -53,9 +54,7 @@ class GetStickerSetsTool(
         val sample = Timer.start(meterRegistry)
 
         return try {
-            val limit = (arguments["limit"] as? Number)?.toInt()
-                ?: arguments["limit"]?.toString()?.toIntOrNull()
-                ?: DEFAULT_LIMIT
+            val limit = ToolNumbers.optionalInt(arguments, "limit") ?: DEFAULT_LIMIT
 
             log.withTool(TOOL_NAME).info("Listing installed sticker sets (limit={})", limit)
             val sets = telegramClient.getInstalledStickerSets(limit)

@@ -9,6 +9,7 @@ import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
 import dev.telegrammcp.server.tool.ToolSupport
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
 import io.modelcontextprotocol.server.McpSyncServerExchange
@@ -43,19 +44,19 @@ class EditForumTopicTool(
           "type": "object",
           "properties": {
             "chat_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Forum-enabled supergroup chat identifier (ID/@username/+phone)"
             },
             "message_thread_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Forum topic message thread ID"
             },
             "topic_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Alias for message_thread_id"
             },
             "thread_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Alias for message_thread_id"
             },
             "name": {
@@ -67,7 +68,7 @@ class EditForumTopicTool(
               "description": "Alias for name"
             },
             "custom_emoji_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Optional new custom emoji ID for the topic icon"
             },
             "edit_icon_custom_emoji": {
@@ -111,7 +112,7 @@ class EditForumTopicTool(
         val messageThreadId = parseForumTopicThreadId(arguments)
         val name = parseTopicName(arguments)
         val removeCustomEmoji = parseBoolean(arguments["remove_custom_emoji"], default = false)
-        val customEmojiId = parseOptionalLong(arguments["custom_emoji_id"], "custom_emoji_id")
+        val customEmojiId = ToolNumbers.specifiedLong(arguments, "custom_emoji_id")
         val editIconCustomEmoji = parseBoolean(
             arguments["edit_icon_custom_emoji"],
             default = removeCustomEmoji || arguments.containsKey("custom_emoji_id"),

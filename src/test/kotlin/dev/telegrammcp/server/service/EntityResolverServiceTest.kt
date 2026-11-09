@@ -4,6 +4,10 @@ import dev.telegrammcp.server.client.TelegramAccountContext
 import dev.telegrammcp.server.client.TelegramAccountRegistry
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.exception.EntityNotFoundException
+import dev.telegrammcp.server.exception.TelegramApiException
+import dev.telegrammcp.server.exception.TelegramFloodGateException
+import dev.telegrammcp.server.exception.TelegramTimeoutException
+import dev.telegrammcp.server.exception.TelegramUnavailableException
 import dev.telegrammcp.server.model.EntityIdentifier
 import io.mockk.every
 import io.mockk.mockk
@@ -13,6 +17,7 @@ import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import kotlin.test.assertEquals
+import kotlin.test.assertSame
 
 class EntityResolverServiceTest {
 
@@ -80,12 +85,53 @@ class EntityResolverServiceTest {
 
         @Test
         fun `throws EntityNotFoundException on resolution failure`() {
-            every { telegramClient.resolveUsername("nonexistent") } throws RuntimeException("Not found")
+            every { telegramClient.resolveUsername("nonexistent") } throws TelegramApiException(400, "USERNAME_NOT_OCCUPIED")
 
             assertThrows<EntityNotFoundException> {
                 service.resolve(EntityIdentifier.Username("nonexistent"))
             }
         }
+
+        @Test
+        fun `username casing shares the same cache entry`() {
+            every { telegramClient.resolveUsername("Test_User") } returns 123L
+            assertEquals(123L, service.resolve("@Test_User"))
+            assertEquals(123L, service.resolve("@test_user"))
+            verify(exactly = 1) { telegramClient.resolveUsername(any()) }
+        }
+    }
+
+    @Test
+    fun `resolution preserves operational failures for every identifier kind`() {
+        val errors = listOf(
+            TelegramApiException(429, "Too Many Requests: retry after 30", readOnlyRequest = true),
+            TelegramApiException(401, "Unauthorized"),
+            TelegramApiException(403, "Forbidden"),
+            TelegramApiException(503, "Service Unavailable", readOnlyRequest = true),
+            TelegramFloodGateException("search", 30),
+            TelegramTimeoutException("searchPublicChat", TelegramTimeoutException.Reason.REQUEST_TIMEOUT, true, true, 1_000),
+            TelegramUnavailableException(),
+            java.util.concurrent.CancellationException("cancelled"),
+            IllegalStateException("unexpected failure"),
+        )
+        for (error in errors) {
+            every { telegramClient.resolveUsername(any()) } throws error
+            every { telegramClient.resolvePhone(any()) } throws error
+            every { telegramClient.resolveSelfChat() } throws error
+            for (identifier in listOf("@test_user", "+1234567890", "self")) {
+                assertSame(error, assertThrows<Exception> { service.resolve(identifier) })
+            }
+        }
+        // Failures must not populate the cache.
+        every { telegramClient.resolveUsername(any()) } returns 123L
+        assertEquals(123L, service.resolve("@test_user"))
+    }
+
+    @Test
+    fun `missing configured account selection fails before reading or populating cache`() {
+        val scoped = EntityResolverService(telegramClient, TelegramAccountContext(TelegramAccountRegistry()))
+        assertThrows<TelegramUnavailableException> { scoped.resolve("self") }
+        verify(exactly = 0) { telegramClient.resolveSelfChat() }
     }
 
     @Nested

@@ -8,6 +8,7 @@ import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.tool.ToolInputParsers
 import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.util.StructuredLogger
@@ -29,7 +30,7 @@ class ListScheduledMessagesTool(
     companion object {
         const val TOOL_NAME = "list_scheduled_messages"
         private const val INPUT_SCHEMA = """
-        {"type":"object","properties":{"chat_id":{"type":["string","number"],"description":"Chat identifier"}},"required":["chat_id"]}
+        {"type":"object","properties":{"chat_id":{"type":["string","integer"],"description":"Chat identifier"}},"required":["chat_id"]}
         """
     }
     private val log = StructuredLogger.forClass<ListScheduledMessagesTool>()
@@ -60,10 +61,10 @@ class ScheduleMessageTool(
         {
           "type":"object",
           "properties":{
-            "chat_id":{"type":["string","number"],"description":"Chat identifier"},
+            "chat_id":{"type":["string","integer"],"description":"Chat identifier"},
             "text":{"type":"string","description":"Message text"},
-            "send_at":{"type":["string","number"],"description":"Future ISO-8601 instant or Unix epoch seconds"},
-            "repeat_period_seconds":{"type":"number","description":"Optional repeat period in seconds; 0 disables repetition"},
+            "send_at":{"type":["string","integer"],"description":"Future ISO-8601 instant or Unix epoch seconds"},
+            "repeat_period_seconds":{"type":"integer","description":"Optional repeat period in seconds; 0 disables repetition"},
             "disable_notification":{"type":"boolean","description":"Send without notification"},
             "parse_mode":{"type":"string","enum":["plain","html","markdown"]}
           },
@@ -115,7 +116,7 @@ class RescheduleMessageTool(
     companion object {
         const val TOOL_NAME = "reschedule_message"
         private const val INPUT_SCHEMA = """
-        {"type":"object","properties":{"chat_id":{"type":["string","number"]},"message_id":{"type":["string","number"]},"send_at":{"type":["string","number"]},"repeat_period_seconds":{"type":"number"}},"required":["chat_id","message_id","send_at"]}
+        {"type":"object","properties":{"chat_id":{"type":["string","integer"]},"message_id":{"type":["string","integer"]},"send_at":{"type":["string","integer"]},"repeat_period_seconds":{"type":"integer"}},"required":["chat_id","message_id","send_at"]}
         """
     }
     private val log = StructuredLogger.forClass<RescheduleMessageTool>()
@@ -157,7 +158,7 @@ class CancelScheduledMessageTool(
     companion object {
         const val TOOL_NAME = "cancel_scheduled_message"
         private const val INPUT_SCHEMA = """
-        {"type":"object","properties":{"chat_id":{"type":["string","number"]},"message_id":{"type":["string","number"]},"confirmed":{"type":"boolean","description":"Required when confirmation mode is enabled"}},"required":["chat_id","message_id"]}
+        {"type":"object","properties":{"chat_id":{"type":["string","integer"]},"message_id":{"type":["string","integer"]},"confirmed":{"type":"boolean","description":"Required when confirmation mode is enabled"}},"required":["chat_id","message_id"]}
         """
     }
     private val log = StructuredLogger.forClass<CancelScheduledMessageTool>()
@@ -184,9 +185,9 @@ private object ScheduledMessageInputs {
     fun futureEpochSeconds(arguments: Map<String, Any>, name: String, requireFuture: Boolean = true): Int {
         val raw = arguments[name] ?: throw InvalidToolInputException("$name is required")
         val seconds = when (raw) {
-            is Number -> raw.toLong()
-            else -> raw.toString().trim().toLongOrNull() ?: runCatching { Instant.parse(raw.toString().trim()).epochSecond }
+            is String -> raw.trim().toLongOrNull() ?: runCatching { Instant.parse(raw.trim()).epochSecond }
                 .getOrElse { throw InvalidToolInputException("$name must be an ISO-8601 instant or Unix epoch seconds") }
+            else -> ToolNumbers.long(raw, name)
         }
         if (seconds !in 1..Int.MAX_VALUE.toLong()) throw InvalidToolInputException("$name must be within TDLib's supported epoch range")
         if (requireFuture && seconds <= Instant.now().epochSecond) throw InvalidToolInputException("$name must be in the future")
@@ -195,14 +196,12 @@ private object ScheduledMessageInputs {
 
     fun repeatPeriod(arguments: Map<String, Any>): Int = optionalNonNegativeInt(arguments, "repeat_period_seconds") ?: 0
 
-    fun requiredPositiveLong(arguments: Map<String, Any>, name: String): Long = when (val raw = arguments[name]) {
-        is Number -> raw.toLong()
-        null -> throw InvalidToolInputException("$name is required")
-        else -> raw.toString().trim().toLongOrNull() ?: throw InvalidToolInputException("$name must be an integer")
-    }.also { if (it <= 0) throw InvalidToolInputException("$name must be a positive integer") }
+    fun requiredPositiveLong(arguments: Map<String, Any>, name: String): Long =
+        ToolNumbers.long(arguments[name] ?: throw InvalidToolInputException("$name is required"), name)
+            .also { if (it <= 0) throw InvalidToolInputException("$name must be a positive integer") }
 
     fun optionalBoolean(arguments: Map<String, Any>, name: String): Boolean = when (val raw = arguments[name]) {
-        null -> false
+        null -> if (arguments.containsKey(name)) throw InvalidToolInputException("$name must be a boolean") else false
         is Boolean -> raw
         is String -> when (raw.lowercase()) {
             "true" -> true
@@ -212,10 +211,7 @@ private object ScheduledMessageInputs {
         else -> throw InvalidToolInputException("$name must be a boolean")
     }
 
-    private fun optionalNonNegativeInt(arguments: Map<String, Any>, name: String): Int? = when (val raw = arguments[name]) {
-        null -> null
-        is Number -> raw.toInt().takeIf { raw.toDouble() == it.toDouble() }
-        else -> raw.toString().trim().toIntOrNull()
-    }?.also { if (it < 0) throw InvalidToolInputException("$name must be zero or positive") }
-        ?: if (arguments.containsKey(name)) throw InvalidToolInputException("$name must be an integer") else null
+    private fun optionalNonNegativeInt(arguments: Map<String, Any>, name: String): Int? =
+        ToolNumbers.specifiedInt(arguments, name)
+            ?.also { if (it < 0) throw InvalidToolInputException("$name must be zero or positive") }
 }

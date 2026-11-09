@@ -7,6 +7,7 @@ import dev.telegrammcp.server.exception.InvalidToolInputException
 import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
@@ -45,7 +46,7 @@ class DiscoverPublicChatsForResearchTool(
           "type": "object",
           "properties": {
             "query": { "type": "string", "description": "Search query (username prefix or title)" },
-            "limit": { "type": "number", "description": "Max results. Clamped by public-search.limits.max-chats-per-search." }
+            "limit": { "type": "integer", "description": "Max results. Clamped by public-search.limits.max-chats-per-search." }
           },
           "required": ["query"]
         }
@@ -76,8 +77,7 @@ class DiscoverPublicChatsForResearchTool(
         }
         val query = arguments["query"]?.toString()?.takeIf { it.isNotBlank() }
             ?: throw InvalidToolInputException("query is required")
-        val limit = (arguments["limit"] as? Number)?.toInt()
-            ?: arguments["limit"]?.toString()?.toIntOrNull()
+        val limit = ToolNumbers.optionalInt(arguments, "limit")
             ?: publicSearchProps.limits.maxChatsPerSearch
         val cappedLimit = limit.coerceIn(1, publicSearchProps.limits.maxChatsPerSearch)
 

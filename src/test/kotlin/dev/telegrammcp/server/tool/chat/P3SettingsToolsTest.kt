@@ -75,6 +75,81 @@ class P3SettingsToolsTest {
     }
 
     @Test
+    @Suppress("UNCHECKED_CAST")
+    fun `supplied null privacy exception arrays cannot silently remove exceptions`() {
+        val tool = SetPrivacySettingsTool(telegramClient, entityResolver, guardrails, operationGuard, audit, mapper, SimpleMeterRegistry())
+        every { telegramClient.setPrivacySettingRules(any()) } returns true
+        for (name in listOf("allow_user_ids", "restrict_user_ids", "allow_chat_ids", "restrict_chat_ids")) {
+            val arguments = mapOf("setting" to "show_status", "base_rule" to "allow_contacts", name to null) as Map<String, Any>
+            val result = tool.executeChecked(exchange, arguments)
+            assertTrue(result.isError, "$name=null must reject the replacement policy")
+            val error = ((result.structuredContent() as Map<*, *>)["data"] as Map<*, *>)["error"] as Map<*, *>
+            assertEquals("INVALID_INPUT", error["code"])
+        }
+        verify(exactly = 0) { telegramClient.setPrivacySettingRules(any()) }
+    }
+
+    @Test
+    fun `invalid privacy exception array entries reject the complete replacement`() {
+        val tool = SetPrivacySettingsTool(telegramClient, entityResolver, guardrails, operationGuard, audit, mapper, SimpleMeterRegistry())
+        every { telegramClient.setPrivacySettingRules(any()) } returns true
+        every { entityResolver.resolve("@team" as Any) } returns -10042L
+        val invalidExceptions = mapOf(
+            "allow_user_ids" to listOf(10, null),
+            "restrict_user_ids" to listOf(10, 11.5),
+            "allow_chat_ids" to listOf("@team", null),
+            "restrict_chat_ids" to listOf("@team", null),
+        )
+        invalidExceptions.forEach { (name, entries) ->
+            val result = tool.executeChecked(exchange, mapOf("setting" to "show_status", "base_rule" to "allow_contacts", name to entries))
+            assertTrue(result.isError)
+            val error = ((result.structuredContent() as Map<*, *>)["data"] as Map<*, *>)["error"] as Map<*, *>
+            assertEquals("INVALID_INPUT", error["code"])
+        }
+        verify(exactly = 0) { telegramClient.setPrivacySettingRules(any()) }
+    }
+
+    @Test
+    @Suppress("UNCHECKED_CAST")
+    fun `explicit null privacy flags are invalid while omission keeps the default`() {
+        val tool = SetPrivacySettingsTool(telegramClient, entityResolver, guardrails, operationGuard, audit, mapper, SimpleMeterRegistry())
+        every { telegramClient.setPrivacySettingRules(any()) } returns true
+        for (name in listOf("allow_bots", "allow_premium_users")) {
+            val arguments = mapOf("setting" to "show_status", "base_rule" to "allow_contacts", name to null) as Map<String, Any>
+            val result = tool.executeChecked(exchange, arguments)
+            assertTrue(result.isError, "$name=null must reject the policy")
+        }
+        verify(exactly = 0) { telegramClient.setPrivacySettingRules(any()) }
+    }
+
+    @Test
+    @Suppress("UNCHECKED_CAST")
+    fun `explicit null administrator right cannot silently revoke that right`() {
+        val tool = SetAdminRightsTool(telegramClient, entityResolver, guardrails, operationGuard, audit, mapper, SimpleMeterRegistry())
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.setChatMemberAdministratorRights(any(), any(), any()) } returns true
+        val arguments = mapOf(
+            "chat_id" to 42,
+            "user_id" to 7,
+            "rights" to mapOf("can_manage_chat" to null),
+            "confirmed" to true,
+        ) as Map<String, Any>
+        val result = tool.executeChecked(exchange, arguments)
+        assertTrue(result.isError)
+        verify(exactly = 0) { telegramClient.setChatMemberAdministratorRights(any(), any(), any()) }
+    }
+
+    @Test
+    fun `omitted privacy exception arrays still default to an empty exception policy`() {
+        val tool = SetPrivacySettingsTool(telegramClient, entityResolver, guardrails, operationGuard, audit, mapper, SimpleMeterRegistry())
+        val rules = slot<PrivacySettingRules>()
+        every { telegramClient.setPrivacySettingRules(capture(rules)) } returns true
+        val result = tool.executeChecked(exchange, mapOf("setting" to "show_status", "base_rule" to "restrict_all"))
+        assertFalse(result.isError)
+        assertEquals(listOf(PrivacyRuleKind.RESTRICT_ALL), rules.captured.rules.map { it.kind })
+    }
+
+    @Test
     fun `group permission write preserves omitted flags`() {
         val tool = SetGroupPermissionsTool(telegramClient, entityResolver, guardrails, operationGuard, audit, mapper, SimpleMeterRegistry())
         every { entityResolver.resolve(42 as Any) } returns 42L

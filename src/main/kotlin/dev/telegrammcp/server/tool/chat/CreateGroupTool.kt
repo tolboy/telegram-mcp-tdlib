@@ -8,6 +8,7 @@ import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Timer
@@ -46,7 +47,7 @@ class CreateGroupTool(
             },
             "user_ids": {
               "type": "array",
-              "items": { "type": "number" },
+              "items": { "type": "integer" },
               "description": "List of user IDs to add as initial members"
             }
           },
@@ -80,7 +81,7 @@ class CreateGroupTool(
             guardrailService.validateInput(title)
 
             val userIds = (arguments["user_ids"] as? List<*>)
-                ?.mapNotNull { (it as? Number)?.toLong() }
+                ?.mapIndexed { index, value -> ToolNumbers.long(value, "user_ids[$index]") }
                 ?: throw InvalidToolInputException("user_ids is required and must be a list of numbers")
 
             if (userIds.isEmpty()) throw InvalidToolInputException("user_ids must not be empty")

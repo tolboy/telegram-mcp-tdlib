@@ -59,10 +59,10 @@ class SetProfilePhotoTool(
 
             val rawPath = arguments["file_path"]?.toString()
                 ?: throw InvalidToolInputException("file_path is required")
-            val validatedPath = fileSecurityService.validateForUpload(rawPath)
-
-            log.withTool(TOOL_NAME).info("Setting profile photo from '{}'", validatedPath)
-            telegramClient.setProfilePhoto(validatedPath.toString())
+            log.withTool(TOOL_NAME).info("Setting profile photo from '{}'", rawPath)
+            fileSecurityService.withStagedUpload(rawPath) { staged ->
+                telegramClient.setProfilePhoto(staged.toString())
+            }
             auditService.record(TOOL_NAME, arguments, AuditOutcome.SUCCESS)
 
             val json = objectMapper.writeValueAsString(mapOf("updated" to true))

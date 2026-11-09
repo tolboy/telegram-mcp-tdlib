@@ -42,19 +42,19 @@ class ReopenForumTopicTool(
           "type": "object",
           "properties": {
             "chat_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Forum-enabled supergroup chat identifier (ID/@username/+phone)"
             },
             "message_thread_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Forum topic message thread ID"
             },
             "topic_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Alias for message_thread_id"
             },
             "thread_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Alias for message_thread_id"
             }
           },

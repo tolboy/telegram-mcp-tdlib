@@ -45,7 +45,7 @@ class SendStickerTool(
         {
           "type": "object",
           "properties": {
-            "chat_id": { "type": ["string", "number"], "description": "Chat identifier" },
+            "chat_id": { "type": ["string", "integer"], "description": "Chat identifier" },
             "file_path": { "type": "string", "description": "Local sticker file path (WEBP/TGS/WEBM)" },
             "emoji": { "type": "string", "description": "Optional associated emoji" }
           },
@@ -73,14 +73,16 @@ class SendStickerTool(
                 ?: throw InvalidToolInputException("file_path is required")
             val emoji = arguments["emoji"]?.toString()?.takeIf { it.isNotBlank() }
 
-            val validatedPath = fileSecurityService.validateForUpload(rawPath)
             guardrailService.validateChatAccess(chatId)
 
-            log.withTool(TOOL_NAME).info("Sending sticker '{}' to chat {}", validatedPath, chatId)
-            val message = dev.telegrammcp.server.tool.RecoverableSend.execute(sendOperations, operationGuardService, TOOL_NAME,
-                arguments, chatId, listOf(validatedPath.toString(), emoji,
-                    dev.telegrammcp.server.tool.RecoverableSend.fileFingerprint(arguments, validatedPath))) {
-                telegramClient.sendSticker(chatId, validatedPath.toString(), emoji)
+            log.withTool(TOOL_NAME).info("Sending sticker '{}' to chat {}", rawPath, chatId)
+            val sourcePath = fileSecurityService.validateForUpload(rawPath)
+            val message = fileSecurityService.withStagedUpload(rawPath) { staged ->
+                dev.telegrammcp.server.tool.RecoverableSend.execute(sendOperations, operationGuardService, TOOL_NAME,
+                    arguments, chatId, listOf(sourcePath.toString(), emoji,
+                        dev.telegrammcp.server.tool.RecoverableSend.fileFingerprint(arguments, staged))) {
+                    telegramClient.sendSticker(chatId, staged.toString(), emoji)
+                }
             }
             auditService.record(TOOL_NAME, arguments, AuditOutcome.SUCCESS)
 

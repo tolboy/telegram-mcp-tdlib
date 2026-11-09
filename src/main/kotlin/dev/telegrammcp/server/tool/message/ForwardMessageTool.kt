@@ -9,6 +9,7 @@ import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Timer
@@ -44,16 +45,16 @@ class ForwardMessageTool(
           "type": "object",
           "properties": {
             "from_chat_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Source chat identifier"
             },
             "to_chat_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Destination chat identifier"
             },
             "message_ids": {
               "type": "array",
-              "items": { "type": "number" },
+              "items": { "type": "integer" },
               "description": "List of message IDs to forward"
             }
           },
@@ -83,9 +84,8 @@ class ForwardMessageTool(
             )
             val messageIds = (arguments["message_ids"] as? List<*>)
                 ?.map { value ->
-                    val number = value as? Number ?: throw InvalidToolInputException("message_ids must contain integers")
-                    number.toLong().also {
-                        if (it <= 0 || number.toDouble() != it.toDouble()) throw InvalidToolInputException("message_ids must contain positive integers")
+                    ToolNumbers.long(value, "message_ids").also {
+                        if (it <= 0) throw InvalidToolInputException("message_ids must contain positive integers")
                     }
                 }
                 ?: throw InvalidToolInputException("message_ids is required and must be a list of numbers")

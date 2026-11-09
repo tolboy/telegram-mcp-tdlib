@@ -18,6 +18,7 @@ import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.tool.McpToolHandler
 import dev.telegrammcp.server.tool.ToolSupport
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
 import io.modelcontextprotocol.server.McpSyncServerExchange
@@ -70,7 +71,7 @@ class SetPrivacySettingsTool(
     override fun definition(): McpSchema.Tool = ToolSupport.definition(
         TOOL_NAME,
         "Replace one Telegram privacy-rule set. Specify the base rule and any explicit user/chat exceptions.",
-        """{"type":"object","properties":{"setting":{"type":"string"},"base_rule":{"type":"string","enum":["allow_all","restrict_all","allow_contacts","restrict_contacts"]},"allow_user_ids":{"type":"array","items":{"type":"number"}},"restrict_user_ids":{"type":"array","items":{"type":"number"}},"allow_chat_ids":{"type":"array","items":{"type":["string","number"]}},"restrict_chat_ids":{"type":"array","items":{"type":["string","number"]}},"allow_bots":{"type":"boolean"},"allow_premium_users":{"type":"boolean"}},"required":["setting","base_rule"]}""",
+        """{"type":"object","properties":{"setting":{"type":"string"},"base_rule":{"type":"string","enum":["allow_all","restrict_all","allow_contacts","restrict_contacts"]},"allow_user_ids":{"type":"array","items":{"type":"integer"}},"restrict_user_ids":{"type":"array","items":{"type":"integer"}},"allow_chat_ids":{"type":"array","items":{"type":["string","integer"]}},"restrict_chat_ids":{"type":"array","items":{"type":["string","integer"]}},"allow_bots":{"type":"boolean"},"allow_premium_users":{"type":"boolean"}},"required":["setting","base_rule"]}""",
         objectMapper,
     )
 
@@ -250,12 +251,12 @@ class SetAdminRightsTool(
 }
 
 private object P3ToolInputs {
-    const val CHAT_SCHEMA = """{"type":"object","properties":{"chat_id":{"type":["string","number"]}},"required":["chat_id"]}"""
-    const val BOT_SCOPE_SCHEMA = """{"type":"object","properties":{"scope":{"type":"string","enum":["default","all_private_chats","all_group_chats","all_chat_administrators","chat","chat_administrators","chat_member"]},"language_code":{"type":"string","maxLength":35},"chat_id":{"type":["string","number"]},"user_id":{"type":"number"}},"required":["scope"]}"""
-    const val BOT_COMMANDS_SCHEMA = """{"type":"object","properties":{"scope":{"type":"string","enum":["default","all_private_chats","all_group_chats","all_chat_administrators","chat","chat_administrators","chat_member"]},"language_code":{"type":"string","maxLength":35},"chat_id":{"type":["string","number"]},"user_id":{"type":"number"},"commands":{"type":"array","maxItems":100,"items":{"type":"object","properties":{"command":{"type":"string"},"description":{"type":"string"}},"required":["command","description"]}}},"required":["scope","commands"]}"""
-    const val PERMISSIONS_SCHEMA = """{"type":"object","properties":{"chat_id":{"type":["string","number"]},"permissions":{"type":"object","description":"One or more permission flags; omitted flags keep their current value","properties":{"can_send_basic_messages":{"type":"boolean"},"can_send_audios":{"type":"boolean"},"can_send_documents":{"type":"boolean"},"can_send_photos":{"type":"boolean"},"can_send_videos":{"type":"boolean"},"can_send_video_notes":{"type":"boolean"},"can_send_voice_notes":{"type":"boolean"},"can_send_polls":{"type":"boolean"},"can_send_other_messages":{"type":"boolean"},"can_add_link_previews":{"type":"boolean"},"can_react_to_messages":{"type":"boolean"},"can_edit_tag":{"type":"boolean"},"can_change_info":{"type":"boolean"},"can_invite_users":{"type":"boolean"},"can_pin_messages":{"type":"boolean"},"can_create_topics":{"type":"boolean"}}},"confirmed":{"type":"boolean","description":"Required when confirmation mode is enabled"}},"required":["chat_id","permissions"]}"""
-    const val MEMBER_PERMISSIONS_SCHEMA = """{"type":"object","properties":{"chat_id":{"type":["string","number"]},"user_id":{"type":"number"},"permissions":{"type":"object"},"until_date":{"type":"number","description":"Unix timestamp; 0 means no expiry"},"is_member":{"type":"boolean","default":true},"confirmed":{"type":"boolean","description":"Required when confirmation mode is enabled"}},"required":["chat_id","user_id","permissions"]}"""
-    const val ADMIN_RIGHTS_SCHEMA = """{"type":"object","properties":{"chat_id":{"type":["string","number"]},"user_id":{"type":"number"},"rights":{"type":"object","description":"Complete replacement; omitted rights are false","properties":{"can_manage_chat":{"type":"boolean"},"can_change_info":{"type":"boolean"},"can_post_messages":{"type":"boolean"},"can_edit_messages":{"type":"boolean"},"can_delete_messages":{"type":"boolean"},"can_invite_users":{"type":"boolean"},"can_restrict_members":{"type":"boolean"},"can_pin_messages":{"type":"boolean"},"can_manage_topics":{"type":"boolean"},"can_promote_members":{"type":"boolean"},"can_manage_video_chats":{"type":"boolean"},"can_post_stories":{"type":"boolean"},"can_edit_stories":{"type":"boolean"},"can_delete_stories":{"type":"boolean"},"can_manage_direct_messages":{"type":"boolean"},"can_manage_tags":{"type":"boolean"},"can_send_welcome_messages":{"type":"boolean","description":"Manage the chat's welcome messages (TDLib 1.8.68+)"},"is_anonymous":{"type":"boolean"}},"additionalProperties":false},"confirmed":{"type":"boolean","description":"Required when confirmation mode is enabled"}},"required":["chat_id","user_id","rights"]}"""
+    const val CHAT_SCHEMA = """{"type":"object","properties":{"chat_id":{"type":["string","integer"]}},"required":["chat_id"]}"""
+    const val BOT_SCOPE_SCHEMA = """{"type":"object","properties":{"scope":{"type":"string","enum":["default","all_private_chats","all_group_chats","all_chat_administrators","chat","chat_administrators","chat_member"]},"language_code":{"type":"string","maxLength":35},"chat_id":{"type":["string","integer"]},"user_id":{"type":"integer"}},"required":["scope"]}"""
+    const val BOT_COMMANDS_SCHEMA = """{"type":"object","properties":{"scope":{"type":"string","enum":["default","all_private_chats","all_group_chats","all_chat_administrators","chat","chat_administrators","chat_member"]},"language_code":{"type":"string","maxLength":35},"chat_id":{"type":["string","integer"]},"user_id":{"type":"integer"},"commands":{"type":"array","maxItems":100,"items":{"type":"object","properties":{"command":{"type":"string"},"description":{"type":"string"}},"required":["command","description"]}}},"required":["scope","commands"]}"""
+    const val PERMISSIONS_SCHEMA = """{"type":"object","properties":{"chat_id":{"type":["string","integer"]},"permissions":{"type":"object","description":"One or more permission flags; omitted flags keep their current value","properties":{"can_send_basic_messages":{"type":"boolean"},"can_send_audios":{"type":"boolean"},"can_send_documents":{"type":"boolean"},"can_send_photos":{"type":"boolean"},"can_send_videos":{"type":"boolean"},"can_send_video_notes":{"type":"boolean"},"can_send_voice_notes":{"type":"boolean"},"can_send_polls":{"type":"boolean"},"can_send_other_messages":{"type":"boolean"},"can_add_link_previews":{"type":"boolean"},"can_react_to_messages":{"type":"boolean"},"can_edit_tag":{"type":"boolean"},"can_change_info":{"type":"boolean"},"can_invite_users":{"type":"boolean"},"can_pin_messages":{"type":"boolean"},"can_create_topics":{"type":"boolean"}}},"confirmed":{"type":"boolean","description":"Required when confirmation mode is enabled"}},"required":["chat_id","permissions"]}"""
+    const val MEMBER_PERMISSIONS_SCHEMA = """{"type":"object","properties":{"chat_id":{"type":["string","integer"]},"user_id":{"type":"integer"},"permissions":{"type":"object"},"until_date":{"type":"integer","description":"Unix timestamp; 0 means no expiry"},"is_member":{"type":"boolean","default":true},"confirmed":{"type":"boolean","description":"Required when confirmation mode is enabled"}},"required":["chat_id","user_id","permissions"]}"""
+    const val ADMIN_RIGHTS_SCHEMA = """{"type":"object","properties":{"chat_id":{"type":["string","integer"]},"user_id":{"type":"integer"},"rights":{"type":"object","description":"Complete replacement; omitted rights are false","properties":{"can_manage_chat":{"type":"boolean"},"can_change_info":{"type":"boolean"},"can_post_messages":{"type":"boolean"},"can_edit_messages":{"type":"boolean"},"can_delete_messages":{"type":"boolean"},"can_invite_users":{"type":"boolean"},"can_restrict_members":{"type":"boolean"},"can_pin_messages":{"type":"boolean"},"can_manage_topics":{"type":"boolean"},"can_promote_members":{"type":"boolean"},"can_manage_video_chats":{"type":"boolean"},"can_post_stories":{"type":"boolean"},"can_edit_stories":{"type":"boolean"},"can_delete_stories":{"type":"boolean"},"can_manage_direct_messages":{"type":"boolean"},"can_manage_tags":{"type":"boolean"},"can_send_welcome_messages":{"type":"boolean","description":"Manage the chat's welcome messages (TDLib 1.8.68+)"},"is_anonymous":{"type":"boolean"}},"additionalProperties":false},"confirmed":{"type":"boolean","description":"Required when confirmation mode is enabled"}},"required":["chat_id","user_id","rights"]}"""
 
     fun privacySetting(arguments: Map<String, Any>): PrivacySetting = enumValue(arguments, "setting")
 
@@ -279,7 +280,10 @@ private object P3ToolInputs {
             if (allowUsers.isNotEmpty()) add(PrivacyRule(PrivacyRuleKind.ALLOW_USERS, userIds = allowUsers))
             if (restrictChats.isNotEmpty()) add(PrivacyRule(PrivacyRuleKind.RESTRICT_CHAT_MEMBERS, chatIds = restrictChats))
             if (allowChats.isNotEmpty()) add(PrivacyRule(PrivacyRuleKind.ALLOW_CHAT_MEMBERS, chatIds = allowChats))
-            arguments["allow_bots"]?.let { add(PrivacyRule(if (booleanValue(it, "allow_bots")) PrivacyRuleKind.ALLOW_BOTS else PrivacyRuleKind.RESTRICT_BOTS)) }
+            if (arguments.containsKey("allow_bots")) {
+                val raw = arguments["allow_bots"] ?: throw InvalidToolInputException("allow_bots must be a boolean")
+                add(PrivacyRule(if (booleanValue(raw, "allow_bots")) PrivacyRuleKind.ALLOW_BOTS else PrivacyRuleKind.RESTRICT_BOTS))
+            }
             if (optionalBoolean(arguments, "allow_premium_users", false)) add(PrivacyRule(PrivacyRuleKind.ALLOW_PREMIUM_USERS))
             add(PrivacyRule(base))
         }
@@ -389,13 +393,17 @@ private object P3ToolInputs {
     }
 
     fun optionalEpochSeconds(arguments: Map<String, Any>, name: String): Int? {
-        val value = arguments[name] ?: return null
-        val seconds = number(value, name, positive = false)
+        val seconds = ToolNumbers.specifiedLong(arguments, name) ?: return null
+        if (seconds < 0) throw InvalidToolInputException("$name must not be negative")
         if (seconds > Int.MAX_VALUE) throw InvalidToolInputException("$name is outside TDLib's supported range")
         return seconds.toInt()
     }
 
-    fun optionalBoolean(arguments: Map<String, Any>, name: String, default: Boolean): Boolean = arguments[name]?.let { booleanValue(it, name) } ?: default
+    fun optionalBoolean(arguments: Map<String, Any>, name: String, default: Boolean): Boolean {
+        if (!arguments.containsKey(name)) return default
+        val raw = arguments[name] ?: throw InvalidToolInputException("$name must be a boolean")
+        return booleanValue(raw, name)
+    }
 
     private fun userIds(arguments: Map<String, Any>, name: String): List<Long> = arrayArgument(arguments, name).mapIndexed { index, value ->
         number(value, "$name[$index]", positive = true)
@@ -406,10 +414,9 @@ private object P3ToolInputs {
             entityResolver.resolve(value ?: throw InvalidToolInputException("$name[$index] must be a chat identifier"))
         }.distinct().onEach(guardrailService::validateChatAccess)
 
-    private fun arrayArgument(arguments: Map<String, Any>, name: String): List<*> = when (val raw = arguments[name]) {
-        null -> emptyList<Any>()
-        is List<*> -> raw
-        else -> throw InvalidToolInputException("$name must be an array")
+    private fun arrayArgument(arguments: Map<String, Any>, name: String): List<*> {
+        if (!arguments.containsKey(name)) return emptyList<Any>()
+        return arguments[name] as? List<*> ?: throw InvalidToolInputException("$name must be an array")
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -417,7 +424,11 @@ private object P3ToolInputs {
         (arguments[name] as? Map<*, *>)?.entries?.associate { (key, value) -> key?.toString().orEmpty() to (value ?: throw InvalidToolInputException("$name values must not be null")) }
             ?: throw InvalidToolInputException("$name must be an object")
 
-    private fun flag(values: Map<String, Any>, name: String, default: Boolean): Boolean = values[name]?.let { booleanValue(it, name) } ?: default
+    private fun flag(values: Map<String, Any>, name: String, default: Boolean): Boolean {
+        if (!values.containsKey(name)) return default
+        val raw = values[name] ?: throw InvalidToolInputException("$name must be a boolean")
+        return booleanValue(raw, name)
+    }
 
     private fun booleanValue(value: Any, name: String): Boolean = when (value) {
         is Boolean -> value
@@ -430,10 +441,7 @@ private object P3ToolInputs {
     }
 
     private fun number(value: Any?, name: String, positive: Boolean): Long {
-        val parsed = when (value) {
-            is Number -> value.toLong().takeIf { value.toDouble() == it.toDouble() }
-            else -> value?.toString()?.trim()?.toLongOrNull()
-        } ?: throw InvalidToolInputException("$name must be an integer")
+        val parsed = ToolNumbers.long(value, name)
         if (positive && parsed <= 0) throw InvalidToolInputException("$name must be positive")
         if (!positive && parsed < 0) throw InvalidToolInputException("$name must not be negative")
         return parsed

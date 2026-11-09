@@ -21,7 +21,6 @@ import it.tdlight.client.InputParameter
 import it.tdlight.client.ParameterInfo
 import it.tdlight.client.SimpleTelegramClient
 import it.tdlight.client.SimpleTelegramClientBuilder
-import it.tdlight.client.SimpleTelegramClientFactory
 import it.tdlight.client.TDLibSettings
 import it.tdlight.jni.TdApi
 import jakarta.annotation.PreDestroy
@@ -100,21 +99,7 @@ class TdLibConfig(
         }
         ensureNativeInitialized(accountConfigurations.maxOf { it.logVerbosityLevel })
 
-        accountConfigurations.forEach { account ->
-            val handle = startAccount(account)
-            if (account.label == "default") {
-                delegating.swap(handle.service)
-                registry.register(
-                    TelegramAccountRegistry.AccountHandle(
-                        label = "default",
-                        service = delegating.proxy,
-                        close = handle.close,
-                    ),
-                )
-            } else {
-                registry.register(handle)
-            }
-        }
+        registerAccountClients(registry, delegating, accountConfigurations.map { account -> { startAccount(account) } })
 
         runtimeRegistry = registry
         log.info("Initialized {} isolated Telegram account(s): {}", registry.labels().size, registry.labels())
@@ -241,16 +226,17 @@ class TdLibConfig(
     }
 
     private fun startAccount(config: RuntimeAccountConfig): TelegramAccountRegistry.AccountHandle {
-        val factory = SimpleTelegramClientFactory()
+        val factory = TdLibFactoryLifecycle.create()
+        val messageSendTracker = MessageSendTracker()
         return try {
             val builder: SimpleTelegramClientBuilder = factory.builder(buildSettings(config))
             changeJournal?.attach(builder, config.label)
             clientServices.attach(builder, config.label)
             val authGate = TelegramAuthGate(config.label, config.authReadyTimeout)
             val chatFolderState = ChatFolderState()
-            val messageSendTracker = MessageSendTracker()
             builder.addUpdateHandler(TdApi.UpdateAuthorizationState::class.java) { update ->
                 handleAuthState(config.label, update, authGate)
+                if (update.authorizationState is TdApi.AuthorizationStateClosed) messageSendTracker.close()
             }
             builder.addUpdateHandler(TdApi.UpdateChatFolders::class.java) { update ->
                 chatFolderState.replace(update)
@@ -309,14 +295,17 @@ class TdLibConfig(
                     ),
                 ),
                 close = {
+                    authGate.markFailed("TDLib session for account '${config.label}' closed")
+                    messageSendTracker.close()
                     // A closed client must not leave its last Ready behind for the breaker.
                     clientServices.release(config.label)
-                    factory.close()
+                    TdLibFactoryLifecycle.close(factory)
                 },
             )
         } catch (e: Exception) {
+            messageSendTracker.close()
             clientServices.release(config.label)
-            runCatching { factory.close() }
+            runCatching { TdLibFactoryLifecycle.close(factory) }
             throw e
         }
     }
@@ -433,6 +422,35 @@ class TdLibConfig(
     private companion object {
         /** Exit code for "another process owns this TDLib session". */
         const val SESSION_LOCKED_EXIT_CODE = 2
+    }
+}
+
+/** Rolls back all started clients when a later account prevents context startup. */
+internal fun registerAccountClients(
+    registry: TelegramAccountRegistry,
+    delegating: DelegatingTelegramClientService,
+    starters: List<() -> TelegramAccountRegistry.AccountHandle>,
+) {
+    try {
+        starters.forEach { start ->
+            val handle = start()
+            try {
+                if (handle.label == "default") {
+                    registry.register(handle.copy(service = delegating.proxy))
+                    delegating.swap(handle.service)
+                } else {
+                    registry.register(handle)
+                }
+            } catch (error: Exception) {
+                // A handle that failed registration is not owned by the registry yet.
+                runCatching { handle.close?.invoke() }
+                throw error
+            }
+        }
+    } catch (error: Exception) {
+        registry.clear()
+        delegating.reset()
+        throw error
     }
 }
 

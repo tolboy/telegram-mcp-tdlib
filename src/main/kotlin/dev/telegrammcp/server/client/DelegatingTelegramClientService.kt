@@ -20,6 +20,7 @@ import java.util.concurrent.atomic.AtomicReference
 class DelegatingTelegramClientService private constructor(
     private val delegateRef: AtomicReference<TelegramClientService>,
 ) {
+    private val initialDelegate = delegateRef.get()
 
     /** The proxy instance that should be registered as the Spring bean. */
     val proxy: TelegramClientService = Proxy.newProxyInstance(
@@ -31,6 +32,11 @@ class DelegatingTelegramClientService private constructor(
     /** Hot-swaps the underlying implementation. Takes effect on the next call. */
     fun swap(newDelegate: TelegramClientService) {
         delegateRef.set(newDelegate)
+    }
+
+    /** Detaches a closed interactive client so later calls fail through the original fallback. */
+    fun reset() {
+        delegateRef.set(initialDelegate)
     }
 
     /** Returns the current concrete delegate (for diagnostics / tests). */

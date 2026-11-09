@@ -39,6 +39,12 @@ data class ToolError(
                 TELEGRAM_TIMEOUT, error.message ?: "Telegram request timed out", retryable = error.retryable,
                 retry_after_seconds = error.retryAfterHint,
                 next_action = when {
+                    error.reason == TelegramTimeoutException.Reason.LOCAL_CANCEL && !error.requestSent && error.retryable ->
+                        "The local wait was cancelled before dispatch; nothing was sent. Start a new call only if it is still needed."
+                    error.reason == TelegramTimeoutException.Reason.LOCAL_CANCEL && error.retryable ->
+                        "The local read wait was cancelled. Telegram was not asked to cancel; repeat the read only if it is still needed."
+                    error.reason == TelegramTimeoutException.Reason.LOCAL_CANCEL ->
+                        "The local wait was cancelled after a write was dispatched. Check its outcome before repeating any mutation."
                     !error.requestSent && error.retryable -> TIMEOUT_NOT_SENT_ACTION
                     !error.requestSent -> TIMEOUT_AFTER_WRITE_ACTION
                     error.retryable -> TIMEOUT_READ_ACTION

@@ -1,5 +1,7 @@
 package dev.telegrammcp.server.service
 
+import dev.telegrammcp.server.client.McpCallCancellation
+import dev.telegrammcp.server.client.McpCallCancelledException
 import dev.telegrammcp.server.config.ServerModeProperties
 import dev.telegrammcp.server.config.ServerModeProperties.ApprovalMode
 import dev.telegrammcp.server.exception.ApprovalDeniedException
@@ -10,6 +12,10 @@ import io.modelcontextprotocol.spec.McpSchema
 import jakarta.annotation.PreDestroy
 import org.springframework.stereotype.Service
 import java.util.Collections
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 /**
  * Obtains human approval for a destructive operation before it runs.
@@ -49,6 +55,7 @@ class DestructiveApprovalService(
         }
 
     private val log = StructuredLogger.forClass<DestructiveApprovalService>()
+    private val elicitationExecutor = ElicitationExecutor()
 
     /** Sessions already told that their client cannot render an elicitation prompt. */
     private val warnedSessions: MutableSet<String> = Collections.synchronizedSet(mutableSetOf())
@@ -147,23 +154,40 @@ class DestructiveApprovalService(
             throw ApprovalUnavailableException(toolName)
         }
 
+        val request = McpSchema.ElicitFormRequest(
+            approvalPrompt(toolName, description),
+            // No fields to fill in: the accept/decline action is the
+            // entire answer, and an empty schema keeps hosts from
+            // rendering a form where a yes/no belongs.
+            mapOf("type" to "object", "properties" to emptyMap<String, Any>()),
+            emptyMap(),
+        )
+        McpCallCancellation.throwIfLocalWait("approval")
+        // The SDK prompt outlives a cancelled local wait, so capacity belongs
+        // to its actual completion rather than to the tool/client permit.
+        val pending = try {
+            elicitationExecutor.submit { exchange.createElicitation(request) }
+        } catch (_: RejectedExecutionException) {
+            throw ApprovalUnavailableException(toolName, "too many approval requests are still in flight or the server is shutting down")
+        }
+        val waitNanos = props.confirmation.approvalTimeout.toNanos().takeIf { it > 0 } ?: Long.MAX_VALUE
         val result = try {
-            exchange.createElicitation(
-                // The record constructor rather than the builder: both builder
-                // overloads are deprecated in this SDK version.
-                McpSchema.ElicitFormRequest(
-                    approvalPrompt(toolName, description),
-                    // No fields to fill in: the accept/decline action is the
-                    // entire answer, and an empty schema keeps hosts from
-                    // rendering a form where a yes/no belongs.
-                    mapOf("type" to "object", "properties" to emptyMap<String, Any>()),
-                    emptyMap(),
-                ),
+            McpCallCancellation.await(pending, waitNanos)
+        } catch (cancelled: McpCallCancelledException) {
+            McpCallCancellation.throwIfLocalWait("approval")
+            throw cancelled
+        } catch (timedOut: TimeoutException) {
+            throw ApprovalDeniedException(
+                toolName,
+                "the operator did not answer within ${TimeUnit.NANOSECONDS.toSeconds(waitNanos)}s",
             )
-        } catch (error: Exception) {
+        } catch (error: ExecutionException) {
             // A transport failure, a timeout, or a host that advertised the
             // capability without implementing it all mean the same thing: no
             // approval was obtained.
+            log.warn("Approval request for '{}' failed: {}", toolName, error.cause?.message ?: error.message)
+            throw ApprovalDeniedException(toolName, "the approval request could not be completed")
+        } catch (error: Exception) {
             log.warn("Approval request for '{}' failed: {}", toolName, error.message)
             throw ApprovalDeniedException(toolName, "the approval request could not be completed")
         }
@@ -293,6 +317,7 @@ class DestructiveApprovalService(
     fun shutdown() {
         // Never force the endpoint into existence just to close it.
         if (loopbackServer.isInitialized()) loopbackServer.value.close()
+        elicitationExecutor.close()
     }
 
     private companion object {

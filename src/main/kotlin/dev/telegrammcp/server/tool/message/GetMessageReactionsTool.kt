@@ -1,5 +1,6 @@
 ﻿package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.ToolNumbers
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.exception.InvalidToolInputException
@@ -39,9 +40,9 @@ class GetMessageReactionsTool(
         {
           "type": "object",
           "properties": {
-            "chat_id": { "type": ["string", "number"], "description": "Chat identifier (ID/@username/+phone)" },
-            "message_id": { "type": "number", "description": "Target message ID" },
-            "limit": { "type": "number", "description": "Max reactions to return (1-100, default 50)" }
+            "chat_id": { "type": ["string", "integer"], "description": "Chat identifier (ID/@username/+phone)" },
+            "message_id": { "type": "integer", "description": "Target message ID" },
+            "limit": { "type": "integer", "description": "Max reactions to return (1-100, default 50)" }
           },
           "required": ["chat_id", "message_id"]
         }
@@ -69,10 +70,8 @@ class GetMessageReactionsTool(
             val chatId = entityResolver.resolve(
                 arguments["chat_id"] ?: throw InvalidToolInputException("chat_id is required"),
             )
-            val messageId = (arguments["message_id"] as? Number)?.toLong()
-                ?: arguments["message_id"]?.toString()?.toLongOrNull()
-                ?: throw InvalidToolInputException("message_id is required and must be a number")
-            val limit = ((arguments["limit"] as? Number)?.toInt() ?: 50).coerceIn(1, MAX_LIMIT)
+            val messageId = ToolNumbers.long(arguments["message_id"] ?: throw InvalidToolInputException("message_id is required and must be a number"), "message_id")
+            val limit = (ToolNumbers.optionalInt(arguments, "limit") ?: 50).coerceIn(1, MAX_LIMIT)
 
             guardrailService.validateChatAccess(chatId)
             log.withTool(TOOL_NAME).info("Listing reactions for message {} in chat {}", messageId, chatId)

@@ -175,7 +175,7 @@ class SearchMessagesToolTest {
 
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
-        assertTrue(text.contains("offset must be a valid number"))
+        assertTrue(text.contains("offset must be an exact 64-bit integer"))
     }
 }
 

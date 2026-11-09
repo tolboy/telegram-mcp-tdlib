@@ -7,9 +7,11 @@ import org.slf4j.LoggerFactory
 /**
  * Reports start and finish when the caller supplied `_meta.progressToken`.
  *
- * The MCP Java SDK 2.1.0 does not expose `notifications/cancelled` to a tool
- * handler, so a client cancel is not observable here. Closing the HTTP
- * response is also not treated as cancellation on the 2025-06-18 lifecycle.
+ * Streamable HTTP `notifications/cancelled` is accepted by
+ * [dev.telegrammcp.server.security.McpCancellationFilter] and only stops the
+ * local wait. Closing the HTTP response is not cancellation. STDIO can read
+ * frames during a tool call, but its notification registry is not wired to
+ * this application's cancellation listener yet.
  */
 object McpProgress {
     private val log = LoggerFactory.getLogger(McpProgress::class.java)

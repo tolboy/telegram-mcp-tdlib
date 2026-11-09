@@ -52,7 +52,7 @@ class ResolveUsernameTool(
           "type": "object",
           "properties": {
             "identifier": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Entity to resolve: @username, +phone number, or numeric ID"
             }
           },

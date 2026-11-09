@@ -1,6 +1,7 @@
 ﻿package dev.telegrammcp.server.model
 
 import dev.telegrammcp.server.exception.InvalidToolInputException
+import dev.telegrammcp.server.util.ExactNumbers
 
 /**
  * Sealed hierarchy representing the supported Telegram entity identifier formats.
@@ -52,12 +53,21 @@ sealed interface EntityIdentifier {
          */
         fun parse(raw: Any): EntityIdentifier {
             return when (raw) {
-                is Number -> NumericId(raw.toLong())
+                is Number -> NumericId(parseExactLong(raw))
                 is String -> parseString(raw)
                 else -> throw InvalidToolInputException(
                     "Identifier must be a number, username, phone number, or self chat alias, got: ${raw::class.simpleName}",
                 )
             }
+        }
+
+        /** Do not truncate fractions or wrap an oversized JSON integer into another chat ID. */
+        private fun parseExactLong(value: Number): Long = try {
+            ExactNumbers.long(value)
+        } catch (_: IllegalArgumentException) {
+            throw InvalidToolInputException("Numeric identifier must be an exact 64-bit integer")
+        } catch (_: ArithmeticException) {
+            throw InvalidToolInputException("Numeric identifier must be an exact 64-bit integer")
         }
 
         private fun parseString(value: String): EntityIdentifier {

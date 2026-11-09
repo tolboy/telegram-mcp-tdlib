@@ -5,6 +5,114 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- Optional numeric query arguments such as `limit` and `from_message_id` use
+  the same default for JSON `null` and omission. Required integers and supplied
+  mutation arguments remain strict.
+- Windows session checks respect ACE order for each principal and permission;
+  a later DENY cannot erase an earlier ALLOW. Dangerous replace rights for
+  BUILTIN\Users are rejected too. This conservative check does not simulate
+  overlapping Windows group memberships.
+- `session clear` publishes a complete, owner-only backup before deletion,
+  rechecks the staged lock before copying, and reports failed restoration with
+  its recovery path. Session storage junctions are refused, and file tools
+  cannot read or overwrite the backup tree. Pass `--no-backup` to skip the new
+  copy. By default the command keeps unencrypted session credentials in the
+  private backup tree until the operator removes them.
+- Serialize native factory acquisition and actual close across configured and
+  interactive account owners on a protected lifecycle worker. Caller interrupts
+  cannot detach native teardown; an ambiguous close failure blocks new factories
+  until restart. Cold JNI setup has its own native-test deadline.
+
+- Split TDLib calls into read, message, and admin adapters behind
+  `TelegramClientService`. Flood control, deadlines, the breaker, and the
+  bulkhead stay in one `TdLibRequestExecutor`.
+
+- STDIO `notifications/cancelled` stops the same local waits as Streamable HTTP.
+  The tool thread is bound to the JSON-RPC id, including on the SDK elastic
+  scheduler. Auth-ready, change-journal, and human-approval waits stop on that
+  signal. Login, the journal, and an elicitation already in flight are not
+  cancelled. A send already handed to TDLib stays UNKNOWN.
+- Bound outstanding SDK elicitation requests to eight, retaining capacity until
+  each prompt actually completes even when its local caller cancels. Journal
+  readers can cancel while a writer or another process holds the store lock;
+  already-started disk writes continue.
+
+- Review fixes: cancellation is authenticated and session-owned before the
+  notification is accepted; early cancellation and research workers share the
+  same signal. Local stops neither open the Telegram breaker nor create a flood
+  gate, and cancellation before dispatch prevents the request from being sent.
+- Preserve definite batch delivery observed before session close, with the
+  existing bounded TTL, so an unresolved earlier item cannot hide a later success.
+- Keyed upload replay uses the original canonical source path and staged content
+  digest. Snapshot filenames are preserved, active copies have leases, expiry is
+  checked on each upload, and shared storage accounting is serialized.
+
+- Uploads are copied from an opened file before TDLib reads them. Replacing
+  the caller's path during the send does not change those bytes. The copy is
+  deleted after a definite result and kept for 24 hours when the send outcome
+  is UNKNOWN. Snapshot storage is capped at four times the configured maximum
+  file size.
+- Session directories now reject a POSIX ancestor that is group- or
+  world-writable without the sticky bit. Windows ancestor replace rights are
+  logged. Send receipts in status SENT, SCHEDULED, or UNKNOWN cannot be
+  deleted. Existing installations with a group-writable data path should follow
+  the [upgrade check](docs/SESSION_SECURITY_AND_RETENTION.md#upgrade-check-for-existing-installations).
+- TDLib `3.5.9+td.1.8.68` and MCP Java SDK `2.1.0` are pinned by
+  `DependencyUpgradeGateTest`. A bump has to change that test and add an
+  Unreleased line `Dependency upgrade: tdlight=<version> mcp-sdk=<version>`.
+
+- Streamable HTTP `notifications/cancelled` stops the local TDLib wait and
+  releases the caller's concurrency permit. A send already handed to TDLib
+  stays UNKNOWN. The TDLib future is not cancelled, and an HTTP disconnect is
+  not treated as cancellation.
+
+- Add an offline native lifecycle check for Linux x64, Linux ARM64, Windows,
+  and macOS ARM64. It loads the packaged JNI runtime, keeps two clients
+  independent across close, accepts a repeated close, restarts after the
+  common receiver is released, and starts again after a failed client.
+
+- Closing a TDLib session releases every local send waiter and late observer
+  as UNKNOWN. The release does not record a flood gate, does not open the
+  circuit breaker, and does not authorize another send.
+
+- Reject an explicit null in optional booleans, folder and privacy lists, poll
+  options, and search or export query lists. Absence still means the documented
+  default; a supplied null is invalid input and cannot clear or shift a value.
+
+- Extract one account-scoped TDLib request executor shared by all capabilities.
+  Flood/rate control, deadlines, send observation, breaker and bulkhead ownership
+  remain in one place; the public client interface and constructor are retained.
+
+- Handle expired and disconnected asynchronous HTTP responses without writing
+  ProblemDetail JSON into an already committed SSE stream. Uncommitted async
+  timeouts end with 503; ordinary REST errors retain their response contract.
+
+- Parse integer tool arguments through one exact conversion layer. IDs, counts,
+  durations and numeric timestamps reject fractions, overflow and malformed
+  optional values instead of truncating or falling back to another operation.
+  Participant/message batches reject any invalid element as a whole. In
+  particular, invalid `photo_id` cannot become deletion of the current photo.
+  Input schemas now advertise `integer`; geographic coordinates retain `number`.
+
+- Restrict the authentication/setup HTTP API to direct loopback requests,
+  including when an MCP API key or OAuth token is supplied. Reject ambiguous
+  API-key identities/credentials and group-writable POSIX secret-file parents
+  without the sticky bit. Remote deployments must perform authentication locally.
+- Make interactive authentication generation-scoped: logout and shutdown discard
+  in-flight builds, stale callbacks cannot overwrite a newer login, early READY
+  updates are published after build, and failed builds close their factories.
+- Preserve operational errors during entity resolution, scope cache hits to the
+  selected account, share username cache entries across casing, and reject
+  fractional/overflowing numeric chat identifiers instead of changing their value.
+- Propagate chat-loading errors other than TDLib's end-of-list 404; a flood wait
+  or server failure no longer appears as a successful partial chat inventory.
+- Persist late delivery receipts on a bounded background worker so disk I/O
+  cannot stall TDLib's response thread. A full/failed queue leaves unresolved
+  sends `UNKNOWN` and never triggers a resend.
+- Roll back already-started account clients when another account fails startup;
+  keep concurrent send waiters independent when one times out and retain the
+  final outcome for multiple late consumers.
+
 ## 1.19.1 - 2026-11-02
 
 Patch release for orderly termination during startup. The tool inventory and

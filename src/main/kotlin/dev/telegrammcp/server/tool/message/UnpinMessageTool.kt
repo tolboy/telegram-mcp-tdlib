@@ -1,5 +1,6 @@
 package dev.telegrammcp.server.tool.message
 
+import dev.telegrammcp.server.tool.ToolNumbers
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.exception.InvalidToolInputException
@@ -43,11 +44,11 @@ class UnpinMessageTool(
           "type": "object",
           "properties": {
             "chat_id": {
-              "type": ["string", "number"],
+              "type": ["string", "integer"],
               "description": "Chat identifier: numeric ID, @username, +phone, or the canonical value self"
             },
             "message_id": {
-              "type": "number",
+              "type": "integer",
               "description": "Message ID to unpin"
             }
           },
@@ -71,8 +72,7 @@ class UnpinMessageTool(
             val chatId = entityResolver.resolve(
                 arguments["chat_id"] ?: throw InvalidToolInputException("chat_id is required"),
             )
-            val messageId = (arguments["message_id"] as? Number)?.toLong()
-                ?: throw InvalidToolInputException("message_id is required")
+            val messageId = ToolNumbers.long(arguments["message_id"] ?: throw InvalidToolInputException("message_id is required"), "message_id")
 
             log.withTool(TOOL_NAME).info("Unpinning message {} in chat {}", messageId, chatId)
 

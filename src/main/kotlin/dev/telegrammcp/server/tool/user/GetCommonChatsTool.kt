@@ -7,6 +7,7 @@ import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.tool.McpToolHandler
+import dev.telegrammcp.server.tool.ToolNumbers
 import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.util.StructuredLogger
 import io.micrometer.core.instrument.MeterRegistry
@@ -37,8 +38,8 @@ class GetCommonChatsTool(
         {
           "type": "object",
           "properties": {
-            "user_id": { "type": ["string", "number"], "description": "User identifier (ID/@username/+phone)" },
-            "limit": { "type": "number", "description": "Max chats to return (default 50, max 100)" }
+            "user_id": { "type": ["string", "integer"], "description": "User identifier (ID/@username/+phone)" },
+            "limit": { "type": "integer", "description": "Max chats to return (default 50, max 100)" }
           },
           "required": ["user_id"]
         }
@@ -57,7 +58,7 @@ class GetCommonChatsTool(
             val userId = entityResolver.resolve(
                 arguments["user_id"] ?: throw InvalidToolInputException("user_id is required"),
             )
-            val limit = ((arguments["limit"] as? Number)?.toInt() ?: 50).coerceIn(1, 100)
+            val limit = (ToolNumbers.optionalInt(arguments, "limit") ?: 50).coerceIn(1, 100)
 
             log.withTool(TOOL_NAME).info("Listing chats in common with user {} (limit={})", userId, limit)
             val chats = telegramClient.getGroupsInCommon(userId, limit)

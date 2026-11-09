@@ -31,7 +31,13 @@ class RecoverableSendToolsTest {
         val guard = mockk<OperationGuardService>(relaxed = true)
         val audit = mockk<AuditService>(relaxed = true)
         val file = Files.writeString(directory.resolve("media.dat"), "content")
-        val files = mockk<FileSecurityService> { every { validateForUpload(any()) } returns file }
+        val files = mockk<FileSecurityService> {
+            every { validateForUpload(any()) } answers { Path.of(firstArg<String>()) }
+            every { withStagedUpload<Any?>(any(), any()) } answers {
+                @Suppress("UNCHECKED_CAST")
+                (args[1] as (Path) -> Any?).invoke(file)
+            }
+        }
         val operations = SendOperationService(
             mockk { every { currentAccount() } returns "work" },
             mockk { every { applicationDataDirectory } returns directory }, mapper,

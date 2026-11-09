@@ -6,12 +6,16 @@ Thank you for considering contributing to the Telegram MCP Server!
 
 1. **Fork and clone** the repository
 2. Ensure you have **Java 25+** installed
-3. Copy `.env.example` to `.env` and configure a dedicated test account or bot
+3. Run the offline build and tests; no Telegram credentials or `.env` are needed.
 
 ```bash
-cp .env.example .env
 ./gradlew build
 ```
+
+For opt-in live checks, configure a dedicated test account separately using
+`.env.example` as a reference. The JVM test task removes `TDLIB_*` and
+`TELEGRAM_*` variables from its environment. Do not reuse a personal session in
+tests or run two clients against the same TDLib data directory.
 
 ## Code Style
 

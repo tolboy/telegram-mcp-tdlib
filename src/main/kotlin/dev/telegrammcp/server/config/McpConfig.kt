@@ -2,6 +2,7 @@ package dev.telegrammcp.server.config
 
 import dev.telegrammcp.server.client.TelegramAccountContext
 import dev.telegrammcp.server.client.TelegramAccountRegistry
+import dev.telegrammcp.server.client.McpCallCancellation
 import dev.telegrammcp.server.client.ToolCallDeadline
 import dev.telegrammcp.server.exception.ReadOnlyModeException
 import dev.telegrammcp.server.model.AuditOutcome
@@ -180,6 +181,7 @@ class McpConfig {
         McpProgress.report(exchange, progressToken, 0.0, "${tool.name()} started")
         try {
             gate.run {
+                McpCallCancellation.listen {
                 val mutationScope = guardrails?.mutationScope(tool.name())
                 try {
                     // Approval waits explicitly suspend this deadline.
@@ -189,6 +191,7 @@ class McpConfig {
                     ToolPagination.decorate(tool, result)
                 } finally {
                     mutationScope?.close()
+                }
                 }
             }
         } catch (error: Exception) {
