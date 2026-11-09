@@ -47,3 +47,11 @@ present. The app-image packager verifies that its extracted notices match the
 original files. The container build copies the same directory. A launch from
 the documented exploded classpath reported 1.20.0 and passed the MCP STDIO
 handshake and tool discovery.
+
+## Published release
+
+The [release workflow](https://github.com/tolboy/telegram-mcp-tdlib/actions/runs/42690031367)
+published v1.20.0. The
+[GitHub release notes](https://github.com/tolboy/telegram-mcp-tdlib/releases/tag/v1.20.0)
+cover changes, upgrade steps, and distribution notices. The official MCP
+Registry lists server version 1.20.0 as active.

@@ -166,3 +166,11 @@ built JAR; see [client compatibility](../docs/MCP_CLIENT_COMPATIBILITY.md).
 Do not start a second live server against a TDLib session already owned by a
 client. To run the skill's final smoke in that client, verify the selected
 account with get_me, then use the example prompt in [setup](telegram-inbox-assistant/SETUP.md).
+
+## Agensi 0.1.4 package, 2026-11-09
+
+The packaging unit tests passed and the ZIP contained the eight allowlisted
+public files. The submitted `telegram-inbox-assistant-0.1.4.zip` has SHA-256
+`62cf518805ab4d8daff6bf511d364d4a8682184133b0ac4cdd8ebc288ea7fd15`.
+Agensi accepted it for security scan and review. Marketplace delivery of
+the replacement ZIP is pending.

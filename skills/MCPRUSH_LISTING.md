@@ -15,6 +15,13 @@ and conversation context.
 The description is maintained in [MARKETPLACE_DESCRIPTION.md](MARKETPLACE_DESCRIPTION.md).
 The required server selected in the catalogue is **Telegram MCP Server (TDLib)**.
 
+## Server release, 2026-11-09
+
+Publisher Studio shows server version **1.20.0** as **stable** and marks it as
+the version for new installs. The release entry links to the
+[GitHub release and upgrade notes](https://github.com/tolboy/telegram-mcp-tdlib/releases/tag/v1.20.0).
+The marketplace reported one advisory for the server release.
+
 ## Submission, 2026-11-02
 
 Uploaded the same eight public files as the Agensi 0.1.3 ZIP, using MCPRush's

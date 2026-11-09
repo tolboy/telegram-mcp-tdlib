@@ -3,7 +3,7 @@ name: telegram-inbox-assistant
 description: Summarize unread Telegram conversations, identify messages awaiting a reply, and find conversation context using telegram-mcp-tdlib. Use for read-only personal inbox triage; requires a connected, locally authorized Telegram MCP server.
 license: Apache-2.0
 metadata:
-  version: "0.1.3"
+  version: "0.1.4"
 ---
 
 # Telegram Inbox Assistant
@@ -12,8 +12,8 @@ Help the user understand their Telegram inbox without changing Telegram state.
 The separately installed [telegram-mcp-tdlib](https://github.com/tolboy/telegram-mcp-tdlib)
 server supplies the tools. If it is missing or unauthenticated, read
 [SETUP.md](SETUP.md); installing this skill alone does not connect an account.
-Requires server 1.17.2 or later; server 1.19.0 is recommended. For a shared daemon, client setup differs by
-host; SETUP.md covers the optional Claude Desktop tools bridge and Hermes HTTP.
+Requires server 1.17.2 or later. Server 1.20.0 is recommended. SETUP.md covers
+the optional Claude Desktop tools bridge and Hermes HTTP for a shared daemon.
 If bundled references are unavailable in the host's delivery surface, use the
 [public setup guide](https://github.com/tolboy/telegram-mcp-tdlib/blob/master/skills/telegram-inbox-assistant/SETUP.md).
 
@@ -35,6 +35,10 @@ For an unspecified inbox digest, start with at most 20 recent chats and inspect
 at most 5 relevant conversations, up to 10 messages each. Explain this coverage
 in the answer. Offer to broaden it when that would help; do not silently scan
 the entire account.
+
+When the user stops a read, stop issuing calls. Use the host's cancellation
+control if available. Server 1.20.0 handles MCP cancellation on STDIO and
+Streamable HTTP. Mark any partial digest as incomplete and state what was read.
 
 ## Read the inbox
 

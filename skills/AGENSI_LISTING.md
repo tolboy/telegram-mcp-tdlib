@@ -1,7 +1,14 @@
 # Agensi listing copy
 
-Skill version: **0.1.3**, recommended server **1.19.0**, minimum server **1.17.2**.
+Submitted skill version **0.1.4** recommends server **1.20.0** and requires at
+least **1.17.2**.
 The shared current description is in [MARKETPLACE_DESCRIPTION.md](MARKETPLACE_DESCRIPTION.md).
+
+On 2026-11-09, Agensi accepted the 0.1.4 ZIP for security scan and review.
+The submission receipt confirmed that the listing changes were live.
+The replacement ZIP becomes available after approval. See
+[validation](VALIDATION.md) for the submitted package digest.
+
 Version 0.1.3 adds optional resource/subscription guidance and HTTP 413 handling,
 while preserving the skill's bounded read-only scope. It uses the same source
 instructions for Agensi and MCPRush; marketplace delivery formats may differ.
