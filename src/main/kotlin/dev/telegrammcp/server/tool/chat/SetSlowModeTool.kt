@@ -72,7 +72,7 @@ class SetSlowModeTool(
             val chatId = entityResolver.resolve(
                 arguments["chat_id"] ?: throw InvalidToolInputException("chat_id is required"),
             )
-            val delay = ToolNumbers.optionalInt(arguments, "delay_seconds")
+            val delay = ToolNumbers.specifiedInt(arguments, "delay_seconds")
                 ?: throw InvalidToolInputException("delay_seconds is required and must be a number")
             if (delay !in ALLOWED_DELAYS) {
                 throw InvalidToolInputException(

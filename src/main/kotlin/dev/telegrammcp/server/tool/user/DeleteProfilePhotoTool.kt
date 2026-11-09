@@ -56,7 +56,7 @@ class DeleteProfilePhotoTool(
         return try {
             operationGuardService.checkPermission(TOOL_NAME, arguments)
 
-            val photoId = ToolNumbers.optionalLong(arguments, "photo_id")
+            val photoId = ToolNumbers.specifiedLong(arguments, "photo_id")
 
             log.withTool(TOOL_NAME).info("Deleting profile photo (id={})", photoId)
             telegramClient.deleteProfilePhoto(photoId)

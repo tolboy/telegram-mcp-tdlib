@@ -43,12 +43,13 @@ class ToolNumbersTest {
     }
 
     @Test
-    fun `defaults apply to absent arguments and never mask an explicit null`() {
+    fun `optional query integers default on null while specified integers reject it`() {
         assertNull(ToolNumbers.optionalLong(emptyMap(), "message_id"))
         assertNull(ToolNumbers.optionalInt(emptyMap(), "limit"))
-        @Suppress("UNCHECKED_CAST")
-        val invalid = mapOf("message_id" to null, "limit" to null) as Map<String, Any>
-        assertFailsWith<InvalidToolInputException> { ToolNumbers.optionalLong(invalid, "message_id") }
-        assertFailsWith<InvalidToolInputException> { ToolNumbers.optionalInt(invalid, "limit") }
+        val explicitNulls = mapOf("message_id" to null, "limit" to null)
+        assertNull(ToolNumbers.optionalLong(explicitNulls, "message_id"))
+        assertNull(ToolNumbers.optionalInt(explicitNulls, "limit"))
+        assertFailsWith<InvalidToolInputException> { ToolNumbers.specifiedLong(explicitNulls, "message_id") }
+        assertFailsWith<InvalidToolInputException> { ToolNumbers.specifiedInt(explicitNulls, "limit") }
     }
 }

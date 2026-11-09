@@ -75,7 +75,7 @@ class SaveDraftTool(
             )
             val text = arguments["text"]?.toString()
                 ?: throw InvalidToolInputException("text is required")
-            val replyTo = ToolNumbers.optionalLong(arguments, "reply_to_message_id")
+            val replyTo = ToolNumbers.specifiedLong(arguments, "reply_to_message_id")
 
             guardrailService.validateChatAccess(chatId)
             guardrailService.validateInput(text)

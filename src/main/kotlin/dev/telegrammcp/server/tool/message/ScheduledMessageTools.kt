@@ -212,6 +212,6 @@ private object ScheduledMessageInputs {
     }
 
     private fun optionalNonNegativeInt(arguments: Map<String, Any>, name: String): Int? =
-        ToolNumbers.optionalInt(arguments, name)
+        ToolNumbers.specifiedInt(arguments, name)
             ?.also { if (it < 0) throw InvalidToolInputException("$name must be zero or positive") }
 }

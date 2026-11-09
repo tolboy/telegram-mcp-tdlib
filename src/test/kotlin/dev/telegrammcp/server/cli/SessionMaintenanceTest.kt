@@ -87,6 +87,21 @@ class SessionMaintenanceTest {
     }
 
     @Test
+    fun `clear without backup still refuses a held lock then removes only the staged session`() {
+        val dir = session("td.binlog" to 16)
+        val maintenance = SessionMaintenance(tempDir, emptyMap())
+        holding(dir.resolve("td.binlog")) {
+            assertThrows<IllegalStateException> { maintenance.clear("default", confirmed = true, keepBackup = false) }
+            assertTrue(Files.exists(dir.resolve("td.binlog")))
+        }
+        val cleared = maintenance.clear("default", confirmed = true, keepBackup = false)
+        assertTrue(cleared.deleted)
+        assertEquals(null, cleared.backupDirectory)
+        assertFalse(Files.exists(dir))
+        assertFalse(Files.exists(tempDir.resolve("tdlib-backups")))
+    }
+
+    @Test
     fun `completed backup preserves bytes and is not readable by another principal`() {
         session("td.binlog" to 16)
         val result = SessionMaintenance(tempDir, emptyMap()).clear("default", true)

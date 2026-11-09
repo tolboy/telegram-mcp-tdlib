@@ -75,7 +75,7 @@ class ListJoinRequestsTool(
     override fun execute(exchange: McpSyncServerExchange, arguments: Map<String, Any>): McpSchema.CallToolResult =
         ToolSupport.execute(TOOL_NAME, arguments, objectMapper, meterRegistry, log, "Failed to list join requests", auditService) {
             val chatId = ModerationArguments.chatId(entityResolver, arguments)
-            val limit = if (arguments.containsKey("limit")) ToolNumbers.int(arguments["limit"], "limit") else 50
+            val limit = ToolNumbers.optionalInt(arguments, "limit") ?: 50
             if (limit !in 1..100) throw InvalidToolInputException("limit must be between 1 and 100")
             val query = arguments["query"]?.toString()?.trim().orEmpty()
             val inviteLink = arguments["invite_link"]?.toString()?.trim().orEmpty()

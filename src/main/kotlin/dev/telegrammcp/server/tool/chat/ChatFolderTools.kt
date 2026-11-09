@@ -212,7 +212,7 @@ class ReorderChatFoldersTool(
             }
             if (folderIds.isEmpty()) throw InvalidToolInputException("folder_ids must not be empty")
             if (folderIds.any { it <= 0 }) throw InvalidToolInputException("folder_ids must be positive")
-            val mainListPosition = ToolNumbers.optionalInt(arguments, "main_list_position") ?: 0
+            val mainListPosition = ToolNumbers.specifiedInt(arguments, "main_list_position") ?: 0
             if (mainListPosition < 0) throw InvalidToolInputException("main_list_position must be non-negative")
 
             folderIds.forEach { folderId ->
@@ -293,7 +293,7 @@ private object ChatFolderInputs {
         return value
     }
 
-    private fun optionalInt(arguments: Map<String, Any>, name: String): Int? = ToolNumbers.optionalInt(arguments, name)
+    private fun optionalInt(arguments: Map<String, Any>, name: String): Int? = ToolNumbers.specifiedInt(arguments, name)
 
     private fun optionalBoolean(arguments: Map<String, Any>, name: String): Boolean {
         if (!arguments.containsKey(name)) return false

@@ -9,8 +9,14 @@ object SessionMaintenanceCli {
         when (command) {
             "doctor" -> printDoctor(maintenance.doctor())
             "clear" -> {
-                val account = option(args, "--account") ?: error("session clear requires --account <label>")
-                val result = maintenance.clear(account, args.contains("--yes"))
+                val accountIndex = args.indexOf("--account")
+                val account = args.getOrNull(accountIndex + 1)?.takeIf { accountIndex >= 2 && !it.startsWith("--") }
+                    ?: error("session clear requires --account <label>")
+                val flags = args.drop(2).filterIndexed { index, _ -> index + 2 !in accountIndex..accountIndex + 1 }
+                require(flags.all { it == "--yes" || it == "--no-backup" }) {
+                    "session clear accepts only --account <label>, --yes and --no-backup"
+                }
+                val result = maintenance.clear(account, "--yes" in flags, keepBackup = "--no-backup" !in flags)
                 println("${result.message}: account=${result.label}, directory=${result.databaseDirectory}, deleted=${result.deleted}")
             }
             "logout" -> println(maintenance.doctor().logoutInstruction)
@@ -37,13 +43,11 @@ object SessionMaintenanceCli {
         println("clear=${report.clearInstruction}")
     }
 
-    private fun option(args: Array<String>, name: String): String? =
-        args.indexOf(name).takeIf { it >= 0 }?.let { index -> args.getOrNull(index + 1) }
-
     private fun printUsage() {
         println("Usage: java -jar telegram-mcp-server.jar session <doctor|logout|clear> [options]")
         println("  session doctor")
         println("  session logout                 # prints the safe running-server logout path")
-        println("  session clear --account <label> --yes")
+        println("  session clear --account <label> --yes [--no-backup]")
+        println("  Clear keeps an unencrypted copy of session credentials by default. --no-backup skips that copy.")
     }
 }

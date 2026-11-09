@@ -110,7 +110,7 @@ class CreateTopicTool(
                 "icon_color must be one of ${ALLOWED_ICON_COLORS.joinToString { "0x${it.toString(16).uppercase()}" }}",
             )
         }
-        val customEmojiId = ToolNumbers.optionalLong(arguments, "custom_emoji_id")
+        val customEmojiId = ToolNumbers.specifiedLong(arguments, "custom_emoji_id")
 
         guardrailService.validateInput(name)
         guardrailService.validateChatAccess(chatId)

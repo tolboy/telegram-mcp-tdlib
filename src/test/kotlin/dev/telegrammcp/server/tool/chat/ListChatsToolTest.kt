@@ -109,7 +109,7 @@ class ListChatsToolTest {
 
     @Test
     fun `invalid limits cannot wrap truncate or use the absent-argument default`() {
-        for (limit in listOf<Any?>(null, "invalid", 20.5, java.math.BigInteger("4294967346"))) {
+        for (limit in listOf("invalid", 20.5, java.math.BigInteger("4294967346"))) {
             @Suppress("UNCHECKED_CAST")
             val arguments = mapOf("limit" to limit) as Map<String, Any>
             assertTrue(tool.executeChecked(exchange, arguments).isError)

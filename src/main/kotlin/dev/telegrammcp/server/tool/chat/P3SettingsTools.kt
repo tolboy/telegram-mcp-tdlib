@@ -393,7 +393,7 @@ private object P3ToolInputs {
     }
 
     fun optionalEpochSeconds(arguments: Map<String, Any>, name: String): Int? {
-        val seconds = ToolNumbers.optionalLong(arguments, name) ?: return null
+        val seconds = ToolNumbers.specifiedLong(arguments, name) ?: return null
         if (seconds < 0) throw InvalidToolInputException("$name must not be negative")
         if (seconds > Int.MAX_VALUE) throw InvalidToolInputException("$name is outside TDLib's supported range")
         return seconds.toInt()

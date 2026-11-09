@@ -111,16 +111,12 @@ class GetHistoryTool(
     }
 
     private fun extractLimit(args: Map<String, Any>): Int {
-        if (!args.containsKey("limit")) return DEFAULT_LIMIT
-        val raw = args["limit"]
-        val limit = ToolNumbers.int(raw, "limit")
+        val limit = ToolNumbers.optionalInt(args, "limit") ?: DEFAULT_LIMIT
         return limit.coerceIn(1, MAX_LIMIT)
     }
 
     private fun extractFromMessageId(args: Map<String, Any>): Long {
-        if (!args.containsKey("from_message_id")) return 0L
-        val raw = args["from_message_id"]
-        return ToolNumbers.long(raw, "from_message_id")
+        return ToolNumbers.optionalLong(args, "from_message_id") ?: 0L
     }
 }
 

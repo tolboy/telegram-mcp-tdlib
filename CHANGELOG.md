@@ -5,6 +5,9 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- Optional numeric query arguments such as `limit` and `from_message_id` use
+  the same default for JSON `null` and omission. Required integers and supplied
+  mutation arguments remain strict.
 - Windows session checks respect ACE order for each principal and permission;
   a later DENY cannot erase an earlier ALLOW. Dangerous replace rights for
   BUILTIN\Users are rejected too. This conservative check does not simulate
@@ -12,7 +15,9 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 - `session clear` publishes a complete, owner-only backup before deletion,
   rechecks the staged lock before copying, and reports failed restoration with
   its recovery path. Session storage junctions are refused, and file tools
-  cannot read or overwrite the backup tree.
+  cannot read or overwrite the backup tree. Pass `--no-backup` to skip the new
+  copy. By default the command keeps unencrypted session credentials in the
+  private backup tree until the operator removes them.
 - Serialize native factory acquisition and actual close across configured and
   interactive account owners on a protected lifecycle worker. Caller interrupts
   cannot detach native teardown; an ambiguous close failure blocks new factories
@@ -50,7 +55,8 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 - Session directories now reject a POSIX ancestor that is group- or
   world-writable without the sticky bit. Windows ancestor replace rights are
   logged. Send receipts in status SENT, SCHEDULED, or UNKNOWN cannot be
-  deleted. See [session security and retention](docs/SESSION_SECURITY_AND_RETENTION.md).
+  deleted. Existing installations with a group-writable data path should follow
+  the [upgrade check](docs/SESSION_SECURITY_AND_RETENTION.md#upgrade-check-for-existing-installations).
 - TDLib `3.5.9+td.1.8.68` and MCP Java SDK `2.1.0` are pinned by
   `DependencyUpgradeGateTest`. A bump has to change that test and add an
   Unreleased line `Dependency upgrade: tdlight=<version> mcp-sdk=<version>`.

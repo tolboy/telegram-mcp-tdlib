@@ -25,12 +25,18 @@ object ToolNumbers {
         return number.toInt()
     }
 
-    /** Defaults apply only to absent arguments; explicit null is malformed integer input. */
-    fun optionalLong(arguments: Map<String, Any>, field: String): Long? =
+    /** Query defaults apply to absent and explicitly null arguments. */
+    fun optionalLong(arguments: Map<String, Any?>, field: String): Long? =
+        arguments[field]?.let { long(it, field) }
+
+    fun optionalInt(arguments: Map<String, Any?>, field: String): Int? =
+        arguments[field]?.let { int(it, field) }
+
+    /** A supplied mutation argument must be valid even when omission has a default. */
+    fun specifiedLong(arguments: Map<String, Any?>, field: String): Long? =
         if (arguments.containsKey(field)) long(arguments[field], field) else null
 
-    /** Defaults apply only to absent arguments; explicit null is malformed integer input. */
-    fun optionalInt(arguments: Map<String, Any>, field: String): Int? =
+    fun specifiedInt(arguments: Map<String, Any?>, field: String): Int? =
         if (arguments.containsKey(field)) int(arguments[field], field) else null
 
     private fun invalid(field: String, bits: Int): Nothing =

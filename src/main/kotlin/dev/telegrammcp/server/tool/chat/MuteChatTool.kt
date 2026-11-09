@@ -72,7 +72,7 @@ class MuteChatTool(
             val chatId = entityResolver.resolve(
                 arguments["chat_id"] ?: throw InvalidToolInputException("chat_id is required"),
             )
-            val duration = ToolNumbers.optionalInt(arguments, "duration") ?: Int.MAX_VALUE
+            val duration = ToolNumbers.specifiedInt(arguments, "duration") ?: Int.MAX_VALUE
 
             log.withTool(TOOL_NAME).info("Muting chat {} for {} seconds", chatId, duration)
             guardrailService.validateChatAccess(chatId)

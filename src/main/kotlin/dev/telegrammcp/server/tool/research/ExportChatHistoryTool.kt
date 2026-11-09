@@ -166,8 +166,7 @@ class ExportChatHistoryTool(
     }
 
     private fun extractLimit(args: Map<String, Any>): Int {
-        if (!args.containsKey("limit")) return DEFAULT_LIMIT
-        val limit = ToolNumbers.int(args["limit"], "limit")
+        val limit = ToolNumbers.optionalInt(args, "limit") ?: DEFAULT_LIMIT
         return limit.coerceIn(1, MAX_LIMIT)
     }
 
@@ -189,9 +188,7 @@ class ExportChatHistoryTool(
     }
 
     private fun parseInstantArgument(arguments: Map<String, Any>, fieldName: String): Instant? {
-        if (!arguments.containsKey(fieldName)) return null
-        val raw = arguments[fieldName]
-            ?: throw InvalidToolInputException("$fieldName must be ISO instant, yyyy-MM-dd, or unix seconds")
+        val raw = arguments[fieldName] ?: return null
         if (raw is Number) return epochInstant(raw, fieldName)
         val text = raw.toString().trim()
         if (text.isBlank()) return null

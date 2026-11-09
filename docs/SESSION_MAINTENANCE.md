@@ -27,14 +27,26 @@ logout must be performed by the running process that owns the corresponding
 TDLib client. The offline command's `session logout` subcommand prints these
 instructions rather than starting a second TDLib client against the session.
 
-To erase only local session data after a backup:
+To clear local session data and keep a recovery copy:
 
 ```powershell
 java -jar telegram-mcp-server.jar session clear --account default --yes
 ```
 
+The default keeps an unencrypted backup containing Telegram session credentials
+under `<app-data>/tdlib-backups/<account>/`. The command prints the backup path.
+Backups have no automatic expiry. To clear the session without creating a copy:
+
+```powershell
+java -jar telegram-mcp-server.jar session clear --account default --yes --no-backup
+```
+
+`--no-backup` skips the new copy. Earlier backups remain for the operator to
+review and remove. For a compromised session, revoke the Telegram session
+before clearing the local files and check the backup tree for old copies.
+
 `clear` requires both `--yes` and an unlocked standard directory such as
-`<app-data>/tdlib/default`. It refuses symbolic links, active/unavailable locks,
+`<app-data>/tdlib/default`. It refuses symbolic links, junctions, active/unavailable locks,
 and custom `TDLIB_DATA_DIR` locations so an operator must handle those paths
 deliberately. Clearing local data is not a Telegram logout; use the logout path
 first when revoking the server's active session matters.

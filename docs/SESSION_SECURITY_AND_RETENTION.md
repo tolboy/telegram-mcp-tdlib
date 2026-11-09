@@ -40,9 +40,25 @@ sets it owner-only. It then walks ancestors:
   check, not a full AccessCheck simulation of overlapping group memberships.
   The ordering follows [Microsoft's DACL access-check contract](https://learn.microsoft.com/en-us/windows/win32/secauthz/how-dacls-control-access-to-an-object).
 
+### Upgrade check for existing installations
+
+On Linux and macOS, review the session path before upgrading. A directory such
+as `~/.local/share` created with `umask 002` can be `775`, even when the TDLib
+directory itself is `700`. The startup error names the ancestor that needs
+attention. For configured secret files the check covers the file and its
+immediate parent.
+
+If the directory belongs to the server operator and does not need to be shared,
+remove group and other write permissions on the reported directory with
+`chmod go-w <directory>`. When a directory must remain shared, stop the server
+and move the affected state or secrets to a private directory under a safe
+parent. Set `TELEGRAM_MCP_DATA_DIR` for the application data root and update any
+absolute TDLib storage or `*_FILE` paths that point to moved data. Preserve
+send receipts along with session data when moving the application directory.
+
 ## Receipt retention
 
-`session clear` rechecks the staged session lock before copying any bytes. It
+By default, `session clear` rechecks the staged session lock before copying any bytes. It
 copies into a fresh private `.pending-<uuid>/data` directory, flushes each file,
 then atomically publishes `tdlib-backups/<account>/<uuid>/data` before deleting
 the staged source. Backup directories are owner-only on POSIX and have an
@@ -52,6 +68,10 @@ partial backup and attempts to restore the source without replacing a new
 canonical session. If restoration fails, the error names the recoverable staged
 directory rather than claiming that restoration succeeded. A later deletion
 failure names both the staged directory and complete backup.
+
+Use `session clear --account <label> --yes --no-backup` to skip the new copy
+while keeping the same path and lock checks. Inspect earlier backups separately.
+See [session maintenance](SESSION_MAINTENANCE.md).
 
 Backups are not encrypted and have no automatic expiry. Protect the application
 data directory and include backups in the operator's encrypted retention policy.

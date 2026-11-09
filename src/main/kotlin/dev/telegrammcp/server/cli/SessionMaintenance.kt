@@ -48,7 +48,7 @@ class SessionMaintenance internal constructor(
         )
     }
 
-    fun clear(accountLabel: String, confirmed: Boolean): SessionClearReport {
+    fun clear(accountLabel: String, confirmed: Boolean, keepBackup: Boolean = true): SessionClearReport {
         require(confirmed) { "Refusing to clear a TDLib session without --yes" }
         val label = TelegramAccountRegistry.normalizeLabel(accountLabel)
         require(label in configuredLabels()) { "Account '$label' is not configured in the current environment" }
@@ -91,7 +91,7 @@ class SessionMaintenance internal constructor(
             throw IllegalStateException("Refusing to clear '$label': staged lock is not safely available; restored '$directory'; nothing was deleted")
         }
         val backup = try {
-            protectedBackup(label, staged)
+            if (keepBackup) protectedBackup(label, staged) else null
         } catch (e: Exception) {
             val restored = restoreStaged(staged, directory, e)
             val recovery = if (restored) "Restored '$directory'; nothing was deleted"
@@ -104,11 +104,13 @@ class SessionMaintenance internal constructor(
         try {
             deleteTree(staged, standardDirectory)
         } catch (e: Exception) {
-            throw IllegalStateException("TDLib session for '$label' was detached to '$staged' but could not be fully removed (${e.javaClass.simpleName}); complete backup remains at '$backup'; inspect it manually before retrying", e)
+            val recovery = if (backup == null) "No new backup was made" else "Complete backup remains at '$backup'"
+            throw IllegalStateException("TDLib session for '$label' was detached to '$staged' but could not be fully removed (${e.javaClass.simpleName}). $recovery. Inspect the staged directory before retrying", e)
         }
         return SessionClearReport(
             label, directory, deleted = true,
-            message = "TDLib local session data cleared. Protected backup kept at $backup",
+            message = if (backup == null) "TDLib local session data cleared without a new backup"
+                else "TDLib local session data cleared. Unencrypted backup containing session credentials kept at $backup",
             backupDirectory = backup,
         )
     }
@@ -332,7 +334,15 @@ internal open class SessionMaintenanceFileSystem {
     }
 
     open fun deleteTree(directory: Path) {
+        val expectedRoot = directory.parent.toRealPath().resolve(directory.fileName)
         Files.walkFileTree(directory, object : SimpleFileVisitor<Path>() {
+            override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
+                require(dir.toRealPath() == expectedRoot.resolve(directory.relativize(dir))) {
+                    "Refusing to traverse a linked directory while clearing session data: $dir"
+                }
+                return FileVisitResult.CONTINUE
+            }
+
             override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
                 Files.delete(file)
                 return FileVisitResult.CONTINUE

@@ -143,7 +143,7 @@ class SendMessageTool(
             val chatId = resolveChatId(arguments)
             val text = extractText(arguments)
             val parseMode = ToolInputParsers.parseMode(arguments)
-            val messageThreadId = ToolNumbers.optionalLong(arguments, "message_thread_id")
+            val messageThreadId = ToolNumbers.specifiedLong(arguments, "message_thread_id")
             val replyMarkup = parseReplyMarkup(arguments["reply_markup"])
 
             log.withTool(TOOL_NAME).info(

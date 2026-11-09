@@ -117,9 +117,7 @@ class GetMessagesTool(
     }
 
     private fun extractContextSize(args: Map<String, Any>): Int {
-        if (!args.containsKey("context_size")) return DEFAULT_CONTEXT
-        val raw = args["context_size"]
-        val size = ToolNumbers.int(raw, "context_size")
+        val size = ToolNumbers.optionalInt(args, "context_size") ?: DEFAULT_CONTEXT
         return size.coerceIn(1, MAX_CONTEXT)
     }
 }

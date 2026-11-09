@@ -109,8 +109,7 @@ class ListChatsTool(
     }
 
     private fun extractLimit(args: Map<String, Any>): Int {
-        if (!args.containsKey("limit")) return DEFAULT_LIMIT
-        val limit = ToolNumbers.int(args["limit"], "limit")
+        val limit = ToolNumbers.optionalInt(args, "limit") ?: DEFAULT_LIMIT
         return limit.coerceIn(1, MAX_LIMIT)
     }
 

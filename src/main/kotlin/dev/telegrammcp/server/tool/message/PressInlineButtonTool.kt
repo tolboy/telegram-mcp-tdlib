@@ -71,7 +71,7 @@ class PressInlineButtonTool(
             )
             val messageId = ToolNumbers.long(arguments["message_id"] ?: throw InvalidToolInputException("message_id is required and must be a number"), "message_id")
 
-            val index = ToolNumbers.optionalInt(arguments, "button_index")
+            val index = ToolNumbers.specifiedInt(arguments, "button_index")
             val text = arguments["button_text"]?.toString()?.takeIf { it.isNotBlank() }
             if (index == null && text == null) {
                 throw InvalidToolInputException("Either button_index or button_text is required")

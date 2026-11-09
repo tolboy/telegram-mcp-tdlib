@@ -73,7 +73,7 @@ class SendVoiceTool(
             )
             val rawPath = arguments["file_path"]?.toString()
                 ?: throw InvalidToolInputException("file_path is required")
-            val duration = ToolNumbers.optionalInt(arguments, "duration") ?: 0
+            val duration = ToolNumbers.specifiedInt(arguments, "duration") ?: 0
             val caption = arguments["caption"]?.toString()
 
             guardrailService.validateChatAccess(chatId)

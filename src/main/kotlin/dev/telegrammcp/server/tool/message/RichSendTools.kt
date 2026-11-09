@@ -213,7 +213,7 @@ class SendContactTool(
         ToolSupport.execute(TOOL_NAME, arguments, objectMapper, meterRegistry, log, "Failed to send contact", auditService) {
             RecoverableSend.check(operationGuardService, TOOL_NAME, arguments)
             val chatId = RichSendArguments.chatId(entityResolver, arguments)
-            val userId = ToolNumbers.optionalLong(arguments, "user_id") ?: 0L
+            val userId = ToolNumbers.specifiedLong(arguments, "user_id") ?: 0L
             if (userId < 0) throw InvalidToolInputException("user_id must be a positive Telegram user ID")
             val contact = ContactSpec(
                 phoneNumber = RichSendArguments.text(arguments, "phone_number", 32, required = true),

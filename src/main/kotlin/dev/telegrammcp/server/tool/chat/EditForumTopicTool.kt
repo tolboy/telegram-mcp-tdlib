@@ -112,7 +112,7 @@ class EditForumTopicTool(
         val messageThreadId = parseForumTopicThreadId(arguments)
         val name = parseTopicName(arguments)
         val removeCustomEmoji = parseBoolean(arguments["remove_custom_emoji"], default = false)
-        val customEmojiId = ToolNumbers.optionalLong(arguments, "custom_emoji_id")
+        val customEmojiId = ToolNumbers.specifiedLong(arguments, "custom_emoji_id")
         val editIconCustomEmoji = parseBoolean(
             arguments["edit_icon_custom_emoji"],
             default = removeCustomEmoji || arguments.containsKey("custom_emoji_id"),
