@@ -43,10 +43,12 @@ class ToolSurfacePolicy(
     /**
      * Checks the allow and deny lists against the registered tools at startup.
      *
-     * Every entry that matches no registered tool is logged as a warning.
-     * An unknown exact name additionally stops startup, so a misspelling cannot
-     * silently weaken policy; a `prefix*` that matches nothing only warns,
-     * because tool sets differ between versions and profiles.
+     * Every entry that matches no registered tool is logged as a warning, and
+     * every such entry that would fail open stops startup: an unknown exact
+     * name in either list, and an unmatched `prefix*` in the deny list (a typo
+     * there leaves tools visible that were meant to be hidden). An unmatched
+     * `prefix*` in the allow list only warns, because it fails safe: it hides
+     * tools rather than exposing them.
      */
     fun validateConfiguredNames(registeredToolNames: Collection<String>) {
         val registered = registeredToolNames.toSet()
@@ -54,16 +56,27 @@ class ToolSurfacePolicy(
             log.info("MCP_TOOL_ALLOW contains '*': every tool of profile {} stays allowed (deny list and read-only still apply)", profile)
         }
         val unknownExact = mutableListOf<String>()
+        val unmatchedDenyPatterns = mutableListOf<String>()
         for ((setting, patterns) in listOf("MCP_TOOL_ALLOW" to allowPatterns, "MCP_TOOL_DENY" to denyPatterns)) {
             for (pattern in patterns) {
                 if (pattern.matchesEverything || registered.any(pattern::matches)) continue
                 log.warn("{} entry '{}' matches no registered tool", setting, pattern.raw)
-                if (!pattern.isWildcard) unknownExact += pattern.raw
+                when {
+                    !pattern.isWildcard -> unknownExact += pattern.raw
+                    setting == "MCP_TOOL_DENY" -> unmatchedDenyPatterns += pattern.raw
+                }
             }
         }
-        require(unknownExact.isEmpty()) {
-            "Unknown MCP tool name(s) in MCP_TOOL_ALLOW/MCP_TOOL_DENY: ${unknownExact.distinct().sorted().joinToString()}"
+        val problems = buildList {
+            if (unknownExact.isNotEmpty()) {
+                add("Unknown MCP tool name(s) in MCP_TOOL_ALLOW/MCP_TOOL_DENY: ${unknownExact.distinct().sorted().joinToString()}")
+            }
+            if (unmatchedDenyPatterns.isNotEmpty()) {
+                add("MCP_TOOL_DENY pattern(s) match no registered tool, so they would block nothing: " +
+                    unmatchedDenyPatterns.distinct().sorted().joinToString())
+            }
         }
+        require(problems.isEmpty()) { problems.joinToString("; ") }
     }
 
     /** Deny wins: a tool is hidden when any deny entry matches it, whatever the allow list says. */

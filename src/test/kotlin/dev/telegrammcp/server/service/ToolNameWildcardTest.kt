@@ -83,13 +83,38 @@ class ToolNameWildcardTest {
     }
 
     @Test
-    fun `a wildcard that matches no tool only warns`() {
-        val policy = policy(allow = listOf("get_*", "stories_*"), deny = listOf("nothing_*"))
+    fun `an allow wildcard that matches no tool only warns because it fails safe`() {
+        val policy = policy(allow = listOf("get_*", "stories_*"), deny = listOf("send_*"))
         policy.validateConfiguredNames(registered)
         val warnings = messages(Level.WARN)
         assertTrue(warnings.any { "MCP_TOOL_ALLOW entry 'stories_*' matches no registered tool" in it }, warnings.toString())
+        assertFalse(warnings.any { "get_*" in it || "send_*" in it }, warnings.toString())
+        assertEquals(listOf("get_history", "get_messages", "get_chat"), policy.visible())
+    }
+
+    @Test
+    fun `a deny wildcard that matches no tool warns and stops startup`() {
+        val error = assertFailsWith<IllegalArgumentException> {
+            policy(deny = listOf("send_*", "delte_*", "nothing_*")).validateConfiguredNames(registered)
+        }
+        val message = error.message.orEmpty()
+        assertTrue("MCP_TOOL_DENY pattern(s) match no registered tool" in message, message)
+        assertTrue("delte_*" in message && "nothing_*" in message, message)
+        assertFalse("send_*" in message, message)
+        val warnings = messages(Level.WARN)
+        assertTrue(warnings.any { "MCP_TOOL_DENY entry 'delte_*' matches no registered tool" in it }, warnings.toString())
         assertTrue(warnings.any { "MCP_TOOL_DENY entry 'nothing_*' matches no registered tool" in it }, warnings.toString())
-        assertFalse(warnings.any { "get_*" in it }, warnings.toString())
+    }
+
+    @Test
+    fun `unknown exact names and unmatched deny wildcards are reported together`() {
+        val error = assertFailsWith<IllegalArgumentException> {
+            policy(allow = listOf("get_histroy", "stories_*"), deny = listOf("delte_*")).validateConfiguredNames(registered)
+        }
+        val message = error.message.orEmpty()
+        assertTrue("Unknown MCP tool name(s)" in message && "get_histroy" in message, message)
+        assertTrue("MCP_TOOL_DENY pattern(s)" in message && "delte_*" in message, message)
+        assertFalse("stories_*" in message, "an unmatched allow wildcard never fails startup: $message")
     }
 
     @Test

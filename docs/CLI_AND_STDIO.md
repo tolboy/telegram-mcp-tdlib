@@ -155,9 +155,11 @@ Any other use of `*` (`*_message`, `get_*_x`, `get**`) fails startup.
   allow entry names it.
 - **A bare `*`** in `MCP_TOOL_ALLOW` keeps every tool of the profile and is logged
   at startup. A bare `*` in `MCP_TOOL_DENY` is refused, because it would hide every tool.
-- **Entries that match no registered tool** are logged as warnings at startup.
-  An unknown exact name also fails startup, so a misspelling cannot silently
-  weaken policy; a `prefix*` that matches nothing only warns.
+- **Entries that match no registered tool** are logged as warnings at startup,
+  and any that would fail open also stop startup: an unknown exact name in
+  either list, and a `prefix*` in `MCP_TOOL_DENY` that matches nothing (a typo
+  there would leave tools visible that were meant to be blocked). A `prefix*`
+  in `MCP_TOOL_ALLOW` that matches nothing only warns, because it fails safe.
 - Patterns never widen the profile or bypass read-only mode.
 
 ```text

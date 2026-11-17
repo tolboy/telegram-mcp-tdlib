@@ -58,7 +58,8 @@ Approval covers high-risk tools too unless `MCP_APPROVAL_SCOPE=destructive`:
 For a custom surface, apply `MCP_TOOL_ALLOW` and `MCP_TOOL_DENY` filters with
 exact names or `prefix*` patterns (a single trailing `*`). They run after the
 profile and before read-only filtering, and deny always wins over allow. Unknown
-exact names stop startup; a pattern that matches nothing logs a warning. See
+exact names and deny patterns that match nothing stop startup; an allow pattern
+that matches nothing logs a warning. See
 [CLI and STDIO](CLI_AND_STDIO.md#surface-policy).
 
 Use `reader` for a first connection, `inbox` for a personal assistant, and
