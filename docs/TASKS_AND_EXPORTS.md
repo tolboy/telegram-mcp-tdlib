@@ -76,7 +76,7 @@ as `changes_since` and `wait_for_changes`, sends nothing and marks nothing read.
 | `cursor` | string | Resume point; omit to start at the journal tail (no backlog replay) |
 | `chat_id` | ID or `@username` | Settle one conversation; resolved and authorized before waiting |
 | `settle_seconds` | 0–20 (5) | Quiet time after the last incoming message; 0 returns as soon as one arrives |
-| `timeout_seconds` | 0–30 (25) | Longest wait, including message lookups; the call also ends early inside the tool-call deadline. 0 checks once, allowing up to 250 ms for lookups |
+| `timeout_seconds` | 0–30 (25) | Longest wait, including message lookups; the call also ends early inside the tool-call deadline. 0 checks once, allowing up to 250 ms for lookups, never past the tool-call deadline |
 | `limit` | 1–200 (50) | Most messages per result |
 | `addressed_only` | boolean (false) | Count only messages addressed to the account |
 
@@ -129,8 +129,8 @@ Semantics worth knowing:
   pending burst. If a lookup fails for one chat (the chat or its messages are
   gone, or the account lost access), that chat's messages are skipped as
   `lookup_failed` and the cursor moves past them. Failures that are not about one
-  chat (Telegram unavailable, flood wait, server errors) fail the call without
-  moving any cursor.
+  chat (a closed or stopped client, Telegram unavailable, flood wait, server
+  errors) fail the call without moving any cursor.
 - **No server-side state.** Progress lives only in the cursor, so several
   clients can wait on one account without taking each other's messages. The
   wait shares the 25-waits-per-account limit with `wait_for_changes`.

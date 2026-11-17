@@ -149,7 +149,7 @@ class SettledMessageWaiter(
                     cursor = scan.nextCursor
                     return result(if (scan.reset) "reset" else "gap", scan.gapReasons, scan.hasMore)
                 }
-                val lookup = lookUp(scan.entries, maxOf(remaining(), MIN_LOOKUP_NANOS))
+                val lookup = lookUp(scan.entries, lookupBudget(remaining()))
                 // Out of time before this page was classified: resume before it (and before any burst).
                 if (lookup.exhausted) return result("timed_out", hasMore = true)
                 val before = burst.size
@@ -196,9 +196,19 @@ class SettledMessageWaiter(
     }
 
     /**
+     * The wait's remaining time, or the [MIN_LOOKUP_NANOS] floor when that is larger. The floor
+     * never reaches past the outer tool-call deadline (less the reserve kept for the answer);
+     * [ToolCallDeadline.capped] clamps to that deadline again.
+     */
+    internal fun lookupBudget(remainingNanos: Long): Long {
+        val outer = ToolCallDeadline.remainingNanos()?.minus(TimeUnit.MILLISECONDS.toNanos(50)) ?: Long.MAX_VALUE
+        return maxOf(remainingNanos, minOf(MIN_LOOKUP_NANOS, outer))
+    }
+
+    /**
      * Facts for the incoming-message candidates of one scan, fetched per chat outside the journal lock
-     * and within [budgetNanos]. A chat whose lookup fails for a chat-specific reason (removed from the
-     * group, chat or messages gone) is reported in [Lookup.failedChats] so the cursor can move past it;
+     * and within [budgetNanos]. A chat whose lookup fails for a chat-specific reason (chat or messages not
+     * found, access lost: a NOT_FOUND, PERMISSION_DENIED or INVALID_INPUT Telegram error) is reported in [Lookup.failedChats] so the cursor can move past it;
      * account-wide failures (unavailable client, flood wait, server errors) still fail the call.
      */
     private fun lookUp(entries: List<ChangeEntry>, budgetNanos: Long): Lookup {
@@ -224,10 +234,9 @@ class SettledMessageWaiter(
             } catch (error: EntityNotFoundException) {
                 log.warn("Skipping {} new message(s) in chat {}: lookup failed (not found)", ids.size, chatId)
                 failed += chatId
-            } catch (error: IllegalStateException) {
-                log.warn("Skipping {} new message(s) in chat {}: lookup failed ({})", ids.size, chatId, error.javaClass.simpleName)
-                failed += chatId
             }
+            // Anything else (a closed or stopped client, an unavailable account, flood wait, server errors)
+            // is not about this chat: it fails the call and leaves the cursor where it was.
         }
         return Lookup(facts, failed, false)
     }

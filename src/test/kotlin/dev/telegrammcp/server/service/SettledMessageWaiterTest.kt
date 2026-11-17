@@ -442,4 +442,47 @@ class SettledMessageWaiterTest {
             result.skippedReasons.toSet())
         assertEquals(4, result.skippedChanges)
     }
+
+    @Test fun `a closed client fails the call instead of skipping messages`() {
+        val journal = journal()
+        val waiter = SettledMessageWaiter(journal, client)
+        val cursor = journal.tailCursor("default")
+        journal.message(42, 1)
+        journal.tailCursor("default")
+        every { client.getMessageAddressing(42, any()) } throws IllegalStateException("Client is closed")
+        assertFailsWith<IllegalStateException> { waiter.await("default", request(cursor, settleMillis = 0)) { true } }
+        // Nothing moved: once the client is back, the same cursor still yields the message.
+        every { client.getMessageAddressing(42, any()) } answers { listOf(facts[42L to 1L]!!) }
+        val retry = waiter.await("default", request(cursor, settleMillis = 0)) { true }
+        assertEquals(listOf(1L), retry.messages.map { it.messageId })
+        assertTrue(retry.skippedReasons.isEmpty())
+    }
+
+    @Test fun `the zero-timeout lookup floor never reaches past the tool-call deadline`() {
+        val journal = journal()
+        val waiter = SettledMessageWaiter(journal, client)
+        assertEquals(SettledMessageWaiter.MIN_LOOKUP_NANOS, waiter.lookupBudget(0))
+        assertEquals(TimeUnit.SECONDS.toNanos(3), waiter.lookupBudget(TimeUnit.SECONDS.toNanos(3)))
+        val cursor = journal.tailCursor("default")
+        journal.message(42, 1)
+        journal.tailCursor("default")
+        val budgets = mutableListOf<Long?>()
+        every { client.getMessageAddressing(42, any()) } answers {
+            budgets += ToolCallDeadline.remainingNanos()
+            while ((ToolCallDeadline.remainingNanos() ?: Long.MAX_VALUE) > 0) Thread.sleep(5)
+            throw TelegramTimeoutException("GetMessages", TelegramTimeoutException.Reason.TOOL_DEADLINE,
+                requestSent = true, retryable = true, waitedMillis = 0)
+        }
+        val started = System.nanoTime()
+        val result = ToolCallDeadline.run(Duration.ofMillis(150)) {
+            assertTrue(waiter.lookupBudget(0) <= TimeUnit.MILLISECONDS.toNanos(100))
+            waiter.await("default", request(cursor, settleMillis = 0, timeoutSeconds = 0)) { true }
+        }
+        val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
+        // The lookup got at most the outer deadline less its reserve, not the 250 ms floor.
+        assertTrue(budgets.single()!! <= TimeUnit.MILLISECONDS.toNanos(100), "lookup budget ${budgets.single()}")
+        assertTrue(elapsed < 250, "took $elapsed ms")
+        assertEquals("timed_out", result.status)
+        assertEquals(cursor, result.nextCursor)
+    }
 }
