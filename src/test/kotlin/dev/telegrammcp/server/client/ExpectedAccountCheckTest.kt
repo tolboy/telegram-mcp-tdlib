@@ -33,8 +33,12 @@ class ExpectedAccountCheckTest {
         phoneNumber = phone
     }
 
-    private fun check(expected: ExpectedAccount, recordDirectory: Path? = directory, timeout: Duration = Duration.ofSeconds(5)) =
-        ExpectedAccountCheck("work", expected, recordDirectory, timeout, clock)
+    private fun check(
+        expected: ExpectedAccount,
+        recordDirectory: Path? = directory,
+        timeout: Duration = Duration.ofSeconds(5),
+        retryBackoff: List<Duration> = emptyList(),
+    ) = ExpectedAccountCheck("work", expected, recordDirectory, timeout, clock, retryBackoff)
 
     /** Runs the check and waits for whichever callback fires; fails if both or neither do. */
     private fun runCheck(check: ExpectedAccountCheck, getMe: () -> CompletableFuture<TdApi.User>): Pair<Boolean, AccountCheckRecord> {
@@ -175,5 +179,51 @@ class ExpectedAccountCheckTest {
         // No directory means nothing is written and nothing throws.
         ExpectedAccountCheck.write(directory.resolve("absent"), check(ExpectedAccount(userId = 1)).evaluate(user(1, "")))
         assertFalse(Files.exists(directory.resolve("absent")))
+    }
+
+    @Test
+    fun `a missing answer is retried with backoff and a later answer is accepted`() {
+        val calls = java.util.concurrent.atomic.AtomicInteger()
+        val started = System.nanoTime()
+        val (accepted, record) = runCheck(check(ExpectedAccount(userId = 4242), timeout = Duration.ofMillis(100),
+            retryBackoff = listOf(Duration.ofMillis(50), Duration.ofMillis(100), Duration.ofMillis(200)))) {
+            when (calls.incrementAndGet()) {
+                1 -> CompletableFuture.failedFuture(IllegalStateException("not yet"))
+                2 -> CompletableFuture() // times out
+                else -> CompletableFuture.completedFuture(user(4242, ""))
+            }
+        }
+        assertTrue(accepted)
+        assertEquals(AccountCheckResult.MATCH, record.result)
+        assertEquals(3, calls.get())
+        assertTrue(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started) >= 150, "backoff must pause between attempts")
+    }
+
+    @Test
+    fun `retries are bounded and end UNVERIFIED with the attempt count`() {
+        val calls = java.util.concurrent.atomic.AtomicInteger()
+        val (accepted, record) = runCheck(check(ExpectedAccount(userId = 4242),
+            retryBackoff = listOf(Duration.ofMillis(10), Duration.ofMillis(20), Duration.ofMillis(40)))) {
+            calls.incrementAndGet()
+            CompletableFuture.failedFuture(IllegalStateException("down"))
+        }
+        assertFalse(accepted)
+        assertEquals(AccountCheckResult.UNVERIFIED, record.result)
+        assertEquals(4, calls.get())
+        assertTrue("after 4 attempts" in record.message, record.message)
+    }
+
+    @Test
+    fun `a wrong account is refused at once without retrying`() {
+        val calls = java.util.concurrent.atomic.AtomicInteger()
+        val (accepted, record) = runCheck(check(ExpectedAccount(userId = 4242),
+            retryBackoff = listOf(Duration.ofMillis(10), Duration.ofMillis(20)))) {
+            calls.incrementAndGet()
+            CompletableFuture.completedFuture(user(9999, ""))
+        }
+        assertFalse(accepted)
+        assertEquals(AccountCheckResult.MISMATCH, record.result)
+        assertEquals(1, calls.get())
+        assertEquals(3, ExpectedAccountCheck.DEFAULT_RETRY_BACKOFF.size)
     }
 }

@@ -86,6 +86,11 @@ class ExpectedAccountCheck(
     private val recordDirectory: Path?,
     private val timeout: Duration = Duration.ofSeconds(30),
     private val clock: Clock = Clock.systemUTC(),
+    /**
+     * Pauses before each retry when GetMe fails or times out; its size is the
+     * number of retries. A wrong account is never retried, only a missing answer.
+     */
+    private val retryBackoff: List<Duration> = DEFAULT_RETRY_BACKOFF,
 ) {
     private val log = StructuredLogger.forClass<ExpectedAccountCheck>()
 
@@ -106,14 +111,33 @@ class ExpectedAccountCheck(
             onAccepted(record)
             return
         }
+        attempt(getMe, onAccepted, onRefused, retry = 0)
+    }
+
+    private fun attempt(
+        getMe: () -> CompletableFuture<TdApi.User>,
+        onAccepted: (AccountCheckRecord) -> Unit,
+        onRefused: (AccountCheckRecord) -> Unit,
+        retry: Int,
+    ) {
         val future = try {
             getMe()
         } catch (error: Exception) {
             CompletableFuture.failedFuture(error)
         }
         future.orTimeout(timeout.toMillis(), TimeUnit.MILLISECONDS).whenComplete { user, error ->
+            if ((error != null || user == null) && retry < retryBackoff.size) {
+                val pause = retryBackoff[retry]
+                log.warn("Could not verify Telegram account '{}' (attempt {} of {}); retrying in {} ms",
+                    label, retry + 1, retryBackoff.size + 1, pause.toMillis())
+                CompletableFuture.runAsync(
+                    { attempt(getMe, onAccepted, onRefused, retry + 1) },
+                    CompletableFuture.delayedExecutor(pause.toMillis(), TimeUnit.MILLISECONDS),
+                )
+                return@whenComplete
+            }
             val record = if (error != null || user == null) {
-                unverified(error)
+                unverified(error, attempts = retry + 1)
             } else {
                 evaluate(user)
             }
@@ -152,11 +176,12 @@ class ExpectedAccountCheck(
         )
     }
 
-    private fun unverified(error: Throwable?): AccountCheckRecord = record(
+    private fun unverified(error: Throwable?, attempts: Int): AccountCheckRecord = record(
         AccountCheckResult.UNVERIFIED,
         null,
-        "Could not verify that Telegram account '$label' is the expected account " +
-            "(${(error?.cause ?: error)?.javaClass?.simpleName ?: "no answer"}). Refusing to serve this session; " +
+        "Could not verify that Telegram account '$label' is the expected account after $attempts attempt" +
+            (if (attempts == 1) "" else "s") +
+            " (${(error?.cause ?: error)?.javaClass?.simpleName ?: "no answer"}). Refusing to serve this session; " +
             "restart the server to retry the check.",
     )
 
@@ -179,6 +204,9 @@ class ExpectedAccountCheck(
 
     companion object {
         const val RECORD_FILE = "telegram-mcp-account-check.json"
+
+        /** Three retries over about 7 seconds, on top of each attempt's own timeout. */
+        val DEFAULT_RETRY_BACKOFF: List<Duration> = listOf(Duration.ofSeconds(1), Duration.ofSeconds(2), Duration.ofSeconds(4))
 
         private val mapper: ObjectMapper = jacksonObjectMapper().findAndRegisterModules()
             .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
