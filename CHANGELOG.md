@@ -10,7 +10,10 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   been quiet for `settle_seconds` (default 5), with per-message `addressed` and
   `addressedBy` (`private_chat`, `mention`, `reply`) and an optional
   `addressed_only` filter. It uses the change-journal cursor, keeps no
-  server-side state, never splits a burst on timeout, and reports explicit
+  server-side state, declares `settled` only after a complete fresh scan, never
+  splits a burst on timeout, bounds message lookups by the wait's budget, skips
+  messages of a chat whose lookup fails (counted in `skippedReasons`) instead of
+  failing the call, and reports explicit
   `gap` and `reset` statuses with `gapReasons` so the caller knows to catch up
   from history. Read-only, available in every profile, and subject to chat
   scopes, the sensitive-chat block, tool deadlines and cancellation. The

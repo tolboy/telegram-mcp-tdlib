@@ -50,7 +50,9 @@ class WaitForSettledMessagesTool(
     override fun definition() = ToolSupport.definition(TOOL_NAME,
         "Wait up to 30 seconds until new incoming messages have stopped arriving for settle_seconds, then return them " +
             "(IDs and addressed flags, no content). Resume nextCursor after every status, including timed_out. " +
-            "gap or reset means coverage broke: catch up from history before continuing. No read receipts change.",
+            "gap or reset means coverage broke: catch up from history before continuing. Without chat_id every visible " +
+            "chat must go quiet, so one busy chat yields timed_out until limit; pass chat_id or addressed_only=true. " +
+            "No read receipts change.",
         INPUT_SCHEMA, mapper)
 
     override fun execute(exchange: McpSyncServerExchange, arguments: Map<String, Any>): McpSchema.CallToolResult =

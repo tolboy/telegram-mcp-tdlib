@@ -6,6 +6,8 @@ import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.client.ToolCallDeadline
 import dev.telegrammcp.server.exception.TelegramApiException
 import dev.telegrammcp.server.exception.TelegramBusyException
+import dev.telegrammcp.server.exception.TelegramTimeoutException
+import dev.telegrammcp.server.exception.TelegramUnavailableException
 import dev.telegrammcp.server.model.MessageAddressing
 import io.mockk.every
 import io.mockk.mockk
@@ -203,7 +205,11 @@ class SettledMessageWaiterTest {
         val cursor = journal.tailCursor("default")
         val wait = worker { waiter.await("default", request(cursor, settleMillis = 5_000, timeoutSeconds = 10)) { true } }
         awaitWaiting(wait.first)
+        val classified = java.util.concurrent.CountDownLatch(1)
+        every { client.getMessageAddressing(42, any()) } answers { classified.countDown(); listOf(facts[42L to 1L]!!) }
         journal.message(42, 1)
+        assertTrue(classified.await(3, TimeUnit.SECONDS))
+        // Messages collected from earlier pages are returned with the gap.
         journal.appendGap("default", ChangeJournal.REASON_RECONNECT)
         val result = wait.second.get(3, TimeUnit.SECONDS)
         assertEquals("gap", result.status)
@@ -243,6 +249,12 @@ class SettledMessageWaiterTest {
         Thread.sleep(250)
         val rest = waiter.await("default", request(first.nextCursor, settleMillis = 200)) { true }
         assertEquals(listOf(4L, 5L), rest.messages.map { it.messageId })
+        // At the end of the journal a limit result says there is nothing more.
+        journal.message(42, 6)
+        journal.message(42, 7)
+        val exact = waiter.await("default", request(rest.nextCursor, settleMillis = 10_000, limit = 2)) { true }
+        assertEquals("limit", exact.status)
+        assertFalse(exact.hasMore)
     }
 
     @Test fun `the wait ends inside the tool deadline`() {
@@ -286,5 +298,148 @@ class SettledMessageWaiterTest {
             { request(null, settleMillis = -1) }, { request(null, settleMillis = 20_001) },
             { request(null, timeoutSeconds = 31) }, { request(null, limit = 0) }, { request(null, limit = 201) },
         )) assertFailsWith<IllegalArgumentException> { bad() }
+    }
+
+    @Test fun `a message that arrives while the burst is being looked up is part of the burst, never split off`() {
+        val journal = journal()
+        val waiter = SettledMessageWaiter(journal, client)
+        val cursor = journal.tailCursor("default")
+        journal.message(42, 1)
+        journal.message(42, 2, record = false)
+        every { client.getMessageAddressing(42, listOf(1L)) } answers {
+            Thread.sleep(400) // longer than the settle window
+            journal.append("default", "new", 42, 2)
+            listOf(facts[42L to 1L]!!)
+        }
+        val result = waiter.await("default", request(cursor, settleMillis = 200)) { true }
+        assertEquals("settled", result.status)
+        assertEquals(listOf(1L, 2L), result.messages.map { it.messageId })
+    }
+
+    @Test fun `a page with entries behind it is never declared settled when time runs out`() {
+        val journal = journal()
+        val waiter = SettledMessageWaiter(journal, client)
+        val cursor = journal.tailCursor("default")
+        journal.message(42, 1)
+        Thread.sleep(300)
+        repeat(60) { journal.append("default", "edited", 42, 1) }
+        journal.message(42, 2)
+        journal.tailCursor("default")
+        // Scans read at most `limit` entries, so the first page ends among the edits.
+        val cut = waiter.await("default", request(cursor, settleMillis = 200, timeoutSeconds = 0)) { true }
+        assertEquals("timed_out", cut.status)
+        assertTrue(cut.messages.isEmpty())
+        assertEquals(1, cut.pendingMessages)
+        assertTrue(cut.hasMore)
+        assertEquals(cursor, cut.nextCursor)
+        val whole = waiter.await("default", request(cut.nextCursor, settleMillis = 200)) { true }
+        assertEquals("settled", whole.status)
+        assertEquals(listOf(1L, 2L), whole.messages.map { it.messageId })
+    }
+
+    @Test fun `an already quiet backlog still settles with a zero timeout after one confirming scan`() {
+        val journal = journal()
+        val waiter = SettledMessageWaiter(journal, client)
+        val cursor = journal.tailCursor("default")
+        journal.message(42, 1)
+        journal.tailCursor("default")
+        Thread.sleep(250)
+        val result = waiter.await("default", request(cursor, settleMillis = 200, timeoutSeconds = 0)) { true }
+        assertEquals("settled", result.status)
+        assertEquals(listOf(1L), result.messages.map { it.messageId })
+    }
+
+    @Test fun `lookups are bounded by the wait budget and exhaustion returns a resumable timeout`() {
+        val journal = journal()
+        val waiter = SettledMessageWaiter(journal, client)
+        val cursor = journal.tailCursor("default")
+        journal.message(42, 1)
+        journal.tailCursor("default")
+        val budgets = mutableListOf<Long?>()
+        every { client.getMessageAddressing(42, any()) } answers {
+            budgets += ToolCallDeadline.remainingNanos()
+            // Like a TDLib wait: it ends when the capped tool deadline does.
+            while ((ToolCallDeadline.remainingNanos() ?: Long.MAX_VALUE) > 0) Thread.sleep(10)
+            throw TelegramTimeoutException("GetMessages", TelegramTimeoutException.Reason.TOOL_DEADLINE,
+                requestSent = true, retryable = true, waitedMillis = 0)
+        }
+        val started = System.nanoTime()
+        val result = assertTimeoutPreemptively(Duration.ofSeconds(3), org.junit.jupiter.api.function.ThrowingSupplier {
+            waiter.await("default", request(cursor, settleMillis = 0, timeoutSeconds = 1)) { true }
+        })
+        assertTrue(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started) < 1_800)
+        assertTrue(budgets.single()!! <= TimeUnit.MILLISECONDS.toNanos(1_000), "lookup budget ${budgets.single()}")
+        assertEquals("timed_out", result.status)
+        assertTrue(result.hasMore)
+        // Nothing was classified, so the cursor stays put and the next call sees the message.
+        assertEquals(cursor, result.nextCursor)
+        every { client.getMessageAddressing(42, any()) } answers { listOf(facts[42L to 1L]!!) }
+        val retry = waiter.await("default", request(result.nextCursor, settleMillis = 0)) { true }
+        assertEquals(listOf(1L), retry.messages.map { it.messageId })
+    }
+
+    @Test fun `a chat whose lookup fails is skipped with a reason and does not poison the cursor`() {
+        val journal = journal()
+        val waiter = SettledMessageWaiter(journal, client)
+        val cursor = journal.tailCursor("default")
+        journal.append("default", "new", -100, 1)
+        journal.append("default", "new", -100, 2)
+        journal.message(42, 3)
+        journal.tailCursor("default")
+        every { client.getMessageAddressing(-100, any()) } throws TelegramApiException(400, "Chat not found", readOnlyRequest = true)
+        Thread.sleep(250)
+        val result = waiter.await("default", request(cursor, settleMillis = 200)) { true }
+        assertEquals("settled", result.status)
+        assertEquals(listOf(3L), result.messages.map { it.messageId })
+        assertEquals(2, result.skippedChanges)
+        assertEquals(listOf(SkippedChanges(SettledMessageWaiter.SKIP_LOOKUP_FAILED, 2)), result.skippedReasons)
+        assertEquals(journal.tailCursor("default"), result.nextCursor)
+    }
+
+    @Test fun `account-wide lookup failures still fail the call without moving any cursor`() {
+        val journal = journal()
+        val waiter = SettledMessageWaiter(journal, client)
+        val cursor = journal.tailCursor("default")
+        journal.message(42, 1)
+        every { client.getMessageAddressing(42, any()) } throws TelegramUnavailableException()
+        assertFailsWith<TelegramUnavailableException> { waiter.await("default", request(cursor)) { true } }
+        every { client.getMessageAddressing(42, any()) } throws TelegramApiException(429, "Too Many Requests: retry after 5")
+        assertFailsWith<TelegramApiException> { waiter.await("default", request(cursor)) { true } }
+    }
+
+    @Test fun `a known gap returns without waiting on lookups for the same page`() {
+        val journal = journal()
+        val waiter = SettledMessageWaiter(journal, client)
+        val cursor = journal.tailCursor("default")
+        journal.message(42, 1)
+        journal.appendGap("default", ChangeJournal.REASON_OVERFLOW)
+        journal.tailCursor("default")
+        every { client.getMessageAddressing(any(), any()) } answers { Thread.sleep(5_000); emptyList() }
+        val started = System.nanoTime()
+        val result = waiter.await("default", request(cursor)) { true }
+        assertTrue(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started) < 1_000)
+        assertEquals("gap", result.status)
+        assertEquals(listOf(SkippedChanges(SettledMessageWaiter.SKIP_BEHIND_GAP, 1)), result.skippedReasons)
+        assertEquals(journal.tailCursor("default"), result.nextCursor)
+        verify(exactly = 0) { client.getMessageAddressing(any(), any()) }
+    }
+
+    @Test fun `skipped entries are counted by reason`() {
+        val journal = journal()
+        val waiter = SettledMessageWaiter(journal, client)
+        val cursor = journal.tailCursor("default")
+        journal.message(42, 1, outgoing = true)
+        journal.append("default", "deleted", 42, 1)
+        journal.append("default", "new", 42, 2) // gone before classification
+        journal.message(-100, 3)
+        journal.message(7, 4, private = true)
+        journal.tailCursor("default")
+        Thread.sleep(250)
+        val result = waiter.await("default", request(cursor, settleMillis = 200, addressedOnly = true)) { true }
+        assertEquals(listOf(4L), result.messages.map { it.messageId })
+        assertEquals(setOf(SkippedChanges(SettledMessageWaiter.SKIP_OUTGOING, 1), SkippedChanges(SettledMessageWaiter.SKIP_OTHER_CHANGE, 1),
+            SkippedChanges(SettledMessageWaiter.SKIP_VANISHED, 1), SkippedChanges(SettledMessageWaiter.SKIP_NOT_ADDRESSED, 1)),
+            result.skippedReasons.toSet())
+        assertEquals(4, result.skippedChanges)
     }
 }

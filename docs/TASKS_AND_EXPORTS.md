@@ -76,7 +76,7 @@ as `changes_since` and `wait_for_changes`, sends nothing and marks nothing read.
 | `cursor` | string | Resume point; omit to start at the journal tail (no backlog replay) |
 | `chat_id` | ID or `@username` | Settle one conversation; resolved and authorized before waiting |
 | `settle_seconds` | 0–20 (5) | Quiet time after the last incoming message; 0 returns as soon as one arrives |
-| `timeout_seconds` | 0–30 (25) | Longest wait; the call also ends early inside the tool-call deadline |
+| `timeout_seconds` | 0–30 (25) | Longest wait, including message lookups; the call also ends early inside the tool-call deadline. 0 checks once, allowing up to 250 ms for lookups |
 | `limit` | 1–200 (50) | Most messages per result |
 | `addressed_only` | boolean (false) | Count only messages addressed to the account |
 
@@ -86,7 +86,7 @@ The result has a `status`:
 |---|---|---|
 | `settled` | Messages arrived and the chats went quiet | Handle `messages`, keep `nextCursor` |
 | `timed_out` | Nothing settled in time | Call again with `nextCursor` |
-| `limit` | `limit` messages arrived before the chats went quiet | Handle them, call again at once |
+| `limit` | `limit` messages arrived before the chats went quiet | Handle them; call again at once when `hasMore` is true |
 | `gap` | Coverage broke (`gapReasons`: `reconnect`, `overflow`, `write_failed`, `retention`, `unknown`) | Read every followed chat from your last handled message, then continue with `nextCursor` |
 | `reset` | A session or the journal started over (`restart`, `session_accepted`, `journal_replaced`); `gap` is also true | Same catch-up as `gap` |
 
@@ -103,6 +103,11 @@ not see are never looked up.
 
 Semantics worth knowing:
 
+- **`settled` always comes from a complete look.** Before returning it, the
+  wait scans the journal again from the current position; that scan must reach
+  the end, add nothing to the burst, and start after the quiet window elapsed.
+  A message that arrives while earlier ones are being looked up therefore joins
+  the burst instead of being split off.
 - **Quiet time comes from the journal timestamps.** A resumed cursor whose burst
   is already older than `settle_seconds` settles immediately.
 - **A timeout never splits a burst.** If messages are still arriving when the
@@ -111,16 +116,27 @@ Semantics worth knowing:
 - **Without `chat_id`, every visible chat must be quiet.** A busy group can keep
   the wait open; pass `chat_id`, or `addressed_only: true` so only messages
   addressed to the account count. `limit` guarantees progress either way.
-- **Only incoming new messages form a burst.** Outgoing messages (including the
-  account's own replies from another device), edits, content changes,
-  deletions and messages deleted before classification are passed over and
-  counted in `skippedChanges`. Use `changes_since` with its own cursor when you
-  need those.
+- **Only incoming new messages form a burst.** Everything else is passed over
+  and counted in `skippedChanges`, broken down in `skippedReasons`:
+  `not_a_new_message` (edits, content changes, deletions), `outgoing`
+  (including the account's own replies from another device), `message_gone`
+  (deleted before classification), `not_addressed` (with `addressed_only`),
+  `lookup_failed` and `behind_gap`. Use `changes_since` with its own cursor when
+  you need the other changes.
+- **Lookups are bounded and cannot poison the cursor.** Classification shares
+  the wait's time budget. If it runs out, the call returns `timed_out` with
+  `hasMore: true` and a `nextCursor` before the unclassified entries and any
+  pending burst. If a lookup fails for one chat (the chat or its messages are
+  gone, or the account lost access), that chat's messages are skipped as
+  `lookup_failed` and the cursor moves past them. Failures that are not about one
+  chat (Telegram unavailable, flood wait, server errors) fail the call without
+  moving any cursor.
 - **No server-side state.** Progress lives only in the cursor, so several
   clients can wait on one account without taking each other's messages. The
   wait shares the 25-waits-per-account limit with `wait_for_changes`.
-- **`gap` and `reset` return at once,** together with any messages collected
-  before the marker. Causes are known for markers written by the running
+- **`gap` and `reset` return at once,** together with messages collected from
+  earlier pages. Entries in the same page as the marker are not looked up (they
+  are counted as `behind_gap`); the catch-up from history covers them. Causes are known for markers written by the running
   process; markers from another process or an earlier run report `unknown`.
 
 For a live regression against an authorized account, install

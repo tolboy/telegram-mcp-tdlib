@@ -86,4 +86,27 @@ class ToolCallDeadlineTest {
             }
         }
     }
+
+    @Test
+    fun `capped narrows the budget, never widens it and restores the outer call`() {
+        ToolCallDeadline.capped(Duration.ofSeconds(2)) {
+            assertEquals(TimeUnit.SECONDS.toNanos(2), ToolCallDeadline.remainingNanos())
+        }
+        assertFalse(ToolCallDeadline.isActive)
+        ToolCallDeadline.run(Duration.ofSeconds(50)) {
+            advance(45)
+            ToolCallDeadline.capped(Duration.ofSeconds(10)) {
+                assertEquals(TimeUnit.SECONDS.toNanos(5), ToolCallDeadline.remainingNanos())
+            }
+            ToolCallDeadline.capped(Duration.ofSeconds(1)) {
+                advance(1)
+                assertEquals(0L, ToolCallDeadline.remainingNanos())
+                ToolCallDeadline.markWriteDispatched()
+            }
+            // The outer budget kept running and learned about the write.
+            assertEquals(TimeUnit.SECONDS.toNanos(4), ToolCallDeadline.remainingNanos())
+            assertTrue(ToolCallDeadline.writeDispatched())
+        }
+        assertFalse(ToolCallDeadline.isActive)
+    }
 }
