@@ -118,16 +118,34 @@ class DestructiveApprovalService(
         exchange: McpSyncServerExchange?,
         toolName: String,
         arguments: Map<String, Any>,
+        inlineButton: InlineButtonTarget? = null,
     ) {
         if (!isEnabled()) return
         // Scope-based, not destructive-only: forwarding a chat out or granting
         // admin rights needs a person's answer as much as a delete does.
         if (!operationGuardService.requiresHumanApproval(toolName)) return
 
-        val description = describe(arguments)
+        val description = if (inlineButton == null) describe(arguments) else describeInlineButton(arguments, inlineButton)
         // Waiting for a human must not use up the Telegram request budget of the call.
         dev.telegrammcp.server.client.ToolCallDeadline.excluding { requireMode(exchange, toolName, description) }
         log.info("{} tool '{}' approved by the operator", riskWord(toolName), toolName)
+    }
+
+    /** Target resolved from the current keyboard and matched to a signed token. */
+    data class InlineButtonTarget(
+        val chatId: Long,
+        val messageId: Long,
+        val position: Int,
+        val label: String,
+        val type: String,
+    )
+
+    private fun describeInlineButton(arguments: Map<String, Any>, button: InlineButtonTarget): String {
+        val account = arguments["account"]?.toString()?.let(::normalizeForDisplay)?.takeIf { it.isNotEmpty() }
+        val prefix = account?.let { "account=$it, " }.orEmpty()
+        val label = normalizeForDisplay(button.label).replace("\\", "\\\\").replace("\"", "\\\"")
+        return "${prefix}chat_id=${button.chatId}, message_id=${button.messageId}, button_index=${button.position}, " +
+            "button_type=${normalizeForDisplay(button.type)}, button_text=\"$label\""
     }
 
     private fun requireMode(exchange: McpSyncServerExchange?, toolName: String, description: String) {

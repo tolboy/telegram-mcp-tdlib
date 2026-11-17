@@ -5,6 +5,11 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- **Signed inline-button clicks are the default.** Use the `button_token` from
+  `list_inline_buttons`. When human approval applies, its prompt shows the
+  resolved chat, message and button. The keyboard is rechecked after approval.
+  Older clients can opt in to deprecated selectors with
+  `MCP_ALLOW_LEGACY_INLINE_BUTTON_SELECTORS=true` during migration.
 - **Operator chat deny-list.** `TELEGRAM_BLOCKED_CHAT_IDS` takes precedence
   over allow-lists, client grants, and sensitive-chat opt-ins. The policy also
   applies to existing exports, saved event cursors, and resource notifications.

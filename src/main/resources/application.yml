@@ -181,6 +181,7 @@ mcp:
   # policy; an allow pattern matching nothing only warns (it fails safe).
   tool-allow: ${MCP_TOOL_ALLOW:}
   tool-deny: ${MCP_TOOL_DENY:}
+  allow-legacy-inline-button-selectors: ${MCP_ALLOW_LEGACY_INLINE_BUTTON_SELECTORS:false}
   permissions-file: ${MCP_PERMISSIONS_FILE:}
   # One client's in-flight tool calls. The TDLib bulkhead stays per account.
   max-concurrent-calls-per-client: ${MCP_MAX_CONCURRENT_CALLS_PER_CLIENT:8}

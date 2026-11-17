@@ -447,6 +447,29 @@ class DestructiveApprovalServiceTest {
         assertFalse("IGNORE PREVIOUS INSTRUCTIONS" in description.captured)
     }
 
+    @Test
+    fun `the button approval displays the resolved identity and sanitized keyboard label`() {
+        val loopback = mockk<LoopbackApprovalServer>(relaxed = true)
+        val description = slot<String>()
+        every { loopback.requestApproval(any(), capture(description)) } returns
+            LoopbackApprovalServer.ApprovalResult.APPROVED
+
+        service(ServerModeProperties.ApprovalMode.LOOPBACK, loopback = loopback).requireApproval(
+            null,
+            "press_inline_button",
+            mapOf("account" to "work", "chat_id" to "@target", "button_text" to "caller supplied",
+                "button_token" to "signed-secret", "to_chat_id" to "unexpected target"),
+            DestructiveApprovalService.InlineButtonTarget(-1001, 22L, 1, "Continue\r\n\"now\"\u202E", "callback"),
+        )
+
+        val message = description.captured
+        assertTrue("account=work" in message && "chat_id=-1001" in message && "message_id=22" in message, message)
+        assertTrue("button_index=1" in message && "button_text=\"Continue \\\"now\\\"\"" in message &&
+            "button_type=callback" in message, message)
+        assertFalse("caller supplied" in message || "signed-secret" in message || "unexpected target" in message)
+        assertFalse('\r' in message || '\n' in message || '\u202E' in message)
+    }
+
     /**
      * An invite link is both the name of the chat and the credential for
      * joining it. Hiding it outright leaves nothing to decide about, since

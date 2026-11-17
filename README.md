@@ -508,6 +508,7 @@ Docker, mount the secret file into the container and set the container path.
 | `MCP_TOOL_PROFILE`         | No       | `reader`        | `all`, `reader`, `inbox`, `community-admin`, or `research` |
 | `MCP_TOOL_ALLOW`           | No       | (profile tools) | Comma-separated tool names or `prefix*` patterns to retain after profile filtering; a bare `*` keeps every profile tool |
 | `MCP_TOOL_DENY`            | No       | —               | Comma-separated tool names or `prefix*` patterns to hide; deny always wins over allow |
+| `MCP_ALLOW_LEGACY_INLINE_BUTTON_SELECTORS` | No | `false` | Compatibility opt-in for unsigned `button_index` and `button_text` on `press_inline_button` |
 | `MCP_TRANSPORT`            | No       | `streamable-http` | `streamable-http` or `stdio`; CLI `--transport` wins |
 | `MCP_CONFIRMATION_REQUIRED`| No       | `true`          | Require caller acknowledgement (`"confirmed": true`) for destructive tools; not proof of human approval |
 | `MCP_DESTRUCTIVE_APPROVAL`| No       | `off`           | Human approval before destructive and high-risk tools (see `MCP_APPROVAL_SCOPE`): `auto`, `elicitation`, or `loopback`. With writes enabled, `off` refuses startup unless `MCP_ALLOW_MODEL_CONFIRMED_WRITES=true` |
@@ -777,7 +778,7 @@ The full inventory is grouped below. In practice you start with a
 | `get_message_viewers` | List read receipts for an outgoing message in small groups |
 | `get_message_context` | Get N messages surrounding a target message |
 | `list_inline_buttons` | Inspect inline keyboard buttons on a message; each button carries a signed `token` |
-| `press_inline_button` | Click an inline button by its `button_token` from `list_inline_buttons`; refuses if the keyboard changed. `button_index`/`button_text` still work but are deprecated (high-risk: human approval when enabled) |
+| `press_inline_button` | Click an inline button by its signed `button_token` from `list_inline_buttons`. The approval prompt identifies that button, and the server checks the keyboard again before the click. Older selectors require the compatibility opt-in. |
 | `message_from_link` | Resolve a t.me message link to the actual message |
 | `get_message_link` | Create a shareable t.me link for a message or media album |
 | `list_scheduled_messages` | List queued messages for a chat |

@@ -5,6 +5,7 @@ import dev.telegrammcp.server.tool.executeChecked
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
+import dev.telegrammcp.server.config.McpSecurityProperties
 import dev.telegrammcp.server.model.InlineButtonInfo
 import dev.telegrammcp.server.model.STALE_INLINE_BUTTON_MESSAGE
 import dev.telegrammcp.server.security.SensitiveChatBlockedException
@@ -45,7 +46,11 @@ class PressInlineButtonToolTest {
         objectMapper = jacksonObjectMapper().findAndRegisterModules()
         exchange = mockk(relaxed = true)
 
-        tool = PressInlineButtonTool(
+        tool = createTool()
+    }
+
+    private fun createTool(allowLegacy: Boolean = false) =
+        PressInlineButtonTool(
             telegramClient = telegramClient,
             entityResolver = entityResolver,
             guardrailService = guardrailService,
@@ -54,8 +59,8 @@ class PressInlineButtonToolTest {
             objectMapper = objectMapper,
             meterRegistry = SimpleMeterRegistry(),
             buttonTokens = buttonTokens,
+            security = McpSecurityProperties(allowLegacyInlineButtonSelectors = allowLegacy),
         )
-    }
 
     private val buttonTokens = InlineButtonTokens()
     private val keyboard = listOf(
@@ -71,11 +76,27 @@ class PressInlineButtonToolTest {
     }
 
     @Test
+    fun `unsigned selectors are absent from the default schema and fail before resolution`() {
+        val schema = tool.definition().inputSchema()
+        assertTrue("button_token" in (schema["required"] as List<*>))
+        val properties = schema["properties"] as Map<*, *>
+        assertFalse("button_index" in properties || "button_text" in properties)
+
+        for (selector in listOf(mapOf("button_index" to 0), mapOf("button_text" to "Approve"))) {
+            val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to 100) + selector)
+            assertTrue(result.isError)
+            assertTrue("button_token is required" in text(result))
+        }
+        verify(exactly = 0) { entityResolver.resolve(any<Any>()) }
+        verify(exactly = 0) { telegramClient.pressInlineButton(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
     fun `presses button by index successfully`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.pressInlineButton(42L, 100L, 0, null) } returns "Button pressed"
 
-        val result = tool.executeChecked(
+        val result = createTool(allowLegacy = true).executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 100, "button_index" to 0),
         )
@@ -89,7 +110,7 @@ class PressInlineButtonToolTest {
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.pressInlineButton(42L, 100L, null, "OK") } returns "Done"
 
-        val result = tool.executeChecked(
+        val result = createTool(allowLegacy = true).executeChecked(
             exchange,
             mapOf("chat_id" to 42, "message_id" to 100, "button_text" to "OK"),
         )
@@ -114,6 +135,7 @@ class PressInlineButtonToolTest {
 
     @Test
     fun `deprecated selectors still work and return a deprecation warning`() {
+        val tool = createTool(allowLegacy = true)
         every { entityResolver.resolve(42 as Any) } returns 42L
         every { telegramClient.pressInlineButton(42L, 100L, 1, null) } returns "ok"
 
@@ -123,6 +145,17 @@ class PressInlineButtonToolTest {
         assertTrue(PressInlineButtonTool.DEPRECATED_SELECTOR_WARNING in text(result), text(result))
         val schema = objectMapper.writeValueAsString(tool.definition().inputSchema())
         assertTrue("button_token" in schema && "\"deprecated\":true" in schema, schema)
+    }
+
+    @Test
+    fun `a supplied invalid token cannot fall back to a legacy selector`() {
+        val compatible = createTool(allowLegacy = true)
+        val result = compatible.executeChecked(
+            exchange,
+            mapOf("chat_id" to 42, "message_id" to 100, "button_token" to "", "button_index" to 1),
+        )
+        assertTrue(result.isError)
+        verify(exactly = 0) { telegramClient.pressInlineButton(any(), any(), any(), any(), any()) }
     }
 
     @Test
