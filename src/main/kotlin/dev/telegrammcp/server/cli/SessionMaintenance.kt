@@ -1,5 +1,7 @@
 package dev.telegrammcp.server.cli
 
+import dev.telegrammcp.server.client.AccountCheckRecord
+import dev.telegrammcp.server.client.ExpectedAccountCheck
 import dev.telegrammcp.server.client.TelegramAccountRegistry
 import dev.telegrammcp.server.security.LocalAccessChecks
 import dev.telegrammcp.server.service.PlatformPaths
@@ -37,6 +39,7 @@ class SessionMaintenance internal constructor(
                 exists = Files.isDirectory(directory),
                 lock = inspectLock(directory),
                 stagedDirectories = stagedDirectories(label),
+                accountCheck = runCatching { ExpectedAccountCheck.read(directory) }.getOrNull(),
             )
         }
         return SessionDoctorReport(
@@ -265,6 +268,8 @@ data class SessionAccountReport(
     val exists: Boolean,
     val lock: SessionLock,
     val stagedDirectories: List<Path> = emptyList(),
+    /** Last expected-account check the server recorded for this session; null when none ran. */
+    val accountCheck: AccountCheckRecord? = null,
 ) {
     /** Operating systems do not expose lock owner PIDs portably. */
     val lockOwner: String = "not available portably"

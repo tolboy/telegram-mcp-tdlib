@@ -547,6 +547,7 @@ internal class TdLibReadAdapter(
                     ?: return emptyList()
 
                 val result = mutableListOf<InlineButtonInfo>()
+                var position = 0
                 keyboard.rows?.forEachIndexed { row, buttons ->
                     buttons?.forEachIndexed { idx, button ->
                         if (button == null) return@forEachIndexed
@@ -567,6 +568,8 @@ internal class TdLibReadAdapter(
                             type = typeName,
                             url = url,
                             callbackData = cbData,
+                            position = position++,
+                            messageEditDate = message.editDate,
                         )
                     }
                 }

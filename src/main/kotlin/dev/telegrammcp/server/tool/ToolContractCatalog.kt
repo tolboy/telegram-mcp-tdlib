@@ -94,7 +94,7 @@ object ToolContractCatalog {
                 "delete_message" to "deleted:i chat_id:i", "mark_as_read" to "marked_as_read:i chat_id:i",
                 "pin_message" to "pinned:b message_id:i chat_id:i", "unpin_message" to "unpinned:b message_id:i chat_id:i",
                 "vote_poll" to "chat_id:i message_id:i voted_option_ids:ii", "close_poll" to "chat_id:i message_id:i closed:b",
-                "press_inline_button" to "chat_id:i message_id:i button_index:i? button_text:s? answer:s",
+                "press_inline_button" to "chat_id:i message_id:i button_index:i? button_text:s? answer:s warning:s?",
                 "remove_reaction" to "chat_id:i message_id:i emoji:s removed:b",
                 "send_reaction" to "chat_id:i message_id:i emoji:s is_big:b",
                 "reschedule_message" to "chat_id:i message_id:i previous_message_id:i send_at:date? repeat_period_seconds:i rescheduled:b",

@@ -1,6 +1,9 @@
 ﻿package dev.telegrammcp.server.auth
 
 import dev.telegrammcp.server.client.DelegatingTelegramClientService
+import dev.telegrammcp.server.client.ExpectedAccountCheck
+import dev.telegrammcp.server.client.SensitiveChatDiscovery
+import dev.telegrammcp.server.client.TelegramAuthGate
 import dev.telegrammcp.server.client.MessageSendTracker
 import dev.telegrammcp.server.client.TdLibFactoryLifecycle
 import dev.telegrammcp.server.client.TdLibClientService
@@ -399,7 +402,8 @@ class TelegramAuthOrchestrator(
         phoneNumber: String,
         myGeneration: Int = generation.get(),
     ) {
-        changeJournal?.attach(builder, authWizard.accountLabel)
+        // With an expected account, hotSwap activates this only after the check accepts the session.
+        journalAttachment = changeJournal?.attach(builder, authWizard.accountLabel, recording = !accountAuth().expectedAccount().configured)
         // The circuit breaker of the hot-swapped service reads this state.
         clientServices.attach(builder, accountLabel)
         builder.addUpdateHandler(TdApi.UpdateAuthorizationState::class.java) { update ->
@@ -496,7 +500,13 @@ class TelegramAuthOrchestrator(
         hotSwap(currentClient ?: return)
     }
 
-    /** Swaps the proxy's delegate to a live service on [client], built by the shared factory. */
+    /**
+     * Swaps the proxy's delegate to a live service on [client], built by the shared factory.
+     *
+     * With an expected account configured, the delegate is gated until the
+     * check accepts the session; a different account leaves every tool call
+     * failing with the check's message and the wizard in its error state.
+     */
     internal fun hotSwap(client: SimpleTelegramClient): TdLibClientService {
         val service = clientServices.create(
             account = accountLabel,
@@ -507,9 +517,55 @@ class TelegramAuthOrchestrator(
             bulkheadName = "telegram",
             messageSendTracker = messageSendTracker,
         )
-        delegatingClient.swap(service)
+        val account = accountAuth()
+        val expected = account.expectedAccount()
+        if (!expected.configured) {
+            delegatingClient.swap(service)
+            log.info("Hot-swapped TelegramClientService delegate to live TDLib client")
+            SensitiveChatDiscovery.discover(accountLabel) { username -> client.send(TdApi.SearchPublicChat(username)) }
+            return service
+        }
+        val gate = TelegramAuthGate(accountLabel, account.readyTimeout)
+        val myGeneration = generation.get()
+        val journal = journalAttachment
+        ExpectedAccountCheck(accountLabel, expected, databaseDirectory()).run(
+            getMe = { client.send(TdApi.GetMe()) },
+            onAccepted = {
+                journal?.activate()
+                gate.markReady()
+                SensitiveChatDiscovery.discover(accountLabel) { username -> client.send(TdApi.SearchPublicChat(username)) }
+            },
+            onRefused = { record ->
+                gate.markFailed(record.message)
+                lock.withLock {
+                    if (generation.get() == myGeneration) {
+                        authStateHolder.setState(AuthState.Error(errorMessage = record.message))
+                    }
+                }
+            },
+        )
+        delegatingClient.swap(gate.gate(service))
         log.info("Hot-swapped TelegramClientService delegate to live TDLib client")
         return service
+    }
+
+    /** Journal hook of the newest wizard client; recording waits for the expected-account check. */
+    @Volatile internal var journalAttachment: dev.telegrammcp.server.service.ChangeJournal.Attachment? = null
+
+    /** The wizard account's auth settings: its `telegram.accounts` entry, else `tdlib.auth`. */
+    private fun accountAuth(): TdLibProperties.Auth = namedAccount()?.auth ?: props.auth
+
+    private fun namedAccount(): TelegramProperties.AccountProperties? = telegramProperties.accounts.entries
+        .firstOrNull { (candidate, _) ->
+            dev.telegrammcp.server.client.TelegramAccountRegistry.normalizeLabel(candidate) == accountLabel
+        }
+        ?.value
+
+    private fun databaseDirectory(): java.nio.file.Path {
+        val database = namedAccount()?.database ?: props.database
+        return database.directory.takeIf { it.isNotBlank() }
+            ?.let { platformPaths.resolveApplicationPath(it, "Telegram account '$accountLabel' database directory") }
+            ?: platformPaths.tdLibDatabaseDirectory(accountLabel)
     }
 
     /** Must be called while holding [lock]. Detaches shared references before closing. */

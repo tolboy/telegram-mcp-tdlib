@@ -68,6 +68,15 @@ tdlib:
     # and then fails with a readable error. Keep it below the client's own
     # timeout — Claude Desktop drops a stdio server after 60s.
     ready-timeout: ${TDLIB_AUTH_READY_TIMEOUT:45s}
+    # Optional expected-account guard. Once the session is ready, a session
+    # signed in as a different Telegram user (or phone) is refused and tool
+    # calls fail. An account started from this configuration also shuts the
+    # server down (exit code 3); a login-wizard session keeps the server up with
+    # the wizard in its error state. Nothing reaches the change journal until
+    # the check accepts. 'session doctor' shows the last check.
+    # Named accounts use telegram.accounts.<label>.auth.expected-user-id / -phone-number.
+    expected-user-id: ${TDLIB_EXPECTED_USER_ID:}
+    expected-phone-number: ${TDLIB_EXPECTED_PHONE_NUMBER:}
   # Limits for TDLib requests made by tool calls. MCP clients give up on a
   # tool call after about 60s (TypeScript MCP SDK default, Claude Desktop), so
   # tool-deadline bounds the whole chain of TDLib waits in one call (rate
@@ -141,6 +150,11 @@ telegram:
     # Chats write tools may change. Empty follows the read allow-list.
     # A non-empty list narrows writes and does not grant extra chats.
     mutation-allowed-chat-ids: ${TELEGRAM_MUTATION_CHAT_IDS:}
+    # Telegram's service chat 777000 (login codes), @BotFather (bot tokens) and
+    # @SpamBot are blocked for every tool and resource, even when all chats are
+    # allowed. true lifts that block for every client; naming one of those chat
+    # IDs in allowed-chat-ids lifts it for that chat only.
+    allow-sensitive-chats: ${TELEGRAM_ALLOW_SENSITIVE_CHATS:false}
 # Optional isolated TDLib accounts are omitted by default. Environment variables
 # bind naturally as TELEGRAM_ACCOUNTS_WORK_API_ID, _API_HASH_FILE,
 # _PHONE_NUMBER, etc. Each account gets its own TDLib database directory.

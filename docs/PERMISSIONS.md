@@ -33,6 +33,16 @@ Client wildcards are not supported. Rules for the same client/account/action
 are additive. Existing API-key/OAuth account restrictions and the global chat
 allow-list still intersect with grants. `chat_ids` must be explicit: `null` means
 unrestricted chats and permits account-wide tools; `[]` grants no chat access.
+Sensitive chats (`777000`, `@BotFather`, `@SpamBot`) stay blocked under
+`chat_ids: null`. A grant reaches one only by naming its chat ID in `chat_ids`,
+or by setting the optional `"allow_sensitive_chats": true`, which lifts the block
+for every sensitive chat the grant otherwise covers. The flag defaults to `false`,
+so existing files keep the block. See the README's security section.
+
+```json
+{"client":"ops","account":"work","actions":["read"],"chat_ids":null,"allow_sensitive_chats":true}
+```
+
 Tools without reviewed chat scoping fail closed for restricted grants (including
 account profile, contact management, chat folders and creating unknown chats).
 Forwarding requires permission for both source and destination under its action.

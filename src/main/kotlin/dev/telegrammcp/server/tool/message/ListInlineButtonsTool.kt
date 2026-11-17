@@ -17,7 +17,8 @@ import org.springframework.stereotype.Component
 /**
  * MCP tool: **list_inline_buttons**
  *
- * Inspects the inline-keyboard buttons attached to a message.
+ * Inspects the inline-keyboard buttons attached to a message. Every button
+ * carries a signed `token` that press_inline_button takes as `button_token`.
  */
 @Component
 class ListInlineButtonsTool(
@@ -26,6 +27,7 @@ class ListInlineButtonsTool(
     private val guardrailService: GuardrailService,
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
+    private val buttonTokens: InlineButtonTokens = InlineButtonTokens(),
 ) : McpToolHandler {
 
     private val log = StructuredLogger.forClass<ListInlineButtonsTool>()
@@ -48,7 +50,8 @@ class ListInlineButtonsTool(
 
     override fun definition(): McpSchema.Tool = ToolSupport.definition(
         name = TOOL_NAME,
-        description = "List inline-keyboard buttons attached to a Telegram message",
+        description = "List inline-keyboard buttons attached to a Telegram message. Each button has a token: pass it " +
+            "as button_token to press_inline_button. A token stops working when the message or keyboard changes.",
         inputSchema = INPUT_SCHEMA,
         objectMapper = objectMapper,
     )
@@ -71,6 +74,6 @@ class ListInlineButtonsTool(
 
             guardrailService.validateChatAccess(chatId)
             log.withTool(TOOL_NAME).info("Listing inline buttons for message {} in chat {}", messageId, chatId)
-            telegramClient.listInlineButtons(chatId, messageId)
+            buttonTokens.sign(chatId, messageId, telegramClient.listInlineButtons(chatId, messageId))
         }
 }

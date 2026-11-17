@@ -174,17 +174,45 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
                     scanned.any { it.kind == GAP })
         }
 
-    fun attach(builder: SimpleTelegramClientBuilder, account: String) {
+    /**
+     * Records [builder]'s message updates for [account].
+     *
+     * With [recording] false (an expected-account check is still pending) the
+     * handlers drop every update until [Attachment.activate] is called, so a
+     * refused session never reaches the journal. Activation appends a gap
+     * marker, so cursors from before cannot mix the two sessions.
+     */
+    fun attach(builder: SimpleTelegramClientBuilder, account: String, recording: Boolean = true): Attachment {
+        val attachment = Attachment(account, recording)
         append(account, GAP)
-        builder.addUpdateHandler(TdApi.UpdateNewMessage::class.java) { recordNewMessage(account, it.message) }
-        builder.addUpdateHandler(TdApi.UpdateMessageSendSucceeded::class.java) { recordNewMessage(account, it.message) }
-        builder.addUpdateHandler(TdApi.UpdateMessageContent::class.java) { append(account, "content_changed", it.chatId, it.messageId) }
-        builder.addUpdateHandler(TdApi.UpdateMessageEdited::class.java) { append(account, "edited", it.chatId, it.messageId) }
+        builder.addUpdateHandler(TdApi.UpdateNewMessage::class.java) { attachment.record { recordNewMessage(account, it.message) } }
+        builder.addUpdateHandler(TdApi.UpdateMessageSendSucceeded::class.java) { attachment.record { recordNewMessage(account, it.message) } }
+        builder.addUpdateHandler(TdApi.UpdateMessageContent::class.java) {
+            attachment.record { append(account, "content_changed", it.chatId, it.messageId) }
+        }
+        builder.addUpdateHandler(TdApi.UpdateMessageEdited::class.java) { attachment.record { append(account, "edited", it.chatId, it.messageId) } }
         builder.addUpdateHandler(TdApi.UpdateDeleteMessages::class.java) { update ->
-            if (update.isPermanent) update.messageIds.forEach { append(account, "deleted", update.chatId, it) }
+            attachment.record { if (update.isPermanent) update.messageIds.forEach { append(account, "deleted", update.chatId, it) } }
         }
         builder.addUpdateHandler(TdApi.UpdateConnectionState::class.java) {
-            if (it.state !is TdApi.ConnectionStateReady) append(account, GAP)
+            attachment.record { if (it.state !is TdApi.ConnectionStateReady) append(account, GAP) }
+        }
+        return attachment
+    }
+
+    /** One client's journal hook; see [attach]. */
+    inner class Attachment internal constructor(private val account: String, recording: Boolean) {
+        private val active = AtomicBoolean(recording)
+
+        val recording: Boolean get() = active.get()
+
+        /** Starts recording once the session is accepted; the first call appends a gap marker. */
+        fun activate() {
+            if (active.compareAndSet(false, true)) append(account, GAP)
+        }
+
+        internal fun record(action: () -> Unit) {
+            if (active.get()) action()
         }
     }
 

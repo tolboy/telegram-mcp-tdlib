@@ -213,12 +213,12 @@ class GuardrailViolationException(
 ) : McpException("Guardrail violation: $message")
 
 /** The requested chat is not in the allow-list. */
-class ChatNotAllowedException(
-    chatId: Long? = null,
-) : McpException(
-    chatId?.let { "Access to chat $it is not allowed by security policy" }
-        ?: "Access to the resolved chat is not allowed by security policy",
-)
+open class ChatNotAllowedException(message: String) : McpException(message) {
+    constructor(chatId: Long? = null) : this(
+        chatId?.let { "Access to chat $it is not allowed by security policy" }
+            ?: "Access to the resolved chat is not allowed by security policy",
+    )
+}
 
 /** The authenticated MCP client is not permitted to route calls to an account. */
 class AccountAccessDeniedException(

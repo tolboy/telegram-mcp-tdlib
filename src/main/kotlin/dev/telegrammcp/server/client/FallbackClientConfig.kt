@@ -121,7 +121,7 @@ private class NoOpTelegramClientService : TelegramClientService {
     override fun getMessageViewers(chatId: Long, messageId: Long) = unavailable()
     override fun getMessageContext(chatId: Long, messageId: Long, contextSize: Int) = unavailable()
     override fun listInlineButtons(chatId: Long, messageId: Long) = unavailable()
-    override fun pressInlineButton(chatId: Long, messageId: Long, buttonIndex: Int?, buttonText: String?) = unavailable()
+    override fun pressInlineButton(chatId: Long, messageId: Long, buttonIndex: Int?, buttonText: String?, expected: InlineButtonInfo?) = unavailable()
     override fun listForumTopics(chatId: Long, query: String, limit: Int) = unavailable()
     override fun createForumTopic(chatId: Long, name: String, iconColor: Int?, customEmojiId: Long?) = unavailable()
     override fun editForumTopic(

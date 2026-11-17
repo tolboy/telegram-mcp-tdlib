@@ -130,7 +130,8 @@ class TdLibClientService(
     override fun sendPoll(chatId: Long, question: String, options: List<String>, isAnonymous: Boolean, allowMultipleAnswers: Boolean): TelegramMessage = messages.sendPoll(chatId, question, options, isAnonymous, allowMultipleAnswers)
     override fun setPollAnswer(chatId: Long, messageId: Long, optionIds: List<Int>): Boolean = messages.setPollAnswer(chatId, messageId, optionIds)
     override fun stopPoll(chatId: Long, messageId: Long): Boolean = messages.stopPoll(chatId, messageId)
-    override fun pressInlineButton(chatId: Long, messageId: Long, buttonIndex: Int?, buttonText: String?): String = messages.pressInlineButton(chatId, messageId, buttonIndex, buttonText)
+    override fun pressInlineButton(chatId: Long, messageId: Long, buttonIndex: Int?, buttonText: String?, expected: InlineButtonInfo?): String =
+        messages.pressInlineButton(chatId, messageId, buttonIndex, buttonText, expected)
     override fun sendVoice(chatId: Long, filePath: String, duration: Int, caption: String?): TelegramMessage = messages.sendVoice(chatId, filePath, duration, caption)
     override fun sendSticker(chatId: Long, filePath: String, emoji: String?): TelegramMessage = messages.sendSticker(chatId, filePath, emoji)
     override fun sendAlbum(chatId: Long, items: List<AlbumItem>): List<TelegramMessage> = messages.sendAlbum(chatId, items)

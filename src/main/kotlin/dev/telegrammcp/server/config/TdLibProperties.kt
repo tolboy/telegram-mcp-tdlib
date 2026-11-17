@@ -60,7 +60,21 @@ data class TdLibProperties(
          * tool call instead, so keep this comfortably below the client's limit.
          */
         val readyTimeout: Duration = Duration.ofSeconds(45),
-    )
+        /**
+         * Optional Telegram user ID this session must belong to. Once TDLib is
+         * ready, a session signed in as anyone else is refused and tool calls
+         * fail. An account started from configuration also shuts the server down
+         * (exit code 3); a session from the login wizard leaves the server up
+         * with the wizard in its error state. Nothing is written to the change
+         * journal until the check accepts. `session doctor` shows the last result.
+         */
+        val expectedUserId: Long? = null,
+        /** Optional phone number (international format) the session must belong to; digits are compared. */
+        val expectedPhoneNumber: String = "",
+    ) {
+        fun expectedAccount(): dev.telegrammcp.server.client.ExpectedAccount =
+            dev.telegrammcp.server.client.ExpectedAccount(expectedUserId, expectedPhoneNumber.trim())
+    }
 
     /**
      * TDLib local database settings. These map directly to `TDLibSettings` setters in

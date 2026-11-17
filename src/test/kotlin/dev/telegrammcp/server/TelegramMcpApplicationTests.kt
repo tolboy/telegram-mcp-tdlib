@@ -39,6 +39,16 @@ class TelegramMcpApplicationTests {
     }
 
     @Test
+    fun `list and press inline button tools share one token signer`() {
+        val signer = applicationContext.getBean(dev.telegrammcp.server.tool.message.InlineButtonTokens::class.java)
+        fun field(bean: Any) = bean.javaClass.getDeclaredField("buttonTokens").apply { isAccessible = true }.get(bean)
+        val list = applicationContext.getBean(dev.telegrammcp.server.tool.message.ListInlineButtonsTool::class.java)
+        val press = applicationContext.getBean(dev.telegrammcp.server.tool.message.PressInlineButtonTool::class.java)
+        assertTrue(field(org.springframework.aop.framework.AopProxyUtils.getSingletonTarget(list) ?: list) === signer)
+        assertTrue(field(org.springframework.aop.framework.AopProxyUtils.getSingletonTarget(press) ?: press) === signer)
+    }
+
+    @Test
     fun `raw HTTP binds to loopback by default`() {
         assertEquals("127.0.0.1", environment.getProperty("server.address"))
     }
