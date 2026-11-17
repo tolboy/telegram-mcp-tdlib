@@ -68,6 +68,12 @@ tdlib:
     # and then fails with a readable error. Keep it below the client's own
     # timeout — Claude Desktop drops a stdio server after 60s.
     ready-timeout: ${TDLIB_AUTH_READY_TIMEOUT:45s}
+    # Optional expected-account guard. Once the session is ready, a session
+    # signed in as a different Telegram user (or phone) is refused: tool calls
+    # fail and the server shuts down. 'session doctor' shows the last check.
+    # Named accounts use telegram.accounts.<label>.auth.expected-user-id / -phone-number.
+    expected-user-id: ${TDLIB_EXPECTED_USER_ID:}
+    expected-phone-number: ${TDLIB_EXPECTED_PHONE_NUMBER:}
   # Limits for TDLib requests made by tool calls. MCP clients give up on a
   # tool call after about 60s (TypeScript MCP SDK default, Claude Desktop), so
   # tool-deadline bounds the whole chain of TDLib waits in one call (rate

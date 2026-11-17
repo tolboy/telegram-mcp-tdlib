@@ -16,6 +16,15 @@ macOS, and Linux; `lock_owner=not available portably` is deliberate. A `LOCKED`
 or `UNAVAILABLE` result means stop the owning server/process before session
 maintenance.
 
+Each account also shows `account_check=`, the last expected-account check the
+server recorded (`tdlib.auth.expected-user-id` / `expected-phone-number`, or
+`TDLIB_EXPECTED_USER_ID` / `TDLIB_EXPECTED_PHONE_NUMBER`). It is one of
+`NOT_RUN` (no record yet), `NOT_CONFIGURED`, `MATCH`, `MISMATCH` or
+`UNVERIFIED`, with the expected and actual user IDs and masked phone numbers.
+The record is `telegram-mcp-account-check.json` in the account's database
+directory, written each time the session becomes ready, and removed by
+`session clear` together with the session.
+
 `td.binlog` is checked before `td.sqlite`, and any held candidate makes the
 session `LOCKED`. An open/probe error is `UNAVAILABLE`; in particular, a Windows
 handle opened with exclusive sharing (`FileShare.None`) prevents opening the

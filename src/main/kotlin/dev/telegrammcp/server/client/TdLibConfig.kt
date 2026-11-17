@@ -207,6 +207,7 @@ class TdLibConfig(
             proxy = proxyResolver.resolve(proxy, label),
             logVerbosityLevel = logVerbosityLevel,
             authReadyTimeout = auth.readyTimeout,
+            expectedAccount = auth.expectedAccount(),
         )
     }
 
@@ -234,8 +235,11 @@ class TdLibConfig(
             clientServices.attach(builder, config.label)
             val authGate = TelegramAuthGate(config.label, config.authReadyTimeout)
             val chatFolderState = ChatFolderState()
+            // READY can arrive before builder.build returns, so the check reaches the client through this.
+            val clientRef = CompletableFuture<SimpleTelegramClient>()
+            val accountCheck = ExpectedAccountCheck(config.label, config.expectedAccount, config.databaseDirectory)
             builder.addUpdateHandler(TdApi.UpdateAuthorizationState::class.java) { update ->
-                handleAuthState(config.label, update, authGate)
+                handleAuthState(config.label, update, authGate) { onSessionReady(config.label, authGate, clientRef, accountCheck) }
                 if (update.authorizationState is TdApi.AuthorizationStateClosed) messageSendTracker.close()
             }
             builder.addUpdateHandler(TdApi.UpdateChatFolders::class.java) { update ->
@@ -258,7 +262,13 @@ class TdLibConfig(
                     log = log,
                 ),
             )
-            val client = builder.build(authenticationSupplier(config))
+            val client = try {
+                builder.build(authenticationSupplier(config))
+            } catch (error: Exception) {
+                clientRef.completeExceptionally(error)
+                throw error
+            }
+            clientRef.complete(client)
             configureProxy(client, config)
 
             // Startup deliberately does not wait for authentication: the MCP
@@ -351,11 +361,12 @@ class TdLibConfig(
         label: String,
         update: TdApi.UpdateAuthorizationState,
         authGate: TelegramAuthGate,
+        onReady: () -> Unit,
     ) {
         when (val state = update.authorizationState) {
             is TdApi.AuthorizationStateReady -> {
                 log.info("TDLib account '{}' is ready", label)
-                authGate.markReady()
+                onReady()
             }
             is TdApi.AuthorizationStateClosed -> {
                 authGate.markFailed("TDLib session for account '$label' closed")
@@ -367,6 +378,34 @@ class TdLibConfig(
                 log.warn("TDLib account '{}' requires email verification", label)
             else -> log.debug("TDLib account '{}' auth state: {}", label, state.javaClass.simpleName)
         }
+    }
+
+    /**
+     * Opens the gate only after the expected-account check accepts the session.
+     * A different account is refused: tool calls fail with the check's message
+     * and the server shuts down, like a session another process owns.
+     */
+    private fun onSessionReady(
+        label: String,
+        authGate: TelegramAuthGate,
+        clientRef: CompletableFuture<SimpleTelegramClient>,
+        accountCheck: ExpectedAccountCheck,
+    ) {
+        accountCheck.run(
+            getMe = { clientRef.thenCompose { it.send(TdApi.GetMe()) } },
+            onAccepted = {
+                authGate.markReady()
+                clientRef.thenAccept { client ->
+                    SensitiveChatDiscovery.discover(label) { username -> client.send(TdApi.SearchPublicChat(username)) }
+                }
+            },
+            onRefused = { record ->
+                authGate.markFailed(record.message)
+                if (record.result == AccountCheckResult.MISMATCH) {
+                    ServerShutdown.INSTANCE.requestShutdown(record.message, exitCode = ACCOUNT_MISMATCH_EXIT_CODE)
+                }
+            },
+        )
     }
 
     /**
@@ -417,11 +456,15 @@ class TdLibConfig(
         val proxy: TdApi.Proxy?,
         val logVerbosityLevel: Int,
         val authReadyTimeout: Duration,
+        val expectedAccount: ExpectedAccount,
     )
 
     private companion object {
         /** Exit code for "another process owns this TDLib session". */
         const val SESSION_LOCKED_EXIT_CODE = 2
+
+        /** Exit code for "the session belongs to a different Telegram account". */
+        const val ACCOUNT_MISMATCH_EXIT_CODE = 3
     }
 }
 

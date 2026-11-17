@@ -1,5 +1,7 @@
 package dev.telegrammcp.server.cli
 
+import dev.telegrammcp.server.client.AccountCheckRecord
+
 /** Command-line entry point for offline-safe TDLib session inspection. */
 object SessionMaintenanceCli {
     fun tryRun(args: Array<String>): Boolean {
@@ -35,12 +37,27 @@ object SessionMaintenanceCli {
             println("  exists=${account.exists}")
             println("  tdlib_lock=${account.lock}")
             println("  lock_owner=${account.lockOwner}")
+            println("  account_check=${describeAccountCheck(account.accountCheck)}")
             account.stagedDirectories.forEach { staged ->
                 println("  staged_directory=$staged (requires manual recovery; stop the owner first)")
             }
         }
         println("logout=${report.logoutInstruction}")
         println("clear=${report.clearInstruction}")
+    }
+
+    /** One line for the last expected-account check; masked phones only. */
+    internal fun describeAccountCheck(record: AccountCheckRecord?): String {
+        if (record == null) return "NOT_RUN (no check recorded; it runs each time the server signs in)"
+        val details = buildList {
+            add("checked_at=${record.checkedAt}")
+            record.expectedUserId?.let { add("expected_user_id=$it") }
+            record.expectedPhone?.let { add("expected_phone=$it") }
+            record.actualUserId?.let { add("actual_user_id=$it") }
+            record.actualPhone?.let { add("actual_phone=$it") }
+        }
+        val summary = "${record.result} (${details.joinToString(", ")})"
+        return if (record.accepted) summary else "$summary: ${record.message}"
     }
 
     private fun printUsage() {
