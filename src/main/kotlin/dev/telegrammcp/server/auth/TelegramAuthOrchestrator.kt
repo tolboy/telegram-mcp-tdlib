@@ -528,7 +528,10 @@ class TelegramAuthOrchestrator(
         val gate = TelegramAuthGate(accountLabel, account.readyTimeout)
         val myGeneration = generation.get()
         val journal = journalAttachment
-        ExpectedAccountCheck(accountLabel, expected, databaseDirectory()).run(
+        ExpectedAccountCheck(
+            accountLabel, expected, databaseDirectory(),
+            budget = ExpectedAccountCheck.budgetFor(account.readyTimeout),
+        ).run(
             getMe = { client.send(TdApi.GetMe()) },
             onAccepted = {
                 journal?.activate()

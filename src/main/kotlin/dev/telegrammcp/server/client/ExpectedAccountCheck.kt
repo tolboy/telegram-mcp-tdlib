@@ -84,13 +84,24 @@ class ExpectedAccountCheck(
     private val expected: ExpectedAccount,
     /** Where to persist the [AccountCheckRecord]; null skips persistence. */
     private val recordDirectory: Path?,
-    private val timeout: Duration = Duration.ofSeconds(30),
+    /** How long the first GetMe may take. */
+    private val timeout: Duration = Duration.ofSeconds(15),
     private val clock: Clock = Clock.systemUTC(),
     /**
      * Pauses before each retry when GetMe fails or times out; its size is the
      * number of retries. A wrong account is never retried, only a missing answer.
      */
     private val retryBackoff: List<Duration> = DEFAULT_RETRY_BACKOFF,
+    /** How long each retried GetMe may take; shorter than [timeout] so retries fit the budget. */
+    private val retryTimeout: Duration = Duration.ofSeconds(5),
+    /**
+     * Upper bound for the whole check, normally derived from the auth
+     * ready-timeout with [budgetFor], so a waiting tool call gets the check's
+     * verdict instead of an auth timeout. Every attempt is cut to the time left,
+     * and no retry starts without at least [MIN_ATTEMPT] after its pause.
+     * Null means no overall bound.
+     */
+    private val budget: Duration? = null,
 ) {
     private val log = StructuredLogger.forClass<ExpectedAccountCheck>()
 
@@ -111,27 +122,36 @@ class ExpectedAccountCheck(
             onAccepted(record)
             return
         }
-        attempt(getMe, onAccepted, onRefused, retry = 0)
+        val deadline = budget?.let { System.nanoTime() + it.toNanos() }
+        attempt(getMe, onAccepted, onRefused, retry = 0, deadline = deadline)
     }
+
+    private fun remainingMillis(deadline: Long?): Long? =
+        deadline?.let { TimeUnit.NANOSECONDS.toMillis(it - System.nanoTime()) }
 
     private fun attempt(
         getMe: () -> CompletableFuture<TdApi.User>,
         onAccepted: (AccountCheckRecord) -> Unit,
         onRefused: (AccountCheckRecord) -> Unit,
         retry: Int,
+        deadline: Long?,
     ) {
+        val limit = (if (retry == 0) timeout else retryTimeout).toMillis()
+        val attemptMillis = remainingMillis(deadline)?.let { minOf(limit, it) }?.coerceAtLeast(1) ?: limit
         val future = try {
             getMe()
         } catch (error: Exception) {
             CompletableFuture.failedFuture(error)
         }
-        future.orTimeout(timeout.toMillis(), TimeUnit.MILLISECONDS).whenComplete { user, error ->
-            if ((error != null || user == null) && retry < retryBackoff.size) {
-                val pause = retryBackoff[retry]
+        future.orTimeout(attemptMillis, TimeUnit.MILLISECONDS).whenComplete { user, error ->
+            val pause = retryBackoff.getOrNull(retry)
+            val left = remainingMillis(deadline)
+            val retryFits = pause != null && (left == null || left >= pause.toMillis() + MIN_ATTEMPT.toMillis())
+            if ((error != null || user == null) && pause != null && retryFits) {
                 log.warn("Could not verify Telegram account '{}' (attempt {} of {}); retrying in {} ms",
                     label, retry + 1, retryBackoff.size + 1, pause.toMillis())
                 CompletableFuture.runAsync(
-                    { attempt(getMe, onAccepted, onRefused, retry + 1) },
+                    { attempt(getMe, onAccepted, onRefused, retry + 1, deadline) },
                     CompletableFuture.delayedExecutor(pause.toMillis(), TimeUnit.MILLISECONDS),
                 )
                 return@whenComplete
@@ -207,6 +227,20 @@ class ExpectedAccountCheck(
 
         /** Three retries over about 7 seconds, on top of each attempt's own timeout. */
         val DEFAULT_RETRY_BACKOFF: List<Duration> = listOf(Duration.ofSeconds(1), Duration.ofSeconds(2), Duration.ofSeconds(4))
+
+        /** The shortest attempt worth starting; a retry that would get less is skipped. */
+        val MIN_ATTEMPT: Duration = Duration.ofSeconds(1)
+
+        /**
+         * The check's budget for an auth [readyTimeout]: the ready-timeout minus a
+         * margin (a fifth, at most 5 seconds) so the verdict lands before a
+         * waiting tool call gives up. The 45s default gives 40s, which covers the
+         * worst case of the defaults: 15 + 1 + 5 + 2 + 5 + 4 + 5 = 37 seconds.
+         */
+        fun budgetFor(readyTimeout: Duration): Duration {
+            val margin = minOf(Duration.ofSeconds(5), readyTimeout.dividedBy(5))
+            return readyTimeout.minus(margin)
+        }
 
         private val mapper: ObjectMapper = jacksonObjectMapper().findAndRegisterModules()
             .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
