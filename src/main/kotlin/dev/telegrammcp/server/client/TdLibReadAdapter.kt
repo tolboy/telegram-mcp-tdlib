@@ -966,4 +966,20 @@ internal class TdLibReadAdapter(
                 return TdLibRequestBuilders.chatStatistics(chatId, statistics)
 
     }
+
+    fun getMessageAddressing(chatId: Long, messageIds: List<Long>): List<MessageAddressing> = with(support) {
+                require(messageIds.size <= 200) { "At most 200 message IDs per call" }
+                val ids = messageIds.filter { it > 0 }.distinct()
+                if (ids.isEmpty()) return emptyList()
+                val me = withResilience("getMe") { send<TdApi.User>(TdApi.GetMe()) }
+                val chat = withResilience("getChat") { send<TdApi.Chat>(TdApi.GetChat(chatId)) }
+                val messages = withResilience("getMessages") {
+                    send<TdApi.Messages>(TdApi.GetMessages(chatId, ids.toLongArray()))
+                }.messages.orEmpty().filterNotNull()
+                val replyTargets = messages.mapNotNull { MessageAddressingClassifier.sameChatReplyTarget(it) }.distinct()
+                val mine = if (replyTargets.isEmpty()) emptySet() else withResilience("getMessages") {
+                    send<TdApi.Messages>(TdApi.GetMessages(chatId, replyTargets.toLongArray()))
+                }.messages.orEmpty().filterNotNull().filter { it.isOutgoing }.map { it.id }.toSet()
+                return messages.map { MessageAddressingClassifier.classify(it, chat.type, me, mine) }
+    }
 }

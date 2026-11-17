@@ -173,4 +173,5 @@ private class NoOpTelegramClientService : TelegramClientService {
     override fun unpinAllMessages(chatId: Long) = unavailable()
     override fun deleteMessagesBySender(chatId: Long, senderId: Long) = unavailable()
     override fun getChatStatistics(chatId: Long) = unavailable()
+    override fun getMessageAddressing(chatId: Long, messageIds: List<Long>) = unavailable()
 }

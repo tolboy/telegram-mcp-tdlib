@@ -57,11 +57,12 @@ class TelegramMcpApplicationTests {
     fun `registers the documented tool inventory on Streamable HTTP`() {
         val names = handlers.map { it.definition().name() }
 
-        assertEquals(126, names.size)
+        assertEquals(127, names.size)
         assertEquals(names.toSet(), dev.telegrammcp.server.tool.ToolContractCatalog.schemas.keys,
             "Every registered tool must have an explicit output contract")
         assertTrue("get_send_operation" in names)
         assertTrue("wait_for_changes" in names)
+        assertTrue("wait_for_settled_messages" in names)
         assertEquals(names.size, names.toSet().size)
         assertTrue("search_public_messages" in names)
         assertFalse("get_chat_promotion_policy" in names)

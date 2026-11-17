@@ -198,7 +198,7 @@ is in [PUBLIC_BENCHMARK_AND_ROADMAP.md](docs/PUBLIC_BENCHMARK_AND_ROADMAP.md).
 
 ## Tool profiles
 
-You don't expose 126 tools on day one. `MCP_TOOL_PROFILE` narrows the advertised surface
+You don't expose 127 tools on day one. `MCP_TOOL_PROFILE` narrows the advertised surface
 *before a client ever sees it*, without weakening account scoping, read-only mode,
 confirmation, audit, or anti-spam:
 
@@ -214,7 +214,7 @@ See [TOOL_PROFILES.md](docs/TOOL_PROFILES.md) for the exact intent of each surfa
 
 ## Features
 
-- **126 MCP tools** — messages, polls, read receipts, scheduled sends, chats, folders,
+- **127 MCP tools** — messages, polls, read receipts, scheduled sends, chats, folders,
   invite-link administration, contacts, media, drafts, privacy, bot commands, detailed group
   permissions, profile, search, and account routing.
 - **TDLib via tdlight-java** — real user accounts, not just the Bot API.
@@ -685,7 +685,8 @@ all chats are allowed: Telegram's service chat `777000` (login codes, new-sessio
 alerts and QR-login confirmations, which are enough to take over the account),
 `@BotFather` (bot tokens) and `@SpamBot` (account limits and appeals). Direct
 access fails with a sensitive-chat error, and multi-chat results (`list_chats`,
-`search_global`, unread digests, `changes_since`, `wait_for_changes`, resources
+`search_global`, unread digests, `changes_since`, `wait_for_changes`,
+`wait_for_settled_messages`, resources
 and exports) leave them out. The bots' production IDs are built in, and each
 account also resolves the usernames once it is ready. To lift the block, name the
 chat ID in `TELEGRAM_ALLOWED_CHAT_IDS` or in a grant's `chat_ids` (that chat only),
@@ -729,6 +730,7 @@ For remote deployment, terminate TLS before the service and restrict network acc
 | `conversation_bundle` | Compact conversation page with an exclusive older-than cursor |
 | `changes_since` | Persistent observed message changes, with explicit coverage gaps |
 | `wait_for_changes` | Wait for observed message changes using a resumable cursor and optional chat filter |
+| `wait_for_settled_messages` | Wait until new incoming messages stop arriving (debounced burst), with per-message `addressed` flags and explicit `gap`/`reset` catch-up markers |
 | `export_job` | Start, resume, inspect, read, cancel and delete durable history exports |
 
 See [compact tasks and export](docs/TASKS_AND_EXPORTS.md) and [managed local daemon](docs/LOCAL_DAEMON.md).
@@ -740,7 +742,7 @@ The full inventory is grouped below. In practice you start with a
 [tool profile](#tool-profiles) rather than enabling all of it at once.
 
 <details>
-<summary><b>Show all 126 tools</b></summary>
+<summary><b>Show all 127 tools</b></summary>
 
 ### Messages (35 tools)
 

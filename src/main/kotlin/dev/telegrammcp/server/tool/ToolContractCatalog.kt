@@ -36,6 +36,7 @@ object ToolContractCatalog {
             put("conversation_bundle", dto<dev.telegrammcp.server.tool.task.ConversationBundle>())
             put("changes_since", dto<dev.telegrammcp.server.service.ChangePage>())
             put("wait_for_changes", dto<dev.telegrammcp.server.service.ChangeWaitResult>())
+            put("wait_for_settled_messages", dto<dev.telegrammcp.server.service.SettledWaitResult>())
             put("export_job", dto<dev.telegrammcp.server.service.ExportJobResult>())
             method("getChats", "list_chats")
             method("getChat", "get_chat", "create_group", "create_channel", "join_chat_by_link")
