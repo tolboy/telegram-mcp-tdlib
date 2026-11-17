@@ -168,6 +168,7 @@ class SensitiveChatsTest {
         )
         val accounts = mockk<AccountAccessPolicy>()
         every { accounts.selectAccount(mapOf("account" to "work")) } returns "work"
+        every { accounts.isExpectedAccountReady("work") } returns true
         val surface = mockk<ToolSurfacePolicy>()
         every { surface.isVisible(any(), any(), any()) } returns true
         val resources = TelegramResourceAccess(accounts, surface, ServerModeProperties(), guard(permissions = policy), policy)

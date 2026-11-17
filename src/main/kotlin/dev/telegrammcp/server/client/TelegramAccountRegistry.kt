@@ -26,6 +26,8 @@ class TelegramAccountRegistry {
     data class AccountHandle(
         val label: String,
         val service: TelegramClientService,
+        /** Supplies the current session's gate when an expected account is configured. */
+        val expectedAccountGate: (() -> TelegramAuthGate)? = null,
         val close: (() -> Unit)? = null,
     )
 
@@ -43,8 +45,12 @@ class TelegramAccountRegistry {
         log.info("Replaced Telegram account '{}'", label)
     }
 
-    fun require(label: String): TelegramClientService =
-        accounts[normalizeLabel(label)]?.service
+    fun require(label: String): TelegramClientService = account(label).service
+
+    internal fun expectedAccountGate(label: String): TelegramAuthGate? = account(label).expectedAccountGate?.invoke()
+
+    private fun account(label: String): AccountHandle =
+        accounts[normalizeLabel(label)]
             ?: throw TelegramUnavailableException(
                 IllegalArgumentException("Unknown Telegram account '$label'. Available accounts: ${labels().joinToString()}")
             )

@@ -28,6 +28,7 @@ class ResourceNotificationBackingToolTest {
     private fun access(vararg allowed: String): TelegramResourceAccess {
         val accounts = mockk<AccountAccessPolicy>()
         every { accounts.selectAccount(any()) } returns "a"
+        every { accounts.isExpectedAccountReady(any()) } returns true
         val guard = mockk<GuardrailService>()
         every { guard.isChatAllowed(any()) } answers { firstArg<Long>() == 42L }
         return TelegramResourceAccess(accounts, ToolSurfacePolicy(McpSecurityProperties(toolAllow = allowed.toList())),

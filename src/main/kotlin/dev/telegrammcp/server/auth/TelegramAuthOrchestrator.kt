@@ -11,6 +11,7 @@ import dev.telegrammcp.server.client.TdLibClientServiceFactory
 import dev.telegrammcp.server.client.TelegramConnectionStates
 import dev.telegrammcp.server.config.TdLibProperties
 import dev.telegrammcp.server.config.TelegramProperties
+import dev.telegrammcp.server.exception.TdLibAuthException
 import dev.telegrammcp.server.security.LocalAccessChecks
 import dev.telegrammcp.server.service.PlatformPaths
 import dev.telegrammcp.server.util.StructuredLogger
@@ -99,6 +100,7 @@ class TelegramAuthOrchestrator(
 
     /** Incremented on every initAuth call; lets the background thread detect if it was superseded. */
     private val generation = AtomicInteger(0)
+    @Volatile
     private var accountVerificationGate: TelegramAuthGate? = null
 
     /**
@@ -568,6 +570,16 @@ class TelegramAuthOrchestrator(
 
     /** The wizard account's auth settings: its `telegram.accounts` entry, else `tdlib.auth`. */
     private fun accountAuth(): TdLibProperties.Auth = namedAccount()?.auth ?: props.auth
+
+    /** Resolve a fresh wizard gate on each call, including after logout or a replacement login. */
+    internal fun expectedAccountGateProvider(): (() -> TelegramAuthGate)? {
+        if (!accountAuth().expectedAccount().configured) return null
+        return {
+            accountVerificationGate ?: throw TdLibAuthException(
+                "Telegram account '$accountLabel' must complete login and expected-account verification",
+            )
+        }
+    }
 
     private fun namedAccount(): TelegramProperties.AccountProperties? = telegramProperties.accounts.entries
         .firstOrNull { (candidate, _) ->

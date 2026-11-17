@@ -5,6 +5,7 @@ import dev.telegrammcp.server.client.MessageSendTracker
 import dev.telegrammcp.server.client.TdLibClientServiceFactory
 import dev.telegrammcp.server.client.TelegramConnectionStates
 import dev.telegrammcp.server.config.TdLibProperties
+import dev.telegrammcp.server.exception.TdLibAuthException
 import dev.telegrammcp.server.service.PlatformPaths
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.ratelimiter.RateLimiter
@@ -32,7 +33,9 @@ import java.nio.file.attribute.PosixFilePermission
 import java.util.Properties
 import java.util.concurrent.CompletableFuture
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -89,6 +92,9 @@ class TelegramAuthOrchestratorHotSwapTest {
     fun `wizard reports ready only after the configured account matches`() {
         orchestrator.shutdownLifecycleExecutor()
         orchestrator = createOrchestrator(expectedUserId = 42)
+        val registry = AuthWizardRuntimeConfig()
+            .authWizardAccountRegistry(delegating, AuthWizardProperties(), orchestrator)
+        assertFailsWith<TdLibAuthException> { registry.expectedAccountGate("default") }
         val authorization = authorizationHandler()
         val built = builtClient()
         val getMe = CompletableFuture<TdApi.User>()
@@ -97,11 +103,34 @@ class TelegramAuthOrchestratorHotSwapTest {
 
         repeat(2) { authorization.onUpdate(TdApi.UpdateAuthorizationState(TdApi.AuthorizationStateReady())) }
         assertTrue(authState.getState() is AuthState.VerifyingAccount)
+        assertFalse(assertNotNull(registry.expectedAccountGate("default")).isReady())
         assertEquals("verifyingAccount", AuthStateDto.from(authState.getState()).state)
         verify(exactly = 1) { built.client.send(any<TdApi.GetMe>()) }
 
         getMe.complete(TdApi.User().apply { id = 42 })
         assertTrue(authState.getState() is AuthState.Ready)
+        assertTrue(assertNotNull(registry.expectedAccountGate("default")).isReady())
+        orchestrator.logout()
+        assertFailsWith<TdLibAuthException> { registry.expectedAccountGate("default") }
+    }
+
+    @Test
+    fun `wizard refuses local access after a mismatched account`() {
+        orchestrator.shutdownLifecycleExecutor()
+        orchestrator = createOrchestrator(expectedUserId = 42)
+        val registry = AuthWizardRuntimeConfig()
+            .authWizardAccountRegistry(delegating, AuthWizardProperties(), orchestrator)
+        val authorization = authorizationHandler()
+        val built = builtClient()
+        every { built.client.send(any<TdApi.GetMe>()) } returns CompletableFuture.completedFuture(
+            TdApi.User().apply { id = 43 },
+        )
+        orchestrator.acceptBuiltClient(0, built)
+        authorization.onUpdate(TdApi.UpdateAuthorizationState(TdApi.AuthorizationStateReady()))
+        assertTrue(authState.getState() is AuthState.Error)
+        val gate = assertNotNull(registry.expectedAccountGate("default"))
+        assertFalse(gate.isReady())
+        assertFailsWith<TdLibAuthException> { gate.awaitReady() }
     }
 
     @Test

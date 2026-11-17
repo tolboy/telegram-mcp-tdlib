@@ -3,6 +3,7 @@ package dev.telegrammcp.server.config
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramAccountContext
 import dev.telegrammcp.server.client.TelegramAccountRegistry
+import dev.telegrammcp.server.client.TelegramAuthGate
 import dev.telegrammcp.server.client.TelegramClientService
 import dev.telegrammcp.server.exception.AccountAccessDeniedException
 import dev.telegrammcp.server.model.AuditOutcome
@@ -20,6 +21,7 @@ import io.modelcontextprotocol.spec.McpSchema
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.springframework.security.core.context.SecurityContextHolder
+import java.time.Duration
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
@@ -168,18 +170,58 @@ class McpConfigMultiAccountTest {
         assertEquals("work", audit.getRecentEntries().single().account)
     }
 
+    @Test
+    fun `local tools wait for the selected expected account and refuse a failed session`() {
+        val gate = TelegramAuthGate("work", Duration.ofMillis(10))
+        val registry = TelegramAccountRegistry().also {
+            it.register(TelegramAccountRegistry.AccountHandle("work", mockk(), expectedAccountGate = { gate }))
+            it.register(TelegramAccountRegistry.AccountHandle("personal", mockk()))
+        }
+        val handler = RecordingHandler("changes_since")
+        val specification = McpConfig().syncToolSpecifications(
+            handlers = listOf(handler),
+            registry = registry,
+            accountContext = TelegramAccountContext(registry),
+            accountAccessPolicy = AccountAccessPolicy(registry),
+            serverMode = ServerModeProperties(),
+            toolSurfacePolicy = ToolSurfacePolicy(McpSecurityProperties(toolProfile = McpToolProfile.ALL)),
+            auditService = AuditService(
+                ServerModeProperties(audit = ServerModeProperties.AuditProps(enabled = false)),
+                SimpleMeterRegistry(),
+                jacksonObjectMapper().findAndRegisterModules(),
+            ),
+            approvalService = approvalService(),
+        ).single()
+        val exchange = mockk<McpSyncServerExchange> {
+            io.mockk.every { transportContext() } returns io.modelcontextprotocol.common.McpTransportContext.EMPTY
+        }
+        fun call(account: String) = specification.callHandler().apply(
+            exchange,
+            McpSchema.CallToolRequest("changes_since", mapOf("account" to account), emptyMap()),
+        )
+
+        assertToolError("AUTH_REQUIRED") { call("work") }
+        assertEquals(0, handler.executionCount)
+        assertFalse(call("personal").isError)
+        gate.markReady()
+        assertFalse(call("work").isError)
+        gate.markFailed("TDLib session closed")
+        assertToolError("AUTH_REQUIRED") { call("work") }
+        assertEquals(2, handler.executionCount)
+    }
+
     /** Approval defaults to off, so these cases exercise account routing unchanged. */
     private fun approvalService(): DestructiveApprovalService {
         val props = ServerModeProperties()
         return DestructiveApprovalService(props, OperationGuardService(props, mockk(relaxed = true)))
     }
 
-    private class RecordingHandler : McpToolHandler {
+    private class RecordingHandler(private val name: String = "test_tool") : McpToolHandler {
         var receivedArguments: Map<String, Any> = emptyMap()
         var executionCount: Int = 0
 
         override fun definition(): McpSchema.Tool = McpSchema.Tool(
-            "test_tool",
+            name,
             null,
             "Test tool",
             mapOf("type" to "object", "properties" to mapOf("value" to mapOf("type" to "string")), "required" to emptyList<String>()),

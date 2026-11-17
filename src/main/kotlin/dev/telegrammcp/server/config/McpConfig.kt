@@ -127,7 +127,11 @@ class McpConfig {
                                     // Approval sees the account selector; handlers
                                     // and audit receive only routed arguments.
                                     val invoke = {
+                                        // Some tools serve durable state without touching the TDLib proxy.
+                                        val verification = registry.expectedAccountGate(account)
+                                        verification?.awaitReady()
                                         approvalService.requireApproval(exchange, tool.name(), arguments)
+                                        verification?.awaitReady()
                                         handler.execute(exchange, routedArguments)
                                     }
                                     if (permissions == null) invoke() else permissions.withPermission(tool.name(), account, invoke)

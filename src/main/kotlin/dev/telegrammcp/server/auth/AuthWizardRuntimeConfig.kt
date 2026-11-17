@@ -16,12 +16,14 @@ class AuthWizardRuntimeConfig {
     fun authWizardAccountRegistry(
         delegating: DelegatingTelegramClientService,
         properties: AuthWizardProperties,
+        orchestrator: TelegramAuthOrchestrator,
     ): TelegramAccountRegistry =
         TelegramAccountRegistry().also { registry ->
             registry.register(
                 TelegramAccountRegistry.AccountHandle(
                     properties.accountLabel,
                     delegating.proxy,
+                    expectedAccountGate = orchestrator.expectedAccountGateProvider(),
                 ),
             )
         }

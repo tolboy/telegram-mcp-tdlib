@@ -25,6 +25,17 @@ The record is `telegram-mcp-account-check.json` in the account's database
 directory, written each time the session becomes ready, and removed by
 `session clear` together with the session.
 
+When an expected account is configured, account-scoped MCP calls require a
+verified session. This includes saved change events, export pages and send
+receipts. Resource subscriptions and update notifications use the same
+readiness check. Account labels and tool definitions remain discoverable
+within the caller's normal scope during verification.
+
+Local MCP data still uses the configured account label for storage. Use a
+separate `TELEGRAM_MCP_DATA_DIR` when reassigning a label to a different
+Telegram identity. Binding persisted journals, export jobs and receipts to
+the verified Telegram user ID requires a separate storage migration.
+
 `td.binlog` is checked before `td.sqlite`, and any held candidate makes the
 session `LOCKED`. An open/probe error is `UNAVAILABLE`; in particular, a Windows
 handle opened with exclusive sharing (`FileShare.None`) prevents opening the

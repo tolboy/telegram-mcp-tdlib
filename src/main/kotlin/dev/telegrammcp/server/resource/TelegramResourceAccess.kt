@@ -14,8 +14,8 @@ import java.time.Instant
 /**
  * Decides, without calling Telegram, whether the current caller could read a
  * resource through its backing read tool: the tool is on the configured
- * surface, the account is in the caller's scope, and the permission grant and
- * chat allow-list admit the chat.
+ * surface, the account is in the caller's scope and passes any configured
+ * expected-account check, and the permission grant and chat allow-list admit the chat.
  *
  * Reads still run the backing tool's full pipeline. This check gates
  * subscriptions and every outgoing change notification.
@@ -44,6 +44,7 @@ class TelegramResourceAccess(
     private fun permits(tool: String, account: String, chatId: Long?): Boolean = try {
         surface.isVisible(tool, serverMode.readOnly, serverMode.readOnlyAllowDownloads) &&
             accounts.selectAccount(mapOf(AccountAccessPolicy.ACCOUNT_ARGUMENT to account)) == account &&
+            accounts.isExpectedAccountReady(account) &&
             run {
                 val chatAllowed = { chatId?.let(guard::isChatAllowed) ?: true }
                 permissions?.withPermission(tool, account, chatAllowed) ?: chatAllowed()

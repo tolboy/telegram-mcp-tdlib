@@ -1,5 +1,6 @@
 package dev.telegrammcp.server.client
 
+import dev.telegrammcp.server.auth.TelegramAuthOrchestrator
 import dev.telegrammcp.server.config.TdLibProperties
 import dev.telegrammcp.server.config.TelegramProperties
 import dev.telegrammcp.server.exception.TdLibAuthException
@@ -75,6 +76,7 @@ class TdLibConfig(
     @Bean
     fun telegramAccountRegistry(
         delegating: DelegatingTelegramClientService,
+        orchestrator: TelegramAuthOrchestrator,
     ): TelegramAccountRegistry {
         val registry = TelegramAccountRegistry()
         val accountConfigurations = configuredAccounts()
@@ -82,7 +84,9 @@ class TdLibConfig(
         if (accountConfigurations.isEmpty()) {
             // Keep the interactive /auth flow backwards compatible. The
             // delegate starts as NoOp and will be hot-swapped after login.
-            registry.register(TelegramAccountRegistry.AccountHandle("default", delegating.proxy))
+            registry.register(TelegramAccountRegistry.AccountHandle(
+                "default", delegating.proxy, expectedAccountGate = orchestrator.expectedAccountGateProvider(),
+            ))
             runtimeRegistry = registry
             return registry
         }
@@ -296,6 +300,7 @@ class TdLibConfig(
             )
             TelegramAccountRegistry.AccountHandle(
                 label = config.label,
+                expectedAccountGate = if (config.expectedAccount.configured) ({ authGate }) else null,
                 service = authGate.gate(
                     clientServices.create(
                         account = config.label,
