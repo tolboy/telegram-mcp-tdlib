@@ -38,7 +38,7 @@ class AccessPermissionServiceTest {
             assertTrue(guard.isChatAllowed(42))
             assertFalse(guard.isChatAllowed(43))
             assertFailsWith<ChatNotAllowedException> { guard.validateChatAccess(44) }
-            assertTrue(guard.hasChatAllowList())
+            assertTrue(guard.hasRestrictedChatScope())
         }
         policy.withPermission("download_media", "work") { guard.validateChatAccess(42) }
         for (tool in listOf("send_message", "transcribe_voice_note", "register_internal_chat", "get_me")) {

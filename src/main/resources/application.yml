@@ -150,6 +150,8 @@ telegram:
     # Chats write tools may change. Empty follows the read allow-list.
     # A non-empty list narrows writes and does not grant extra chats.
     mutation-allowed-chat-ids: ${TELEGRAM_MUTATION_CHAT_IDS:}
+    # Global deny-list by signed numeric chat ID. Takes precedence over grants and opt-ins.
+    blocked-chat-ids: ${TELEGRAM_BLOCKED_CHAT_IDS:}
     # Telegram's login and verification code chats, @BotFather and @SpamBot
     # are blocked for chat tools and resources, even when all chats are
     # allowed. true lifts that block for every client; naming one of those chat

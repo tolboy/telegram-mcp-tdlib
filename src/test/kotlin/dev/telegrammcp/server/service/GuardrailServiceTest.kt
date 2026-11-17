@@ -19,6 +19,7 @@ class GuardrailServiceTest {
         patterns: List<String> = listOf("(?i)ignore.*previous.*instructions"),
         allowedChats: List<Long> = emptyList(),
         mutationChats: List<Long> = emptyList(),
+        blockedChats: List<Long> = emptyList(),
     ): GuardrailService {
         val mcpProps = McpSecurityProperties(
             guardrails = McpSecurityProperties.GuardrailProps(
@@ -30,6 +31,7 @@ class GuardrailServiceTest {
             security = TelegramProperties.SecurityProperties(
                 allowedChatIds = allowedChats,
                 mutationAllowedChatIds = mutationChats,
+                blockedChatIds = blockedChats,
             ),
         )
         return GuardrailService(mcpProps, telegramProps)
@@ -129,11 +131,11 @@ class GuardrailServiceTest {
         @Test
         fun `dynamic target checks see the mutation list only during a write`() {
             val restricted = service(mutationChats = listOf(100L))
-            assertFalse(restricted.hasChatAllowList())
+            assertFalse(restricted.hasRestrictedChatScope())
             restricted.mutationScope("configure_chat_folder").use {
-                assertTrue(restricted.hasChatAllowList())
+                assertTrue(restricted.hasRestrictedChatScope())
             }
-            assertFalse(restricted.hasChatAllowList())
+            assertFalse(restricted.hasRestrictedChatScope())
         }
 
         @Test
@@ -149,6 +151,32 @@ class GuardrailServiceTest {
             assertThrows<GuardrailViolationException> {
                 service(mutationChats = listOf(100L)).requireUnrestrictedChatScope("create_group")
             }
+        }
+
+        @Test
+        fun `global chat denial wins over both allow-lists and conceals a derived ID`() {
+            val blocked = -10024680L
+            val restricted = service(allowedChats = listOf(blocked, 42L), mutationChats = listOf(blocked, 42L),
+                blockedChats = listOf(blocked))
+
+            assertFalse(restricted.isChatAllowed(blocked))
+            assertTrue(restricted.isChatAllowed(42L))
+            assertThrows<ChatNotAllowedException> { restricted.validateChatAccess(blocked) }
+            restricted.mutationScope("send_message").use {
+                val error = assertThrows<ChatNotAllowedException> { restricted.validateDerivedChatAccess(blocked) }
+                assertFalse(error.message.orEmpty().contains(blocked.toString()))
+                assertDoesNotThrow { restricted.validateChatAccess(42L) }
+            }
+        }
+
+        @Test
+        fun `a deny-list alone restricts unknown targets and leaves other chats usable`() {
+            val guard = service(blockedChats = listOf(-10024680L))
+            assertTrue(guard.hasRestrictedChatScope())
+            assertFalse(guard.isChatAllowed(-10024680L))
+            assertDoesNotThrow { guard.validateChatAccess(42L) }
+            assertThrows<GuardrailViolationException> { guard.requireUnrestrictedChatScope("join_chat_by_link") }
+            assertThrows<IllegalArgumentException> { service(blockedChats = listOf(0L)) }
         }
     }
 }

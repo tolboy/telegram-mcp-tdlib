@@ -5,6 +5,11 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- **Operator chat deny-list.** `TELEGRAM_BLOCKED_CHAT_IDS` takes precedence
+  over allow-lists, client grants, and sensitive-chat opt-ins. The policy also
+  applies to existing exports, saved event cursors, and resource notifications.
+  Replacing a folder under a restricted chat scope checks its existing and
+  proposed membership.
 - **`wait_for_settled_messages`: a debounced wait for incoming bursts.** It
   returns once new incoming messages have arrived and the watched chats have
   been quiet for `settle_seconds` (default 5), with per-message `addressed` and

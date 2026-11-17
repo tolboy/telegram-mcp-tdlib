@@ -20,7 +20,7 @@ import kotlin.test.assertTrue
  * supplies a no-op `TelegramClientService`. Tools return a clear unavailable
  * error if invoked without a real Telegram client.
  */
-@SpringBootTest
+@SpringBootTest(properties = ["TELEGRAM_BLOCKED_CHAT_IDS=-10024680,13579"])
 @ActiveProfiles("test")
 class TelegramMcpApplicationTests {
 
@@ -51,6 +51,14 @@ class TelegramMcpApplicationTests {
     @Test
     fun `raw HTTP binds to loopback by default`() {
         assertEquals("127.0.0.1", environment.getProperty("server.address"))
+    }
+
+    @Test
+    fun `binds the configured chat deny-list to the application guard`() {
+        val guard = applicationContext.getBean(dev.telegrammcp.server.service.GuardrailService::class.java)
+        assertFalse(guard.isChatAllowed(-10024680))
+        assertFalse(guard.isChatAllowed(13579))
+        assertTrue(guard.isChatAllowed(42))
     }
 
     @Test

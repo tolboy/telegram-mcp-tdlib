@@ -33,6 +33,12 @@ Client wildcards are not supported. Rules for the same client/account/action
 are additive. Existing API-key/OAuth account restrictions and the global chat
 allow-list still intersect with grants. `chat_ids` must be explicit: `null` means
 unrestricted chats and permits account-wide tools; `[]` grants no chat access.
+The server-wide `TELEGRAM_BLOCKED_CHAT_IDS` list takes precedence over every
+grant, the static read and mutation allow-lists, and sensitive-chat opt-ins.
+After a restart with an updated list, existing journal cursors and export
+jobs use the active policy when accessed. Cursors advance past filtered
+entries. Use the chat history to recover older entries if a chat becomes
+available again.
 Sensitive chats (`777000`, `489000`, `@BotFather`, `@SpamBot`) stay blocked
 under an ordinary `chat_ids: null` grant. A grant can reach one by naming its
 chat ID in `chat_ids`. Set the optional `"allow_sensitive_chats": true` on an

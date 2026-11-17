@@ -52,7 +52,13 @@ data class TelegramProperties(
          * [dev.telegrammcp.server.security.SensitiveChats].
          */
         val allowSensitiveChats: Boolean = false,
-    )
+        /** Chat IDs excluded from chat-scoped access across all accounts and clients. */
+        val blockedChatIds: List<Long> = emptyList(),
+    ) {
+        init {
+            require(0L !in blockedChatIds) { "telegram.security.blocked-chat-ids must contain nonzero chat IDs" }
+        }
+    }
 
     /** Per-account TDLib configuration for multi-account deployments. */
     data class AccountProperties(

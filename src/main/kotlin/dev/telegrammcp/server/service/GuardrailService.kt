@@ -17,7 +17,7 @@ import java.util.regex.Pattern
  * Checks include:
  * - **Optional input denylist** — blocks inputs matching operator-defined patterns.
  * - **Input length limits** — prevents excessively large payloads.
- * - **Chat allow-list** — restricts which Telegram chats can be accessed.
+ * - **Chat access rules** — intersect allow-lists and grants, then apply the operator's deny-list.
  * - **Sensitive chats** — known credential and account-control chats require explicit opt-in.
  */
 @Service
@@ -28,6 +28,7 @@ class GuardrailService(
 ) {
 
     private val log = StructuredLogger.forClass<GuardrailService>()
+    private val blockedChats = telegramProps.security.blockedChatIds.toSet()
 
     /** Compiled patterns — built once at startup. */
     private val blockedPatterns: List<Pattern> =
@@ -59,20 +60,26 @@ class GuardrailService(
     }
 
     /**
-     * Ensures the [chatId] is permitted by the allow-list.
-     *
-     * When the allow-list is empty every chat is allowed (convenient for dev).
-     *
-     * @throws ChatNotAllowedException if the chat is explicitly not allowed
+     * Ensures the [chatId] is permitted by the current chat policy.
+     * @throws ChatNotAllowedException if access to the chat is denied
      */
-    fun validateChatAccess(chatId: Long) {
+    fun validateChatAccess(chatId: Long) = enforceChatAccess(chatId, callerChatId = chatId)
+
+    /** Validates a chat learned from Telegram without returning a rejected ID to the caller. */
+    fun validateDerivedChatAccess(chatId: Long) = enforceChatAccess(chatId, callerChatId = null)
+
+    private fun enforceChatAccess(chatId: Long, callerChatId: Long?) {
+        if (chatId in blockedChats) {
+            log.warn("Chat {} is blocked by the configured chat deny-list", chatId)
+            throw ChatNotAllowedException("Chat access denied by the server's chat policy")
+        }
         if (isSensitiveChatBlocked(chatId)) {
             log.warn("Chat {} is a sensitive chat and no opt-in allows it", chatId)
-            throw SensitiveChatBlockedException(chatId)
+            throw SensitiveChatBlockedException(callerChatId)
         }
-        if (!isChatAllowed(chatId) || mutationDenied(chatId)) {
-            log.warn("Chat {} is not in the allow-list", chatId)
-            throw ChatNotAllowedException(chatId)
+        if (!isWithinReadScope(chatId) || mutationDenied(chatId)) {
+            log.warn("Chat {} is outside the current chat scope", chatId)
+            throw callerChatId?.let(::ChatNotAllowedException) ?: ChatNotAllowedException()
         }
     }
 
@@ -90,14 +97,15 @@ class GuardrailService(
     }
 
     /**
-     * Non-throwing allow-list check for filtering result lists, where a chat
-     * outside the allow-list should be omitted rather than fail the call.
+     * Read access check for filtering chat-scoped results.
      */
-    fun isChatAllowed(chatId: Long): Boolean {
+    fun isChatAllowed(chatId: Long): Boolean =
+        chatId !in blockedChats && isWithinReadScope(chatId) && !isSensitiveChatBlocked(chatId)
+
+    private fun isWithinReadScope(chatId: Long): Boolean {
         val allowed = telegramProps.security.allowedChatIds
         val scoped = permissions?.requestChatIds()
-        return (allowed.isEmpty() || chatId in allowed) && (scoped == null || chatId in scoped) &&
-            !isSensitiveChatBlocked(chatId)
+        return (allowed.isEmpty() || chatId in allowed) && (scoped == null || chatId in scoped)
     }
 
     /**
@@ -115,24 +123,9 @@ class GuardrailService(
     }
 
     /** Includes the active write scope so dynamic-target operations fail closed. */
-    fun hasChatAllowList(): Boolean = telegramProps.security.allowedChatIds.isNotEmpty() ||
+    fun hasRestrictedChatScope(): Boolean = blockedChats.isNotEmpty() || telegramProps.security.allowedChatIds.isNotEmpty() ||
         permissions?.requestChatIds() != null ||
         (mutationScope.get() == true && telegramProps.security.mutationAllowedChatIds.isNotEmpty())
-
-    /**
-     * Validates a chat ID learned from Telegram without echoing the rejected ID
-     * back to the caller.
-     */
-    fun validateDerivedChatAccess(chatId: Long) {
-        if (isSensitiveChatBlocked(chatId)) {
-            log.warn("Resolved chat {} is a sensitive chat and no opt-in allows it", chatId)
-            throw SensitiveChatBlockedException(null)
-        }
-        if (!isChatAllowed(chatId) || mutationDenied(chatId)) {
-            log.warn("Resolved chat {} is not in the allow-list", chatId)
-            throw ChatNotAllowedException()
-        }
-    }
 
     private val mutationScope = ThreadLocal<Boolean>()
 
@@ -145,14 +138,14 @@ class GuardrailService(
 
     /**
      * Operations whose target chat cannot be known before a side effect must
-     * fail closed while a static allow-list is configured.
+     * fail closed while an explicit chat restriction is configured.
      */
     fun requireUnrestrictedChatScope(operation: String) {
         val mutationList = telegramProps.security.mutationAllowedChatIds.isNotEmpty()
-        if (hasChatAllowList() || mutationList) {
-            log.warn("Blocked '{}' because its target cannot be pre-validated against the chat allow-list", operation)
+        if (hasRestrictedChatScope() || mutationList) {
+            log.warn("Blocked '{}' because its target cannot be pre-validated against the chat policy", operation)
             throw GuardrailViolationException(
-                "Operation '$operation' is unavailable while a static chat allow-list is configured",
+                "Operation '$operation' requires a target the server can validate against the chat policy",
             )
         }
     }

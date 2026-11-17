@@ -495,7 +495,8 @@ Docker, mount the secret file into the container and set the container path.
 |----------------------------|----------|-----------------|------------------------------------------|
 | `TELEGRAM_BOT_TOKEN`       | No       | —               | Legacy Bot API token (fallback only)     |
 | `TELEGRAM_BOT_USERNAME`    | No       | —               | Bot username (for logging)               |
-| `TELEGRAM_ALLOWED_CHAT_IDS`| No       | (all allowed except sensitive chats) | Comma-separated chat IDs to allow |
+| `TELEGRAM_ALLOWED_CHAT_IDS`| No       | (all admitted by the chat policy) | Comma-separated chat IDs to allow |
+| `TELEGRAM_BLOCKED_CHAT_IDS` | No | (empty) | Comma-separated signed numeric chat IDs to exclude across clients and accounts, with precedence over allow-lists and grants |
 | `TELEGRAM_ALLOW_SENSITIVE_CHATS` | No | `false` | Lift the default block on login-code and verification-code chats, @BotFather and @SpamBot for every client. Prefer naming one chat ID in `TELEGRAM_ALLOWED_CHAT_IDS` or a permission grant |
 | `TELEGRAM_MUTATION_CHAT_IDS` | No    | (same as reads) | Targets for chat-scoped writes. Empty follows the read allow-list. Account-wide operations require tool/action restrictions |
 | `MCP_API_KEY`              | Remote API-key mode* | —       | API key for MCP endpoint auth            |
@@ -672,13 +673,16 @@ that implements elicitation still asks you, and one that does not refuses the
 destructive tools outright instead of waiting on a page nobody can reach. Run
 the server natively when you want the loopback route.
 
-An empty `TELEGRAM_ALLOWED_CHAT_IDS` grants the connector visibility across the
-whole selected Telegram account, except for sensitive chats. Remote or model-facing deployments should set
-an explicit chat allow-list whenever the workflow has a narrower scope.
-The setting governs chat/message/folder data and chat-targeted side effects; it
-is not a complete account sandbox. Account, profile, and contact metadata tools
-remain controlled by account scopes, tool profiles, and `MCP_TOOL_ALLOW` /
-`MCP_TOOL_DENY`, so narrow those surfaces separately when required.
+An empty `TELEGRAM_ALLOWED_CHAT_IDS` admits all chats covered by the current
+client grant, subject to the sensitive-chat policy and the server deny-list.
+Set `TELEGRAM_BLOCKED_CHAT_IDS` to exclude specific chats for all accounts and
+clients, including clients with a matching allow-list or sensitive-chat opt-in.
+Use signed numeric chat IDs such as `-1001234567890`. The list applies to chat
+and folder access, search results, journal events, resource notifications, and
+access to saved export jobs. Operations with a target the server cannot verify
+in advance require an unrestricted chat scope. Account, profile, and contact
+metadata tools follow account scopes, tool profiles, and `MCP_TOOL_ALLOW` /
+`MCP_TOOL_DENY`.
 
 Sensitive chats are blocked by default for chat tools and resources, even when
 all chats are allowed. These include Telegram's service chat `777000` (login
