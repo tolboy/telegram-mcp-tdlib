@@ -3,6 +3,7 @@ package dev.telegrammcp.server.client
 import dev.telegrammcp.server.exception.ChatNotAllowedException
 import dev.telegrammcp.server.config.TdLibProperties
 import dev.telegrammcp.server.exception.ForwardPartiallyDeliveredException
+import dev.telegrammcp.server.exception.InvalidToolInputException
 import dev.telegrammcp.server.exception.SendOutcomeUnknownException
 import dev.telegrammcp.server.exception.TelegramTimeoutException
 import dev.telegrammcp.server.exception.TelegramUnavailableException
@@ -357,6 +358,7 @@ internal class TdLibMessageAdapter(
         messageId: Long,
         buttonIndex: Int?,
         buttonText: String?,
+        expected: InlineButtonInfo? = null,
     ): String = with(support) {
                 log.info("Pressing inline button (index={}, text={}) on message {} in chat {}", buttonIndex, buttonText, messageId, chatId)
 
@@ -369,6 +371,9 @@ internal class TdLibMessageAdapter(
                     !buttonText.isNullOrBlank() -> buttons.firstOrNull { it.text.equals(buttonText, ignoreCase = true) }
                         ?: throw IllegalArgumentException("No button with text '$buttonText'")
                     else -> throw IllegalArgumentException("Either button_index or button_text is required")
+                }
+                if (expected != null && target != expected.copy(token = null)) {
+                    throw InvalidToolInputException(STALE_INLINE_BUTTON_MESSAGE)
                 }
 
                 return when (target.type) {

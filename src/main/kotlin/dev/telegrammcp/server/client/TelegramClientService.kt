@@ -529,9 +529,21 @@ interface TelegramClientService {
     /**
      * Presses a callback-data inline button.
      *
+     * When [expected] is given, the button found at [buttonIndex] in a fresh
+     * read of the message must still equal it (same edit date, position, type,
+     * text and data, ignoring [InlineButtonInfo.token]); otherwise nothing is
+     * pressed and an [dev.telegrammcp.server.exception.InvalidToolInputException]
+     * asks the caller to list the buttons again.
+     *
      * @return answer text returned by the bot (may be empty) or an opened URL for URL-typed buttons
      */
-    fun pressInlineButton(chatId: Long, messageId: Long, buttonIndex: Int?, buttonText: String?): String
+    fun pressInlineButton(
+        chatId: Long,
+        messageId: Long,
+        buttonIndex: Int?,
+        buttonText: String?,
+        expected: InlineButtonInfo? = null,
+    ): String
 
     /** Lists forum topics of a supergroup. */
     fun listForumTopics(chatId: Long, query: String = "", limit: Int = 50): List<ForumTopicInfoModel>

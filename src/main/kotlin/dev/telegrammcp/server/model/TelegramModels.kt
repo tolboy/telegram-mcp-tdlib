@@ -288,14 +288,30 @@ data class ForumTopicInfoModel(
     val customEmojiId: Long? = null,
 )
 
+/** Why press_inline_button refused a `button_token` whose keyboard no longer matches. */
+const val STALE_INLINE_BUTTON_MESSAGE =
+    "The inline keyboard changed since it was listed (the message was edited, or the button moved or " +
+        "changed), so nothing was pressed. Call list_inline_buttons again and press with a fresh button_token."
+
 /** Single inline-keyboard button. */
 data class InlineButtonInfo(
     val row: Int,
+    /** Position within [row]. */
     val index: Int,
     val text: String,
     val type: String,
     val url: String? = null,
     val callbackData: String? = null,
+    /** Zero-based position across all rows (the deprecated `button_index` of press_inline_button). */
+    val position: Int = 0,
+    /** The message's `edit_date` when the keyboard was read (0 = never edited). */
+    val messageEditDate: Int = 0,
+    /**
+     * Opaque, server-signed `button_token` for press_inline_button. It is
+     * bound to this account, chat, message, edit date, position and button
+     * content, so it stops working as soon as the keyboard changes.
+     */
+    val token: String? = null,
 )
 
 /** Chat invite link details. */
