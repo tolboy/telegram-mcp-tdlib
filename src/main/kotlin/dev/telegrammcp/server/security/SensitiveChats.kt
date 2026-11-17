@@ -3,11 +3,12 @@ package dev.telegrammcp.server.security
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Chats that carry account-takeover material and are blocked by default.
+ * Chats that carry credentials or account controls and are blocked by default.
  *
  * - `777000` is Telegram's own service chat. Login codes, new-session alerts
  *   and QR-login confirmations arrive there, so reading it is enough to sign
  *   in to the account from another device.
+ * - `489000` is the Telegram Gateway chat for third-party verification codes.
  * - `@BotFather` returns bot tokens in plain text.
  * - `@SpamBot` handles account limits and appeals for the whole account.
  *
@@ -24,13 +25,14 @@ import java.util.concurrent.ConcurrentHashMap
 object SensitiveChats {
     /** Telegram's service notifications chat (private chat with user 777000). */
     const val TELEGRAM_SERVICE_CHAT_ID = 777000L
+    const val VERIFICATION_CODES_CHAT_ID = 489000L
     const val BOT_FATHER_USER_ID = 93372553L
     const val SPAM_BOT_USER_ID = 178220800L
 
     /** Usernames that every ready account resolves and adds to the set. */
     val BOT_USERNAMES: List<String> = listOf("BotFather", "SpamBot")
 
-    private val builtIn = setOf(TELEGRAM_SERVICE_CHAT_ID, BOT_FATHER_USER_ID, SPAM_BOT_USER_ID)
+    private val builtIn = setOf(TELEGRAM_SERVICE_CHAT_ID, VERIFICATION_CODES_CHAT_ID, BOT_FATHER_USER_ID, SPAM_BOT_USER_ID)
     private val resolved: MutableSet<Long> = ConcurrentHashMap.newKeySet()
 
     fun isSensitive(chatId: Long): Boolean = chatId in builtIn || chatId in resolved
@@ -50,7 +52,7 @@ object SensitiveChats {
 /** Direct access to a sensitive chat without an explicit operator opt-in. */
 class SensitiveChatBlockedException(chatId: Long?) : dev.telegrammcp.server.exception.ChatNotAllowedException(
     (chatId?.let { "Chat $it" } ?: "The resolved chat") +
-        " is a sensitive Telegram chat (service notifications with login codes, @BotFather or @SpamBot) " +
+        " is a sensitive Telegram chat (login or verification codes, @BotFather or @SpamBot) " +
         "and is blocked by default. The operator can allow it with TELEGRAM_ALLOW_SENSITIVE_CHATS=true, " +
         "a permission grant with allow_sensitive_chats, or by listing the chat ID explicitly.",
 )

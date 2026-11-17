@@ -40,15 +40,17 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 Safety hardening. Review the behaviour changes below before upgrading.
 
 - **Sensitive chats are blocked by default.** Telegram's service chat `777000`
-  (login codes and new-session alerts), `@BotFather` (bot tokens) and
-  `@SpamBot` are refused by every tool and resource and left out of multi-chat
+  (login codes and new-session alerts), Telegram Gateway's chat `489000`
+  (third-party verification codes), `@BotFather` (bot tokens) and
+  `@SpamBot` are refused by chat tools and resources and left out of multi-chat
   results (`list_chats`, `search_global`, unread digests, `changes_since`,
   `wait_for_changes`, resource lists and exports), even with an empty
   `TELEGRAM_ALLOWED_CHAT_IDS` or a `chat_ids: null` grant. Lift the block by
   naming the chat ID in `TELEGRAM_ALLOWED_CHAT_IDS` or a grant's `chat_ids`,
   with `"allow_sensitive_chats": true` on a permission grant, or globally with
   `TELEGRAM_ALLOW_SENSITIVE_CHATS=true`. Existing export jobs for those chats
-  stop resuming until one of these is set.
+  stop resuming until one of these is set. When grants are combined, each
+  grant's sensitive-chat opt-in stays within its own chat scope.
 - **Optional expected-account guard.** Set `TDLIB_EXPECTED_USER_ID` and/or
   `TDLIB_EXPECTED_PHONE_NUMBER` (named accounts:
   `TELEGRAM_ACCOUNTS_<LABEL>_AUTH_EXPECTED_USER_ID` / `_PHONE_NUMBER`). Once

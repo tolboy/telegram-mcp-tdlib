@@ -45,8 +45,40 @@ function check(doc){
  }
  return doc;
 }
-function collect(){return check({version:1,grants:rows.map(row=>({client:row.client.value.trim(),account:row.account.value.trim(),actions:row.actions.filter(x=>x.checked).map(x=>x.value),chat_ids:row.all.checked?null:row.chats.value.trim()?row.chats.value.trim().split(/[\s,]+/).map(v=>/^-?\d+$/.test(v)?Number(v):NaN):[],...(row.sensitive.checked?{allow_sensitive_chats:true}:{})}))});}
-function refresh(){const old=document.getElementById("download-ready");if(old){URL.revokeObjectURL(old.href);old.remove();}try{const doc=collect();preview.textContent=JSON.stringify(doc,null,2);status.className='status';status.textContent=doc.grants.length?`${doc.grants.length} grant(s) ready for review. ${doc.grants.filter(g=>g.chat_ids===null).length} allow access without a chat restriction. ${doc.grants.filter(g=>g.allow_sensitive_chats).length} lift the sensitive-chat block.`:'No grants: all account operations will be denied.';return doc;}catch(e){status.className='status error';status.textContent=e.message;preview.textContent='Fix the highlighted configuration before saving.';return null;}}
+function collect(){
+ const entries=rows.map(row=>{
+  const chatText=row.chats.value.trim();
+  const chatIds=chatText?chatText.split(/[\s,]+/).map(v=>/^-?\d+$/.test(v)?Number(v):NaN):[];
+  return {
+   client:row.client.value,
+   account:row.account.value.trim(),
+   actions:row.actions.filter(x=>x.checked).map(x=>x.value),
+   chat_ids:row.all.checked?null:chatIds,
+   ...(row.all.checked&&row.sensitive.checked?{allow_sensitive_chats:true}:{})
+  };
+ });
+ return check({version:1,grants:entries});
+}
+function refresh(){
+ const old=document.getElementById('download-ready');
+ if(old){URL.revokeObjectURL(old.href);old.remove();}
+ try{
+  const doc=collect();
+  const unrestricted=doc.grants.filter(g=>g.chat_ids===null).length;
+  const includesSensitive=doc.grants.filter(g=>g.allow_sensitive_chats).length;
+  preview.textContent=JSON.stringify(doc,null,2);
+  status.className='status';
+  status.textContent=doc.grants.length
+   ? `${doc.grants.length} grant(s) ready for review. ${unrestricted} allow access without a chat restriction. ${includesSensitive} include every sensitive chat.`
+   : 'No grants. All account operations will be denied.';
+  return doc;
+ }catch(e){
+  status.className='status error';
+  status.textContent=e.message;
+  preview.textContent='Fix the configuration before saving.';
+  return null;
+ }
+}
 function field(label,value){const el=document.createElement('label');el.className='label';el.textContent=label;const input=document.createElement('input');input.type='text';input.value=value;el.append(input);return {el,input};}
 function add(g={client:'stdio',account:'default',actions:['read'],chat_ids:[]}){
  const card=document.createElement('section');card.className='card';
@@ -57,10 +89,15 @@ function add(g={client:'stdio',account:'default',actions:['read'],chat_ids:[]}){
  for(const action of actions){const label=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.value=action;input.checked=g.actions.includes(action);label.append(input,document.createTextNode(' '+labels[action]));choices.append(label);inputs.push(input);}fieldset.append(choices);card.append(fieldset);
  const scope=document.createElement('div');scope.className='scope';const allLabel=document.createElement('label'),all=document.createElement('input');all.type='checkbox';all.checked=g.chat_ids===null;allLabel.append(all,document.createTextNode(' All chats, including account-wide operations'));scope.append(allLabel);
  const chats=field('Allowed chat IDs (comma or space separated)',(g.chat_ids||[]).join(', '));chats.input.disabled=all.checked;scope.append(chats.el);const hint=document.createElement('p');hint.className='hint';hint.textContent='An empty list grants access to no chats. Account-wide tools require All chats. IDs are numeric, not usernames.';scope.append(hint);
- const sensitiveLabel=document.createElement('label'),sensitive=document.createElement('input');sensitive.type='checkbox';sensitive.checked=g.allow_sensitive_chats===true;sensitiveLabel.append(sensitive,document.createTextNode(' Allow sensitive chats (777000 login codes, @BotFather, @SpamBot)'));scope.append(sensitiveLabel);
- const sensitiveHint=document.createElement('p');sensitiveHint.className='hint';sensitiveHint.textContent='Off by default: these chats stay blocked even with All chats. Turn on only for a client that must read login codes or bot tokens. Listing one of those chat IDs above lifts the block for that chat only.';scope.append(sensitiveHint);card.append(scope);
+ const sensitiveLabel=document.createElement('label'),sensitive=document.createElement('input');sensitive.type='checkbox';sensitive.disabled=!all.checked;sensitive.checked=all.checked&&g.allow_sensitive_chats===true;sensitiveLabel.append(sensitive,document.createTextNode(' Include sensitive chats (login and verification codes, @BotFather, @SpamBot)'));scope.append(sensitiveLabel);
+ const sensitiveHint=document.createElement('p');sensitiveHint.className='hint';sensitiveHint.textContent='Enable this option to include sensitive chats in an All chats grant for the selected actions. For a chat-scoped grant, enter each sensitive chat ID you intend to include.';scope.append(sensitiveHint);card.append(scope);
  const row={client:client.input,account:account.input,actions:inputs,all,chats:chats.input,sensitive};rows.push(row);grants.append(card);
- all.addEventListener('change',()=>{chats.input.disabled=all.checked;refresh();});card.addEventListener('input',refresh);remove.addEventListener('click',()=>{rows=rows.filter(r=>r!==row);card.remove();refresh();});refresh();
+ all.addEventListener('change',()=>{
+  chats.input.disabled=all.checked;
+  sensitive.disabled=!all.checked;
+  if(!all.checked)sensitive.checked=false;
+  refresh();
+ });card.addEventListener('input',refresh);remove.addEventListener('click',()=>{rows=rows.filter(r=>r!==row);card.remove();refresh();});refresh();
 }
 document.getElementById('add').addEventListener('click',()=>add());
 document.getElementById('import-button').addEventListener('click',()=>document.getElementById('import').click());

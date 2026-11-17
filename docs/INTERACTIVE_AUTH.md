@@ -66,7 +66,9 @@ locally installed Telegram client. Never paste the link into a public QR
 website, log, issue, or chat.
 
 TDLib refreshes expired QR links through the same state endpoint. Continue
-polling until the state becomes `ready`.
+polling until the state becomes `ready`. The interim `verifyingAccount` state
+means TDLib has signed in and the server is preparing the client or checking
+the configured account identity.
 
 ## Phone and code login
 

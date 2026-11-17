@@ -1,6 +1,8 @@
 ﻿package dev.telegrammcp.server.model
 
+import com.fasterxml.jackson.annotation.JsonIgnore
 import java.time.Instant
+import java.util.Base64
 
 /**
  * Describes a reply-markup that can be attached to an outgoing message.
@@ -328,7 +330,13 @@ data class InlineButtonInfo(
      * content, so it stops working as soon as the keyboard changes.
      */
     val token: String? = null,
-)
+    /** Byte-exact payload for token verification and TDLib. callbackData is the display form. */
+    @get:JsonIgnore
+    internal val callbackDataBase64: String? = null,
+) {
+    internal fun callbackPayload(): ByteArray? =
+        callbackDataBase64?.let { Base64.getDecoder().decode(it) } ?: callbackData?.toByteArray(Charsets.UTF_8)
+}
 
 /** Chat invite link details. */
 data class ChatInviteLinkInfo(

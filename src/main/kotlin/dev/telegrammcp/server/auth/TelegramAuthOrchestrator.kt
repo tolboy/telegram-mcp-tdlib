@@ -99,6 +99,7 @@ class TelegramAuthOrchestrator(
 
     /** Incremented on every initAuth call; lets the background thread detect if it was superseded. */
     private val generation = AtomicInteger(0)
+    private var accountVerificationGate: TelegramAuthGate? = null
 
     /**
      * Number of buildTdlibClient() tasks currently in flight. Used together
@@ -390,7 +391,7 @@ class TelegramAuthOrchestrator(
         clientFactory = built.factory
         currentClient = built.client
         messageSendTracker = built.sendTracker
-        if (authStateHolder.getState() is AuthState.Ready) registerClientServiceBean()
+        if (authStateHolder.getState() is AuthState.VerifyingAccount) registerClientServiceBean()
         log.info("TDLib interactive client created — waiting for auth state updates")
         true
     }
@@ -431,8 +432,10 @@ class TelegramAuthOrchestrator(
     ) {
         when (val state = update.authorizationState) {
             is TdApi.AuthorizationStateReady -> {
+                val current = authStateHolder.getState()
+                if (current is AuthState.VerifyingAccount || current is AuthState.Ready) return
                 log.info("TDLib auth: READY (interactive)")
-                authStateHolder.setState(AuthState.Ready())
+                authStateHolder.setState(AuthState.VerifyingAccount())
                 registerClientServiceBean()
             }
 
@@ -521,6 +524,7 @@ class TelegramAuthOrchestrator(
         val expected = account.expectedAccount()
         if (!expected.configured) {
             delegatingClient.swap(service)
+            authStateHolder.setState(AuthState.Ready())
             log.info("Hot-swapped TelegramClientService delegate to live TDLib client")
             SensitiveChatDiscovery.discover(accountLabel) { username -> client.send(TdApi.SearchPublicChat(username)) }
             return service
@@ -528,15 +532,22 @@ class TelegramAuthOrchestrator(
         val gate = TelegramAuthGate(accountLabel, account.readyTimeout)
         val myGeneration = generation.get()
         val journal = journalAttachment
+        accountVerificationGate = gate
+        delegatingClient.swap(gate.gate(service))
         ExpectedAccountCheck(
             accountLabel, expected, databaseDirectory(),
             budget = ExpectedAccountCheck.budgetFor(account.readyTimeout),
         ).run(
             getMe = { client.send(TdApi.GetMe()) },
             onAccepted = {
-                journal?.activate()
-                gate.markReady()
-                SensitiveChatDiscovery.discover(accountLabel) { username -> client.send(TdApi.SearchPublicChat(username)) }
+                lock.withLock {
+                    if (generation.get() == myGeneration) {
+                        journal?.activate()
+                        gate.markReady()
+                        authStateHolder.setState(AuthState.Ready())
+                        SensitiveChatDiscovery.discover(accountLabel) { username -> client.send(TdApi.SearchPublicChat(username)) }
+                    }
+                }
             },
             onDeadline = gate::markVerifying,
             onRefused = { record ->
@@ -548,7 +559,6 @@ class TelegramAuthOrchestrator(
                 }
             },
         )
-        delegatingClient.swap(gate.gate(service))
         log.info("Hot-swapped TelegramClientService delegate to live TDLib client")
         return service
     }
@@ -581,6 +591,9 @@ class TelegramAuthOrchestrator(
         clientFactory = null
         currentClient = null
         messageSendTracker = null
+        journalAttachment = null
+        accountVerificationGate?.markFailed("TDLib session for account '$accountLabel' closed")
+        accountVerificationGate = null
         oldTracker?.close()
         delegatingClient.reset()
         // The next client starts with no connection state, not the old client's last Ready.

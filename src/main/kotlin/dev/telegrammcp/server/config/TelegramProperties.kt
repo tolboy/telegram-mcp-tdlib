@@ -46,8 +46,7 @@ data class TelegramProperties(
          */
         val mutationAllowedChatIds: List<Long> = emptyList(),
         /**
-         * Lifts the default block on sensitive chats (Telegram's 777000
-         * service chat, @BotFather, @SpamBot) for every client. Off by
+         * Lifts the default block on sensitive chats for every client. Off by
          * default; listing one of those chat IDs in [allowedChatIds] lifts
          * the block for that chat only. See
          * [dev.telegrammcp.server.security.SensitiveChats].

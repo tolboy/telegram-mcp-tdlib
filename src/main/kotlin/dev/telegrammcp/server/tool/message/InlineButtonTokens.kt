@@ -54,7 +54,7 @@ class InlineButtonTokens(private val accounts: TelegramAccountContext? = null) {
             out.writeField(button.type)
             out.writeField(button.text)
             out.writeField(button.url)
-            out.writeField(button.callbackData)
+            out.writeField(button.callbackPayload())
         }
         val mac = Mac.getInstance(ALGORITHM).apply { init(key) }.doFinal(bytes.toByteArray())
         return PREFIX + Base64.getUrlEncoder().withoutPadding().encodeToString(mac.copyOf(TOKEN_BYTES))
@@ -63,14 +63,15 @@ class InlineButtonTokens(private val accounts: TelegramAccountContext? = null) {
     private fun currentAccount(): String = runCatching { accounts?.currentAccount() }.getOrNull().orEmpty()
 
     /** Length-prefixed, with a distinct marker for null, so no two field lists encode alike. */
-    private fun DataOutputStream.writeField(value: String?) {
+    private fun DataOutputStream.writeField(value: String?) = writeField(value?.toByteArray(Charsets.UTF_8))
+
+    private fun DataOutputStream.writeField(value: ByteArray?) {
         if (value == null) {
             writeInt(-1)
             return
         }
-        val raw = value.toByteArray(Charsets.UTF_8)
-        writeInt(raw.size)
-        write(raw)
+        writeInt(value.size)
+        write(value)
     }
 
     companion object {

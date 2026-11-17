@@ -62,7 +62,7 @@ data class AuthStateDto(
                 passwordHint = authState.passwordHint,
                 timestamp = authState.timestamp,
             )
-            is AuthState.Ready -> AuthStateDto(
+            is AuthState.VerifyingAccount, is AuthState.Ready -> AuthStateDto(
                 state = authState.name,
                 timestamp = authState.timestamp,
             )

@@ -19,6 +19,7 @@ import dev.telegrammcp.server.exception.TelegramApiException
 import it.tdlight.jni.TdApi
 import java.time.Duration
 import java.time.Instant
+import java.util.Base64
 import java.util.concurrent.TimeUnit
 
 /** Read and lookup calls. They do not send messages or change chat membership. */
@@ -553,8 +554,8 @@ internal class TdLibReadAdapter(
                         if (button == null) return@forEachIndexed
                         val (typeName, url, cbData) = when (val t = button.type) {
                             is TdApi.InlineKeyboardButtonTypeUrl -> Triple("url", t.url, null)
-                            is TdApi.InlineKeyboardButtonTypeCallback -> Triple("callback", null, t.data?.let { String(it) })
-                            is TdApi.InlineKeyboardButtonTypeCallbackWithPassword -> Triple("callback_with_password", null, t.data?.let { String(it) })
+                            is TdApi.InlineKeyboardButtonTypeCallback -> Triple("callback", null, t.data)
+                            is TdApi.InlineKeyboardButtonTypeCallbackWithPassword -> Triple("callback_with_password", null, t.data)
                             is TdApi.InlineKeyboardButtonTypeCallbackGame -> Triple("callback_game", null, null)
                             is TdApi.InlineKeyboardButtonTypeSwitchInline -> Triple("switch_inline", null, null)
                             is TdApi.InlineKeyboardButtonTypeLoginUrl -> Triple("login_url", t.url, null)
@@ -567,9 +568,10 @@ internal class TdLibReadAdapter(
                             text = button.text ?: "",
                             type = typeName,
                             url = url,
-                            callbackData = cbData,
+                            callbackData = cbData?.toString(Charsets.UTF_8),
                             position = position++,
                             messageEditDate = message.editDate,
+                            callbackDataBase64 = cbData?.let { Base64.getEncoder().encodeToString(it) },
                         )
                     }
                 }

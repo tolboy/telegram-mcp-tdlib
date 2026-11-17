@@ -496,7 +496,7 @@ Docker, mount the secret file into the container and set the container path.
 | `TELEGRAM_BOT_TOKEN`       | No       | —               | Legacy Bot API token (fallback only)     |
 | `TELEGRAM_BOT_USERNAME`    | No       | —               | Bot username (for logging)               |
 | `TELEGRAM_ALLOWED_CHAT_IDS`| No       | (all allowed except sensitive chats) | Comma-separated chat IDs to allow |
-| `TELEGRAM_ALLOW_SENSITIVE_CHATS` | No | `false` | Lift the default block on sensitive chats (777000 service chat with login codes, @BotFather, @SpamBot) for every client. Prefer naming one chat ID in `TELEGRAM_ALLOWED_CHAT_IDS` or a permission grant |
+| `TELEGRAM_ALLOW_SENSITIVE_CHATS` | No | `false` | Lift the default block on login-code and verification-code chats, @BotFather and @SpamBot for every client. Prefer naming one chat ID in `TELEGRAM_ALLOWED_CHAT_IDS` or a permission grant |
 | `TELEGRAM_MUTATION_CHAT_IDS` | No    | (same as reads) | Targets for chat-scoped writes. Empty follows the read allow-list. Account-wide operations require tool/action restrictions |
 | `MCP_API_KEY`              | Remote API-key mode* | —       | API key for MCP endpoint auth            |
 | `MCP_API_KEY_FILE`         | No       | —               | Secret-file alternative to `MCP_API_KEY` |
@@ -680,19 +680,20 @@ is not a complete account sandbox. Account, profile, and contact metadata tools
 remain controlled by account scopes, tool profiles, and `MCP_TOOL_ALLOW` /
 `MCP_TOOL_DENY`, so narrow those surfaces separately when required.
 
-Sensitive chats are blocked by default for every tool and resource, even when
-all chats are allowed: Telegram's service chat `777000` (login codes, new-session
-alerts and QR-login confirmations, which are enough to take over the account),
-`@BotFather` (bot tokens) and `@SpamBot` (account limits and appeals). Direct
-access fails with a sensitive-chat error, and multi-chat results (`list_chats`,
+Sensitive chats are blocked by default for chat tools and resources, even when
+all chats are allowed. These include Telegram's service chat `777000` (login
+codes and new-session alerts), the Telegram Gateway chat `489000` (third-party
+verification codes), `@BotFather` (bot tokens) and `@SpamBot` (account limits and
+appeals). Direct access fails with a sensitive-chat error. Multi-chat results (`list_chats`,
 `search_global`, unread digests, `changes_since`, `wait_for_changes`,
-`wait_for_settled_messages`, resources
-and exports) leave them out. The bots' production IDs are built in, and each
-account also resolves the usernames once it is ready. To lift the block, name the
-chat ID in `TELEGRAM_ALLOWED_CHAT_IDS` or in a grant's `chat_ids` (that chat only),
-set `"allow_sensitive_chats": true` on a [permission grant](docs/PERMISSIONS.md),
-or set `TELEGRAM_ALLOW_SENSITIVE_CHATS=true` for every client. An all-chats grant
-(`chat_ids: null`) never lifts it.
+`wait_for_settled_messages` and the chats resource) leave them out. The bots'
+production IDs are built in. Once an account is ready, the server also attempts
+to resolve their usernames. To lift the block, name the chat ID in
+`TELEGRAM_ALLOWED_CHAT_IDS` or in a grant's `chat_ids` for that chat only, set
+`"allow_sensitive_chats": true` on an unrestricted
+[permission grant](docs/PERMISSIONS.md), or use
+`TELEGRAM_ALLOW_SENSITIVE_CHATS=true` for every client. Forwarded messages and
+quotes already present in an allowed chat follow that chat's policy.
 
 Audit summaries and JSONL records contain no argument values unless
 `MCP_AUDIT_LOG_ARGS=true`; when enabled, recognized credential fields are

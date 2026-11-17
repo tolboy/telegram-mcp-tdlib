@@ -22,6 +22,7 @@ import it.tdlight.client.SimpleTelegramClientFactory
 import it.tdlight.jni.TdApi
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.io.TempDir
 import org.springframework.boot.info.BuildProperties
 import java.nio.file.Files
@@ -29,6 +30,7 @@ import java.nio.file.Path
 import java.nio.file.attribute.PosixFileAttributeView
 import java.nio.file.attribute.PosixFilePermission
 import java.util.Properties
+import java.util.concurrent.CompletableFuture
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertSame
@@ -46,8 +48,13 @@ class TelegramAuthOrchestratorHotSwapTest {
     private val delegating = DelegatingTelegramClientService.wrapping(fallback)
     private val authState = TelegramAuthStateHolder()
     private val credentials = RuntimeCredentialsHolder()
-    private val orchestrator = TelegramAuthOrchestrator(
-        props = TdLibProperties(),
+    private lateinit var orchestrator: TelegramAuthOrchestrator
+
+    private fun createOrchestrator(expectedUserId: Long? = null) = TelegramAuthOrchestrator(
+        props = TdLibProperties(
+            auth = TdLibProperties.Auth(expectedUserId = expectedUserId),
+            database = TdLibProperties.Database(directory = tempDir.resolve("session").toString()),
+        ),
         authStateHolder = authState,
         runtimeCredentials = credentials,
         rateLimiter = RateLimiter.ofDefaults("hot-swap-test"),
@@ -58,6 +65,11 @@ class TelegramAuthOrchestratorHotSwapTest {
         clientServices = TdLibClientServiceFactory(states, meters),
     )
 
+    @BeforeEach
+    fun setUp() {
+        orchestrator = createOrchestrator()
+    }
+
     @AfterEach
     fun shutdown() = orchestrator.shutdownLifecycleExecutor()
 
@@ -65,11 +77,50 @@ class TelegramAuthOrchestratorHotSwapTest {
     fun `ready received before build completes still installs the live service`() {
         val authorization = authorizationHandler()
         authorization.onUpdate(TdApi.UpdateAuthorizationState(TdApi.AuthorizationStateReady()))
-        assertTrue(authState.getState() is AuthState.Ready)
+        assertTrue(authState.getState() is AuthState.VerifyingAccount)
         assertSame(fallback, delegating.current())
 
         assertTrue(orchestrator.acceptBuiltClient(0, builtClient()))
+        assertTrue(authState.getState() is AuthState.Ready)
         assertTrue(delegating.current() is dev.telegrammcp.server.client.TdLibClientService)
+    }
+
+    @Test
+    fun `wizard reports ready only after the configured account matches`() {
+        orchestrator.shutdownLifecycleExecutor()
+        orchestrator = createOrchestrator(expectedUserId = 42)
+        val authorization = authorizationHandler()
+        val built = builtClient()
+        val getMe = CompletableFuture<TdApi.User>()
+        every { built.client.send(any<TdApi.GetMe>()) } returns getMe
+        orchestrator.acceptBuiltClient(0, built)
+
+        repeat(2) { authorization.onUpdate(TdApi.UpdateAuthorizationState(TdApi.AuthorizationStateReady())) }
+        assertTrue(authState.getState() is AuthState.VerifyingAccount)
+        assertEquals("verifyingAccount", AuthStateDto.from(authState.getState()).state)
+        verify(exactly = 1) { built.client.send(any<TdApi.GetMe>()) }
+
+        getMe.complete(TdApi.User().apply { id = 42 })
+        assertTrue(authState.getState() is AuthState.Ready)
+    }
+
+    @Test
+    fun `a late account match does not reopen a logged-out wizard`() {
+        orchestrator.shutdownLifecycleExecutor()
+        orchestrator = createOrchestrator(expectedUserId = 42)
+        val authorization = authorizationHandler()
+        val built = builtClient()
+        val getMe = CompletableFuture<TdApi.User>()
+        every { built.client.send(any<TdApi.GetMe>()) } returns getMe
+        orchestrator.acceptBuiltClient(0, built)
+        authorization.onUpdate(TdApi.UpdateAuthorizationState(TdApi.AuthorizationStateReady()))
+        orchestrator.logout()
+
+        getMe.complete(TdApi.User().apply { id = 42 })
+
+        assertTrue(authState.getState() is AuthState.LoggedOut)
+        assertSame(fallback, delegating.current())
+        verify(exactly = 0) { built.client.send(any<TdApi.SearchPublicChat>()) }
     }
 
     @Test

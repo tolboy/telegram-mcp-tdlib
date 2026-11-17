@@ -27,7 +27,7 @@ This exception also applies to those two profiles when global read-only is off.
 Downloads write into the selected account's TDLib cache; callers cannot choose
 an arbitrary destination. Telegram mutations and transcription remain blocked
 in read-only mode. Downloads retain `readOnlyHint=false` because they write
-local files. Exact-name allow/deny filters still apply; restart after changing
+local files. Tool-name allow/deny filters still apply; restart after changing
 the setting. This is a server-wide permission, not a per-client grant.
 Chat allow-lists, account scopes, confirmation requirements, audit logging,
 and anti-spam checks still run when an advertised tool is invoked.
@@ -60,7 +60,9 @@ For a custom surface, apply `MCP_TOOL_ALLOW` and `MCP_TOOL_DENY` filters with
 exact names or `prefix*` patterns (a single trailing `*`). They run after the
 profile and before read-only filtering, and deny always wins over allow. Unknown
 exact names and deny patterns that match nothing stop startup; an allow pattern
-that matches nothing logs a warning. See
+that matches nothing logs a warning. A tool added in a future release can match
+an existing allow pattern, subject to the same profile and access checks. Use
+exact names when the allowed set needs to stay fixed across upgrades. See
 [CLI and STDIO](CLI_AND_STDIO.md#surface-policy).
 
 Use `reader` for a first connection, `inbox` for a personal assistant, and

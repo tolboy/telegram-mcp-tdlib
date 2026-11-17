@@ -379,7 +379,7 @@ internal class TdLibMessageAdapter(
                 return when (target.type) {
                     "url", "login_url", "web_app" -> target.url ?: ""
                     "callback" -> {
-                        val payload = TdApi.CallbackQueryPayloadData(target.callbackData?.toByteArray() ?: ByteArray(0))
+                        val payload = TdApi.CallbackQueryPayloadData(target.callbackPayload() ?: ByteArray(0))
                         val request = TdApi.GetCallbackQueryAnswer().apply {
                             this.chatId = chatId
                             this.messageId = messageId

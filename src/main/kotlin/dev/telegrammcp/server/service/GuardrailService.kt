@@ -18,7 +18,7 @@ import java.util.regex.Pattern
  * - **Optional input denylist** — blocks inputs matching operator-defined patterns.
  * - **Input length limits** — prevents excessively large payloads.
  * - **Chat allow-list** — restricts which Telegram chats can be accessed.
- * - **Sensitive chats** — 777000, @BotFather and @SpamBot stay blocked without an explicit opt-in.
+ * - **Sensitive chats** — known credential and account-control chats require explicit opt-in.
  */
 @Service
 class GuardrailService(
@@ -111,9 +111,7 @@ class GuardrailService(
         if (!SensitiveChats.isSensitive(chatId)) return false
         val security = telegramProps.security
         if (security.allowSensitiveChats || chatId in security.allowedChatIds) return false
-        val scoped = permissions?.requestChatIds()
-        if (scoped != null && chatId in scoped) return false
-        return permissions?.requestAllowsSensitiveChats() != true
+        return permissions?.requestAllowsSensitiveChat(chatId) != true
     }
 
     /** Includes the active write scope so dynamic-target operations fail closed. */

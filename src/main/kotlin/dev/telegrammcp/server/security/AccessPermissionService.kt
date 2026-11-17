@@ -30,7 +30,8 @@ data class PermissionGrant(
 
 /** Immutable, invocation-scoped authority; explicitly propagated into coroutine workers. */
 object AccessPermissionContext {
-    data class Scope(val chatIds: Set<Long>?, val allowSensitiveChats: Boolean = false)
+    /** In each set, null grants access to every chat of that kind. */
+    data class Scope(val chatIds: Set<Long>?, val sensitiveChatIds: Set<Long>? = chatIds.orEmpty())
     private val selected = ThreadLocal<Scope?>()
     fun current(): Scope? = selected.get()
     fun coroutineContext() = selected.asContextElement()
@@ -57,6 +58,9 @@ class AccessPermissionService(props: McpSecurityProperties, paths: PlatformPaths
         val strictMapper = mapper.copy().enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
         val tree = strictMapper.readTree(Files.readAllBytes(path))
         require(tree.path("grants").all { it.has("chat_ids") }) { "Each grant must explicitly specify chat_ids (null means all chats)" }
+        require(tree.path("grants").all { it.get("allow_sensitive_chats")?.isBoolean != false }) {
+            "allow_sensitive_chats must be a JSON boolean when present"
+        }
         strictMapper.treeToValue(tree, PermissionDocument::class.java).also(::validate)
     }
     val enabled: Boolean get() = document != null
@@ -94,19 +98,24 @@ class AccessPermissionService(props: McpSecurityProperties, paths: PlatformPaths
         if (!enabled) return action()
         val grants = matching(account).filter { actionFor(tool) in it.actions }
         if (grants.isEmpty()) throw PermissionDeniedException()
-        val chats = if (grants.any { it.chatIds == null }) null else grants.flatMap { it.chatIds.orEmpty() }.toSet()
+        val explicitlyNamedChats = grants.flatMap { it.chatIds.orEmpty() }.toSet()
+        val chats = if (grants.any { it.chatIds == null }) null else explicitlyNamedChats
         // Account-wide tools cannot be made safe by pretending that their user IDs are chat scopes.
         if (chats != null && (chats.isEmpty() || tool !in CHAT_SCOPED_TOOLS)) throw PermissionDeniedException()
-        val sensitive = grants.any { it.allowSensitiveChats }
-        return AccessPermissionContext.withScope(AccessPermissionContext.Scope(chats, sensitive), action)
+        val sensitiveChats = if (grants.any { it.chatIds == null && it.allowSensitiveChats }) null else explicitlyNamedChats
+        return AccessPermissionContext.withScope(AccessPermissionContext.Scope(chats, sensitiveChats), action)
     }
 
     /** Missing invocation authority fails closed even for a direct handler call. */
     fun requestChatIds(): Set<Long>? = if (!enabled) null else AccessPermissionContext.current()?.chatIds
         ?: if (AccessPermissionContext.current() == null) emptySet() else null
 
-    /** Whether the active grant opted in to [SensitiveChats]; false without a permission file. */
-    fun requestAllowsSensitiveChats(): Boolean = enabled && AccessPermissionContext.current()?.allowSensitiveChats == true
+    /** Whether any matching grant explicitly admits this sensitive chat. */
+    fun requestAllowsSensitiveChat(chatId: Long): Boolean {
+        if (!enabled) return false
+        val scope = AccessPermissionContext.current() ?: return false
+        return scope.sensitiveChatIds?.contains(chatId) ?: true
+    }
 
     companion object {
         val ACTIONS = setOf("read", "download", "mutate", "quota", "policy")

@@ -48,6 +48,11 @@ sealed class AuthState(val name: String) {
         override val timestamp: Instant = Instant.now(),
     ) : AuthState("waitingPassword")
 
+    /** TDLib signed in; the client and any expected-account verdict are still pending. */
+    data class VerifyingAccount(
+        override val timestamp: Instant = Instant.now(),
+    ) : AuthState("verifyingAccount")
+
     /** Fully authenticated — MCP tools are operational. */
     data class Ready(
         override val timestamp: Instant = Instant.now(),
