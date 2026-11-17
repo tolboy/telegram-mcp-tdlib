@@ -231,7 +231,8 @@ class TdLibConfig(
         val messageSendTracker = MessageSendTracker()
         return try {
             val builder: SimpleTelegramClientBuilder = factory.builder(buildSettings(config))
-            changeJournal?.attach(builder, config.label)
+            // With an expected account, nothing is journaled until the check accepts the session.
+            val journal = changeJournal?.attach(builder, config.label, recording = !config.expectedAccount.configured)
             clientServices.attach(builder, config.label)
             val authGate = TelegramAuthGate(config.label, config.authReadyTimeout)
             val chatFolderState = ChatFolderState()
@@ -239,7 +240,7 @@ class TdLibConfig(
             val clientRef = CompletableFuture<SimpleTelegramClient>()
             val accountCheck = ExpectedAccountCheck(config.label, config.expectedAccount, config.databaseDirectory)
             builder.addUpdateHandler(TdApi.UpdateAuthorizationState::class.java) { update ->
-                handleAuthState(config.label, update, authGate) { onSessionReady(config.label, authGate, clientRef, accountCheck) }
+                handleAuthState(config.label, update, authGate) { onSessionReady(config.label, authGate, clientRef, accountCheck, journal) }
                 if (update.authorizationState is TdApi.AuthorizationStateClosed) messageSendTracker.close()
             }
             builder.addUpdateHandler(TdApi.UpdateChatFolders::class.java) { update ->
@@ -390,10 +391,12 @@ class TdLibConfig(
         authGate: TelegramAuthGate,
         clientRef: CompletableFuture<SimpleTelegramClient>,
         accountCheck: ExpectedAccountCheck,
+        journal: dev.telegrammcp.server.service.ChangeJournal.Attachment?,
     ) {
         accountCheck.run(
             getMe = { clientRef.thenCompose { it.send(TdApi.GetMe()) } },
             onAccepted = {
+                journal?.activate()
                 authGate.markReady()
                 clientRef.thenAccept { client ->
                     SensitiveChatDiscovery.discover(label) { username -> client.send(TdApi.SearchPublicChat(username)) }

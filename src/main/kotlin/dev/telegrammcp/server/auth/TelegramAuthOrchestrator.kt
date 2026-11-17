@@ -402,7 +402,8 @@ class TelegramAuthOrchestrator(
         phoneNumber: String,
         myGeneration: Int = generation.get(),
     ) {
-        changeJournal?.attach(builder, authWizard.accountLabel)
+        // With an expected account, hotSwap activates this only after the check accepts the session.
+        journalAttachment = changeJournal?.attach(builder, authWizard.accountLabel, recording = !accountAuth().expectedAccount().configured)
         // The circuit breaker of the hot-swapped service reads this state.
         clientServices.attach(builder, accountLabel)
         builder.addUpdateHandler(TdApi.UpdateAuthorizationState::class.java) { update ->
@@ -526,9 +527,11 @@ class TelegramAuthOrchestrator(
         }
         val gate = TelegramAuthGate(accountLabel, account.readyTimeout)
         val myGeneration = generation.get()
+        val journal = journalAttachment
         ExpectedAccountCheck(accountLabel, expected, databaseDirectory()).run(
             getMe = { client.send(TdApi.GetMe()) },
             onAccepted = {
+                journal?.activate()
                 gate.markReady()
                 SensitiveChatDiscovery.discover(accountLabel) { username -> client.send(TdApi.SearchPublicChat(username)) }
             },
@@ -545,6 +548,9 @@ class TelegramAuthOrchestrator(
         log.info("Hot-swapped TelegramClientService delegate to live TDLib client")
         return service
     }
+
+    /** Journal hook of the newest wizard client; recording waits for the expected-account check. */
+    @Volatile internal var journalAttachment: dev.telegrammcp.server.service.ChangeJournal.Attachment? = null
 
     /** The wizard account's auth settings: its `telegram.accounts` entry, else `tdlib.auth`. */
     private fun accountAuth(): TdLibProperties.Auth = namedAccount()?.auth ?: props.auth
