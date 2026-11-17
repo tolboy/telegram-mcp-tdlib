@@ -172,8 +172,10 @@ mcp:
     max-subscriptions-per-session: ${MCP_RESOURCE_MAX_SUBSCRIPTIONS:50}
   # Curate tools for a common workflow: all, reader, inbox, community-admin, research.
   tool-profile: ${MCP_TOOL_PROFILE:reader}
-  # Optional exact-name filters, evaluated profile -> allow -> deny -> read-only.
-  # Unknown names fail startup so misspellings cannot silently weaken policy.
+  # Optional filters, evaluated profile -> allow -> deny -> read-only; deny wins.
+  # Entries are exact names or 'prefix*' (one trailing '*'); a bare '*' is
+  # allow-only and keeps every profile tool. Unknown exact names fail startup
+  # so misspellings cannot silently weaken policy; a pattern matching nothing warns.
   tool-allow: ${MCP_TOOL_ALLOW:}
   tool-deny: ${MCP_TOOL_DENY:}
   permissions-file: ${MCP_PERMISSIONS_FILE:}

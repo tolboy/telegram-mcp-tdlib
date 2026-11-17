@@ -2,6 +2,7 @@ package dev.telegrammcp.server.service
 
 import dev.telegrammcp.server.config.McpSecurityProperties
 import dev.telegrammcp.server.config.McpToolProfile
+import dev.telegrammcp.server.util.StructuredLogger
 import org.springframework.stereotype.Service
 
 /**
@@ -14,34 +15,61 @@ class ToolSurfacePolicy(
     private val properties: McpSecurityProperties,
 ) {
 
+    private val log = StructuredLogger.forClass<ToolSurfacePolicy>()
+
     val profile: McpToolProfile
         get() = properties.toolProfile
 
+    /** Parsed `MCP_TOOL_ALLOW`; empty means every profile tool. Invalid patterns fail here, at startup. */
+    private val allowPatterns: List<ToolNamePattern> = ToolNamePattern.parseAll(properties.toolAllow, "MCP_TOOL_ALLOW")
+
+    /** Parsed `MCP_TOOL_DENY`; a bare `*` is refused because it would hide every tool. */
+    private val denyPatterns: List<ToolNamePattern> = ToolNamePattern.parseAll(properties.toolDeny, "MCP_TOOL_DENY").also { deny ->
+        require(deny.none { it.matchesEverything }) {
+            "MCP_TOOL_DENY must not contain a bare '*': it would hide every tool. Narrow MCP_TOOL_PROFILE or MCP_TOOL_ALLOW instead."
+        }
+    }
+
+    private val allowEverything: Boolean = allowPatterns.any { it.matchesEverything }
+
     fun isVisible(toolName: String, readOnly: Boolean, allowDownloads: Boolean = false): Boolean =
         allowedByProfile(toolName, allowDownloads) &&
-            allowedByExactNames(toolName) &&
+            allowedByNameFilters(toolName) &&
             !OperationGuardService.blockedByReadOnly(toolName, readOnly, allowDownloads)
 
     fun visibleToolNames(toolNames: Collection<String>, readOnly: Boolean, allowDownloads: Boolean = false): List<String> =
         toolNames.filter { isVisible(it, readOnly, allowDownloads) }
 
+    /**
+     * Checks the allow and deny lists against the registered tools at startup.
+     *
+     * Every entry that matches no registered tool is logged as a warning.
+     * An unknown exact name additionally stops startup, so a misspelling cannot
+     * silently weaken policy; a `prefix*` that matches nothing only warns,
+     * because tool sets differ between versions and profiles.
+     */
     fun validateConfiguredNames(registeredToolNames: Collection<String>) {
         val registered = registeredToolNames.toSet()
-        val configured = normalizedAllow + normalizedDeny
-        val unknown = configured - registered
-        require(unknown.isEmpty()) {
-            "Unknown MCP tool name(s) in MCP_TOOL_ALLOW/MCP_TOOL_DENY: ${unknown.sorted().joinToString()}"
+        if (allowEverything) {
+            log.info("MCP_TOOL_ALLOW contains '*': every tool of profile {} stays allowed (deny list and read-only still apply)", profile)
+        }
+        val unknownExact = mutableListOf<String>()
+        for ((setting, patterns) in listOf("MCP_TOOL_ALLOW" to allowPatterns, "MCP_TOOL_DENY" to denyPatterns)) {
+            for (pattern in patterns) {
+                if (pattern.matchesEverything || registered.any(pattern::matches)) continue
+                log.warn("{} entry '{}' matches no registered tool", setting, pattern.raw)
+                if (!pattern.isWildcard) unknownExact += pattern.raw
+            }
+        }
+        require(unknownExact.isEmpty()) {
+            "Unknown MCP tool name(s) in MCP_TOOL_ALLOW/MCP_TOOL_DENY: ${unknownExact.distinct().sorted().joinToString()}"
         }
     }
 
-    private val normalizedAllow: Set<String> =
-        properties.toolAllow.map(String::trim).filter(String::isNotEmpty).toSet()
-
-    private val normalizedDeny: Set<String> =
-        properties.toolDeny.map(String::trim).filter(String::isNotEmpty).toSet()
-
-    private fun allowedByExactNames(toolName: String): Boolean =
-        (normalizedAllow.isEmpty() || toolName in normalizedAllow) && toolName !in normalizedDeny
+    /** Deny wins: a tool is hidden when any deny entry matches it, whatever the allow list says. */
+    private fun allowedByNameFilters(toolName: String): Boolean =
+        (allowPatterns.isEmpty() || allowPatterns.any { it.matches(toolName) }) &&
+            denyPatterns.none { it.matches(toolName) }
 
     private fun allowedByProfile(toolName: String, allowDownloads: Boolean): Boolean = when (profile) {
         McpToolProfile.ALL -> true
@@ -105,5 +133,36 @@ class ToolSurfacePolicy(
             "resolve_username", "get_user_status", "get_user_photos",
             "list_join_requests", "get_chat_statistics",
         )
+    }
+}
+
+/**
+ * One entry of `MCP_TOOL_ALLOW` / `MCP_TOOL_DENY`: an exact tool name, a
+ * `prefix*` that matches every tool name starting with `prefix`, or a bare
+ * `*` (allow list only) that matches every tool. Only a single trailing `*`
+ * is supported; anything else fails startup.
+ */
+class ToolNamePattern private constructor(val raw: String, private val prefix: String, val isWildcard: Boolean) {
+    val matchesEverything: Boolean get() = isWildcard && prefix.isEmpty()
+
+    fun matches(toolName: String): Boolean = if (isWildcard) toolName.startsWith(prefix) else toolName == prefix
+
+    override fun toString(): String = raw
+
+    companion object {
+        private val NAME = Regex("[A-Za-z0-9_]*")
+
+        fun parse(entry: String, setting: String): ToolNamePattern {
+            val raw = entry.trim()
+            val wildcard = raw.endsWith("*")
+            val body = if (wildcard) raw.dropLast(1) else raw
+            require(raw.isNotEmpty() && '*' !in body && NAME.matches(body)) {
+                "Invalid $setting entry '$raw': use an exact tool name, 'prefix*' with a single trailing '*', or '*'"
+            }
+            return ToolNamePattern(raw, body, wildcard)
+        }
+
+        fun parseAll(entries: List<String>, setting: String): List<ToolNamePattern> =
+            entries.map(String::trim).filter(String::isNotEmpty).distinct().map { parse(it, setting) }
     }
 }

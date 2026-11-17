@@ -11,9 +11,9 @@ data class McpSecurityProperties(
     val guardrails: GuardrailProps = GuardrailProps(),
     /** Curated MCP surface for a specific user job; READER is the safe default. */
     val toolProfile: McpToolProfile = McpToolProfile.READER,
-    /** Optional exact-name allow-list, applied after [toolProfile]. Empty means all profile tools. */
+    /** Optional allow-list of exact names or `prefix*` patterns, applied after [toolProfile]. Empty or `*` means all profile tools. */
     val toolAllow: List<String> = emptyList(),
-    /** Optional exact-name deny-list, applied after [toolAllow]. */
+    /** Optional deny-list of exact names or `prefix*` patterns; it wins over [toolAllow]. */
     val toolDeny: List<String> = emptyList(),
     /** Optional reviewed JSON grants; an empty path retains existing access policy. */
     val permissionsFile: String = "",

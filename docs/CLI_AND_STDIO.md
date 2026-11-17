@@ -147,8 +147,24 @@ Filtering order is deterministic:
 3. `MCP_TOOL_DENY`
 4. `MCP_READ_ONLY`
 
-Allow/deny values are exact tool names. Wildcards are intentionally unsupported,
-and an unknown name fails startup rather than silently weakening policy.
+Allow/deny entries are exact tool names or `prefix*` patterns: a single trailing
+`*` matches every tool whose name starts with the prefix (`get_*`, `send_*`).
+Any other use of `*` (`*_message`, `get_*_x`, `get**`) fails startup.
+
+- **Deny wins.** A tool matched by any deny entry is hidden, even when an exact
+  allow entry names it.
+- **A bare `*`** in `MCP_TOOL_ALLOW` keeps every tool of the profile and is logged
+  at startup. A bare `*` in `MCP_TOOL_DENY` is refused, because it would hide every tool.
+- **Entries that match no registered tool** are logged as warnings at startup.
+  An unknown exact name also fails startup, so a misspelling cannot silently
+  weaken policy; a `prefix*` that matches nothing only warns.
+- Patterns never widen the profile or bypass read-only mode.
+
+```text
+MCP_TOOL_PROFILE=all
+MCP_TOOL_ALLOW=get_*,search_*,list_*
+MCP_TOOL_DENY=get_user_photos
+```
 
 Run the no-Telegram protocol smoke against a JAR:
 

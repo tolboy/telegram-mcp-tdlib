@@ -55,9 +55,11 @@ Approval covers high-risk tools too unless `MCP_APPROVAL_SCOPE=destructive`:
 `configure_chat_folder`, `unban_user`, `unblock_user`, and
 `press_inline_button`. `MCP_APPROVAL_SCOPE=all-writes` extends it to every write.
 
-For a custom surface, apply exact-name `MCP_TOOL_ALLOW` and `MCP_TOOL_DENY`
-filters. They run after the profile and before read-only filtering. Unknown
-names stop startup, and deny always wins over allow.
+For a custom surface, apply `MCP_TOOL_ALLOW` and `MCP_TOOL_DENY` filters with
+exact names or `prefix*` patterns (a single trailing `*`). They run after the
+profile and before read-only filtering, and deny always wins over allow. Unknown
+exact names stop startup; a pattern that matches nothing logs a warning. See
+[CLI and STDIO](CLI_AND_STDIO.md#surface-policy).
 
 Use `reader` for a first connection, `inbox` for a personal assistant, and
 `community-admin` only with a narrowly scoped account/API key. The active

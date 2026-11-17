@@ -505,8 +505,8 @@ Docker, mount the secret file into the container and set the container path.
 | `MCP_READ_ONLY_ALLOW_DOWNLOADS` | No | `false` | Permit local `download_media` in read-only mode and reader/research profiles; preserve chat/account access checks |
 | `MCP_PERMISSIONS_FILE` | No | empty | Reviewed JSON grants for client/account/action/chat access; see [permissions](docs/PERMISSIONS.md) and the [local editor](docs/permission-editor.html) |
 | `MCP_TOOL_PROFILE`         | No       | `reader`        | `all`, `reader`, `inbox`, `community-admin`, or `research` |
-| `MCP_TOOL_ALLOW`           | No       | (profile tools) | Exact comma-separated names to retain after profile filtering |
-| `MCP_TOOL_DENY`            | No       | —               | Exact comma-separated names to hide after the allow-list |
+| `MCP_TOOL_ALLOW`           | No       | (profile tools) | Comma-separated tool names or `prefix*` patterns to retain after profile filtering; a bare `*` keeps every profile tool |
+| `MCP_TOOL_DENY`            | No       | —               | Comma-separated tool names or `prefix*` patterns to hide; deny always wins over allow |
 | `MCP_TRANSPORT`            | No       | `streamable-http` | `streamable-http` or `stdio`; CLI `--transport` wins |
 | `MCP_CONFIRMATION_REQUIRED`| No       | `true`          | Require caller acknowledgement (`"confirmed": true`) for destructive tools; not proof of human approval |
 | `MCP_DESTRUCTIVE_APPROVAL`| No       | `off`           | Human approval before destructive and high-risk tools (see `MCP_APPROVAL_SCOPE`): `auto`, `elicitation`, or `loopback`. With writes enabled, `off` refuses startup unless `MCP_ALLOW_MODEL_CONFIRMED_WRITES=true` |
