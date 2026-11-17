@@ -437,13 +437,13 @@ git push origin master vX.Y.Z
 | `TDLIB_PROXY_PASSWORD` / `_FILE` | No | — | SOCKS5/HTTP proxy password; `_FILE` is the mounted-secret alternative |
 | `TDLIB_PROXY_SECRET` / `_FILE` | MTProto only | — | MTProto secret; `_FILE` is the mounted-secret alternative |
 | `TDLIB_PROXY_HTTP_ONLY` | No | `false` | Restrict an HTTP proxy to HTTP requests; normally leave `false` for CONNECT |
-| `TDLIB_EXPECTED_USER_ID` | No | — | Telegram user ID this session must belong to. A different account is refused: tool calls fail and the server exits with code 3. Named accounts: `TELEGRAM_ACCOUNTS_<LABEL>_AUTH_EXPECTED_USER_ID` |
+| `TDLIB_EXPECTED_USER_ID` | No | — | Telegram user ID this session must belong to. A different account is refused and tool calls fail; a configured account exits with code 3, a login-wizard session stays up in an error state. Named accounts: `TELEGRAM_ACCOUNTS_<LABEL>_AUTH_EXPECTED_USER_ID` |
 | `TDLIB_EXPECTED_PHONE_NUMBER` | No | — | Phone number (international format, digits compared) this session must belong to; combined with the user ID when both are set. Named accounts: `TELEGRAM_ACCOUNTS_<LABEL>_AUTH_EXPECTED_PHONE_NUMBER` |
 
 \* Required when TDLib integration is enabled.  
 † Set exactly one: `TDLIB_PHONE_NUMBER` or `TDLIB_BOT_TOKEN`.
 
-Expected-account guard: set `TDLIB_EXPECTED_USER_ID` and/or `TDLIB_EXPECTED_PHONE_NUMBER` to make sure a reused or mixed-up session directory cannot silently serve the wrong Telegram account. When TDLib reports the session ready, the server asks Telegram who is signed in. On a mismatch, or if that answer never arrives, every tool call fails with an explanation. A mismatch on a configured account also shuts the server down with exit code 3; the interactive sign-in wizard shows the error instead. `session doctor` prints the last result as `account_check=` (phones masked). Without either setting nothing changes.
+Expected-account guard: set `TDLIB_EXPECTED_USER_ID` and/or `TDLIB_EXPECTED_PHONE_NUMBER` to make sure a reused or mixed-up session directory cannot silently serve the wrong Telegram account. When TDLib reports the session ready, the server asks Telegram who is signed in. On a mismatch, or if that answer never arrives, every tool call fails with an explanation. A mismatch on an account started from configuration also shuts the server down with exit code 3. On the interactive sign-in wizard path the server stays up and the wizard shows the error instead. A missing answer is retried three times (after 1, 2 and 4 seconds) before the session is refused, and the change journal records nothing for the session until the check accepts it. `session doctor` prints the last result as `account_check=` (phones masked). Without either setting nothing changes.
 
 Non-interactive auth: on a fresh container, set `TDLIB_AUTH_CODE` once (plus `TDLIB_2FA_PASSWORD` if 2FA is enabled). After the session persists to `TDLIB_DATA_DIR`, neither is needed on restart. Every direct secret setting has a mutually exclusive `*_FILE` alternative for Docker/Podman/Kubernetes secret mounts.
 

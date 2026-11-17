@@ -62,8 +62,11 @@ data class TdLibProperties(
         val readyTimeout: Duration = Duration.ofSeconds(45),
         /**
          * Optional Telegram user ID this session must belong to. Once TDLib is
-         * ready, a session signed in as anyone else is refused: tool calls fail
-         * and the server shuts down. `session doctor` shows the last result.
+         * ready, a session signed in as anyone else is refused and tool calls
+         * fail. An account started from configuration also shuts the server down
+         * (exit code 3); a session from the login wizard leaves the server up
+         * with the wizard in its error state. Nothing is written to the change
+         * journal until the check accepts. `session doctor` shows the last result.
          */
         val expectedUserId: Long? = null,
         /** Optional phone number (international format) the session must belong to; digits are compared. */

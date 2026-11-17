@@ -21,8 +21,11 @@ Safety hardening. Review the behaviour changes below before upgrading.
   `TDLIB_EXPECTED_PHONE_NUMBER` (named accounts:
   `TELEGRAM_ACCOUNTS_<LABEL>_AUTH_EXPECTED_USER_ID` / `_PHONE_NUMBER`). Once
   TDLib is ready the server checks who is signed in; a different account, or no
-  answer, is refused and tool calls fail with an explanation. A mismatch on a
-  configured account also exits with code 3. `session doctor` shows the last result as
+  answer after three retries, is refused and tool calls fail with an
+  explanation. A mismatch on an account started from configuration also exits
+  with code 3; on the login-wizard path the server stays up with the wizard in
+  its error state. The change journal records nothing for the session until the
+  check accepts it, then adds a gap marker. `session doctor` shows the last result as
   `account_check=`, with phone numbers masked. Unset, nothing changes.
 - **Signed inline-button tokens.** `list_inline_buttons` returns a `token` per
   button, an HMAC over the account, chat, message, the message's `edit_date`

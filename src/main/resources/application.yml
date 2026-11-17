@@ -69,8 +69,11 @@ tdlib:
     # timeout — Claude Desktop drops a stdio server after 60s.
     ready-timeout: ${TDLIB_AUTH_READY_TIMEOUT:45s}
     # Optional expected-account guard. Once the session is ready, a session
-    # signed in as a different Telegram user (or phone) is refused: tool calls
-    # fail and the server shuts down. 'session doctor' shows the last check.
+    # signed in as a different Telegram user (or phone) is refused and tool
+    # calls fail. An account started from this configuration also shuts the
+    # server down (exit code 3); a login-wizard session keeps the server up with
+    # the wizard in its error state. Nothing reaches the change journal until
+    # the check accepts. 'session doctor' shows the last check.
     # Named accounts use telegram.accounts.<label>.auth.expected-user-id / -phone-number.
     expected-user-id: ${TDLIB_EXPECTED_USER_ID:}
     expected-phone-number: ${TDLIB_EXPECTED_PHONE_NUMBER:}
