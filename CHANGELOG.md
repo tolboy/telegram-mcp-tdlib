@@ -5,6 +5,35 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+Safety hardening. Review the behaviour changes below before upgrading.
+
+- **Sensitive chats are blocked by default.** Telegram's service chat `777000`
+  (login codes and new-session alerts), `@BotFather` (bot tokens) and
+  `@SpamBot` are refused by every tool and resource and left out of multi-chat
+  results (`list_chats`, `search_global`, unread digests, `changes_since`,
+  `wait_for_changes`, resource lists and exports), even with an empty
+  `TELEGRAM_ALLOWED_CHAT_IDS` or a `chat_ids: null` grant. Lift the block by
+  naming the chat ID in `TELEGRAM_ALLOWED_CHAT_IDS` or a grant's `chat_ids`,
+  with `"allow_sensitive_chats": true` on a permission grant, or globally with
+  `TELEGRAM_ALLOW_SENSITIVE_CHATS=true`. Existing export jobs for those chats
+  stop resuming until one of these is set.
+- **Optional expected-account guard.** Set `TDLIB_EXPECTED_USER_ID` and/or
+  `TDLIB_EXPECTED_PHONE_NUMBER` (named accounts:
+  `TELEGRAM_ACCOUNTS_<LABEL>_AUTH_EXPECTED_USER_ID` / `_PHONE_NUMBER`). Once
+  TDLib is ready the server checks who is signed in; a different account, or no
+  answer, is refused and tool calls fail with an explanation. A mismatch on a
+  configured account also exits with code 3. `session doctor` shows the last result as
+  `account_check=`, with phone numbers masked. Unset, nothing changes.
+- **Signed inline-button tokens.** `list_inline_buttons` returns a `token` per
+  button, an HMAC over the account, chat, message, the message's `edit_date`
+  and the button's position, type, text, URL and callback data.
+  `press_inline_button` takes it as `button_token`, re-reads the keyboard and
+  refuses without pressing if anything changed, so a bot cannot swap what a
+  button does between listing and pressing. Tokens use a per-process key and
+  expire on restart. `button_index` and `button_text` still work but are
+  deprecated; responses that use them carry a `warning`, and the
+  `press_inline_button` output now always includes a nullable `warning` field.
+
 ## 1.20.0 - 2026-11-09
 
 Adds MCP cancellation over Streamable HTTP and STDIO, and strengthens TDLib
