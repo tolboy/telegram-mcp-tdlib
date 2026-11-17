@@ -20,11 +20,17 @@ data class PermissionGrant(
     val account: String,
     val actions: Set<String>,
     @param:JsonProperty("chat_ids") @get:JsonProperty("chat_ids") val chatIds: Set<Long>? = null,
+    /**
+     * Lifts the default block on [SensitiveChats] for this grant. Optional and
+     * false by default; `chat_ids: null` alone never reaches those chats.
+     */
+    @param:JsonProperty("allow_sensitive_chats") @get:JsonProperty("allow_sensitive_chats")
+    val allowSensitiveChats: Boolean = false,
 )
 
 /** Immutable, invocation-scoped authority; explicitly propagated into coroutine workers. */
 object AccessPermissionContext {
-    data class Scope(val chatIds: Set<Long>?)
+    data class Scope(val chatIds: Set<Long>?, val allowSensitiveChats: Boolean = false)
     private val selected = ThreadLocal<Scope?>()
     fun current(): Scope? = selected.get()
     fun coroutineContext() = selected.asContextElement()
@@ -91,12 +97,16 @@ class AccessPermissionService(props: McpSecurityProperties, paths: PlatformPaths
         val chats = if (grants.any { it.chatIds == null }) null else grants.flatMap { it.chatIds.orEmpty() }.toSet()
         // Account-wide tools cannot be made safe by pretending that their user IDs are chat scopes.
         if (chats != null && (chats.isEmpty() || tool !in CHAT_SCOPED_TOOLS)) throw PermissionDeniedException()
-        return AccessPermissionContext.withScope(AccessPermissionContext.Scope(chats), action)
+        val sensitive = grants.any { it.allowSensitiveChats }
+        return AccessPermissionContext.withScope(AccessPermissionContext.Scope(chats, sensitive), action)
     }
 
     /** Missing invocation authority fails closed even for a direct handler call. */
     fun requestChatIds(): Set<Long>? = if (!enabled) null else AccessPermissionContext.current()?.chatIds
         ?: if (AccessPermissionContext.current() == null) emptySet() else null
+
+    /** Whether the active grant opted in to [SensitiveChats]; false without a permission file. */
+    fun requestAllowsSensitiveChats(): Boolean = enabled && AccessPermissionContext.current()?.allowSensitiveChats == true
 
     companion object {
         val ACTIONS = setOf("read", "download", "mutate", "quota", "policy")

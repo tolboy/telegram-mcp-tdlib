@@ -5,6 +5,8 @@ import dev.telegrammcp.server.config.TelegramProperties
 import dev.telegrammcp.server.exception.ChatNotAllowedException
 import dev.telegrammcp.server.exception.GuardrailViolationException
 import dev.telegrammcp.server.exception.InvalidToolInputException
+import dev.telegrammcp.server.security.SensitiveChatBlockedException
+import dev.telegrammcp.server.security.SensitiveChats
 import dev.telegrammcp.server.util.StructuredLogger
 import org.springframework.stereotype.Service
 import java.util.regex.Pattern
@@ -16,6 +18,7 @@ import java.util.regex.Pattern
  * - **Optional input denylist** — blocks inputs matching operator-defined patterns.
  * - **Input length limits** — prevents excessively large payloads.
  * - **Chat allow-list** — restricts which Telegram chats can be accessed.
+ * - **Sensitive chats** — 777000, @BotFather and @SpamBot stay blocked without an explicit opt-in.
  */
 @Service
 class GuardrailService(
@@ -63,6 +66,10 @@ class GuardrailService(
      * @throws ChatNotAllowedException if the chat is explicitly not allowed
      */
     fun validateChatAccess(chatId: Long) {
+        if (isSensitiveChatBlocked(chatId)) {
+            log.warn("Chat {} is a sensitive chat and no opt-in allows it", chatId)
+            throw SensitiveChatBlockedException(chatId)
+        }
         if (!isChatAllowed(chatId) || mutationDenied(chatId)) {
             log.warn("Chat {} is not in the allow-list", chatId)
             throw ChatNotAllowedException(chatId)
@@ -89,7 +96,24 @@ class GuardrailService(
     fun isChatAllowed(chatId: Long): Boolean {
         val allowed = telegramProps.security.allowedChatIds
         val scoped = permissions?.requestChatIds()
-        return (allowed.isEmpty() || chatId in allowed) && (scoped == null || chatId in scoped)
+        return (allowed.isEmpty() || chatId in allowed) && (scoped == null || chatId in scoped) &&
+            !isSensitiveChatBlocked(chatId)
+    }
+
+    /**
+     * True when [chatId] is a [SensitiveChats] entry and nothing opts in to it.
+     * Opt-ins: the global `allow-sensitive-chats` flag, the active grant's
+     * `allow_sensitive_chats`, or the chat ID named explicitly in the static
+     * allow-list or the active grant's `chat_ids`. An all-chats grant
+     * (`chat_ids: null`) or an empty allow-list never counts as naming it.
+     */
+    fun isSensitiveChatBlocked(chatId: Long): Boolean {
+        if (!SensitiveChats.isSensitive(chatId)) return false
+        val security = telegramProps.security
+        if (security.allowSensitiveChats || chatId in security.allowedChatIds) return false
+        val scoped = permissions?.requestChatIds()
+        if (scoped != null && chatId in scoped) return false
+        return permissions?.requestAllowsSensitiveChats() != true
     }
 
     /** Includes the active write scope so dynamic-target operations fail closed. */
@@ -102,6 +126,10 @@ class GuardrailService(
      * back to the caller.
      */
     fun validateDerivedChatAccess(chatId: Long) {
+        if (isSensitiveChatBlocked(chatId)) {
+            log.warn("Resolved chat {} is a sensitive chat and no opt-in allows it", chatId)
+            throw SensitiveChatBlockedException(null)
+        }
         if (!isChatAllowed(chatId) || mutationDenied(chatId)) {
             log.warn("Resolved chat {} is not in the allow-list", chatId)
             throw ChatNotAllowedException()
