@@ -20,6 +20,7 @@ import java.nio.file.Path
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 import kotlin.test.*
@@ -461,8 +462,10 @@ class SettledMessageWaiterTest {
     @Test fun `the zero-timeout lookup floor never reaches past the tool-call deadline`() {
         val journal = journal()
         val waiter = SettledMessageWaiter(journal, client)
-        assertEquals(SettledMessageWaiter.MIN_LOOKUP_NANOS, waiter.lookupBudget(0))
-        assertEquals(TimeUnit.SECONDS.toNanos(3), waiter.lookupBudget(TimeUnit.SECONDS.toNanos(3)))
+        assertEquals(SettledMessageWaiter.MIN_LOOKUP_NANOS, waiter.lookupBudget(0, immediatePoll = true))
+        assertEquals(0, waiter.lookupBudget(0, immediatePoll = false))
+        assertEquals(TimeUnit.MILLISECONDS.toNanos(10),
+            waiter.lookupBudget(TimeUnit.MILLISECONDS.toNanos(10), immediatePoll = false))
         val cursor = journal.tailCursor("default")
         journal.message(42, 1)
         journal.tailCursor("default")
@@ -475,7 +478,7 @@ class SettledMessageWaiterTest {
         }
         val started = System.nanoTime()
         val result = ToolCallDeadline.run(Duration.ofMillis(150)) {
-            assertTrue(waiter.lookupBudget(0) <= TimeUnit.MILLISECONDS.toNanos(100))
+            assertTrue(waiter.lookupBudget(0, immediatePoll = true) <= TimeUnit.MILLISECONDS.toNanos(100))
             waiter.await("default", request(cursor, settleMillis = 0, timeoutSeconds = 0)) { true }
         }
         val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
@@ -484,5 +487,39 @@ class SettledMessageWaiterTest {
         assertTrue(elapsed < 250, "took $elapsed ms")
         assertEquals("timed_out", result.status)
         assertEquals(cursor, result.nextCursor)
+    }
+
+    @Test fun `a confirming scan cannot settle while an update is still queued`() {
+        val journal = journal()
+        val waiter = SettledMessageWaiter(journal, client)
+        val cursor = journal.tailCursor("default")
+        val writingPaused = CountDownLatch(1)
+        val allowWriter = CountDownLatch(1)
+        journal.addListener { _, _, _, messageId ->
+            if (messageId == 1L) {
+                writingPaused.countDown()
+                allowWriter.await(5, TimeUnit.SECONDS)
+            }
+        }
+        try {
+            journal.message(42, 1)
+            assertTrue(writingPaused.await(5, TimeUnit.SECONDS))
+            every { client.getMessageAddressing(42, listOf(1L)) } answers {
+                journal.message(42, 2)
+                listOf(facts[42L to 1L]!!)
+            }
+
+            val early = waiter.await("default", request(cursor, settleMillis = 0, timeoutSeconds = 0)) { true }
+            assertEquals("timed_out", early.status)
+            assertTrue(early.hasMore)
+            assertEquals(1, early.pendingMessages)
+            assertEquals(cursor, early.nextCursor)
+        } finally {
+            allowWriter.countDown()
+        }
+        journal.tailCursor("default")
+        val retry = waiter.await("default", request(cursor, settleMillis = 0)) { true }
+        assertEquals("settled", retry.status)
+        assertEquals(listOf(1L, 2L), retry.messages.map { it.messageId })
     }
 }

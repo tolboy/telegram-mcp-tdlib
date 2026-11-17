@@ -8,10 +8,15 @@ import io.mockk.unmockkObject
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardOpenOption
+import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.time.Duration
+import org.junit.jupiter.api.assertTimeoutPreemptively
 import kotlin.test.*
 
 class ChangeJournalScanTest {
@@ -30,7 +35,7 @@ class ChangeJournalScanTest {
         val start = journal.tailCursor("default")
         journal.append("default", "new", 42, 1)
         journal.appendGap("default", ChangeJournal.REASON_RECONNECT)
-        val reconnect = journal.scan("default", start, 200, { true })
+        val reconnect = assertNotNull(journal.scan("default", start, 200, { true }))
         assertEquals(listOf(ChangeJournal.REASON_RECONNECT), reconnect.gapReasons)
         assertTrue(reconnect.gap)
         assertFalse(reconnect.reset)
@@ -39,7 +44,7 @@ class ChangeJournalScanTest {
         for (reason in listOf(ChangeJournal.REASON_RESTART, ChangeJournal.REASON_SESSION_ACCEPTED)) {
             val cursor = journal.tailCursor("default")
             journal.appendGap("default", reason)
-            val scan = journal.scan("default", cursor, 200, { true })
+            val scan = assertNotNull(journal.scan("default", cursor, 200, { true }))
             assertEquals(listOf(reason), scan.gapReasons)
             assertTrue(scan.reset, reason)
         }
@@ -56,7 +61,7 @@ class ChangeJournalScanTest {
         val cursor = journal.tailCursor("default")
         journal.append("default", "new", 7, 1)
         journal.append("default", "new", 42, 2)
-        val scan = journal.scan("default", cursor, 200, { it == 42L })
+        val scan = assertNotNull(journal.scan("default", cursor, 200, { it == 42L }))
         assertFalse(scan.gap)
         assertEquals(listOf(2L), scan.entries.map { it.messageId })
         assertEquals(journal.tailCursor("default"), scan.nextCursor)
@@ -68,11 +73,11 @@ class ChangeJournalScanTest {
         val second = journal()
         second.appendGap("default", ChangeJournal.REASON_RESTART)
         second.tailCursor("default")
-        val scan = first.scan("default", cursor, 200, { true })
+        val scan = assertNotNull(first.scan("default", cursor, 200, { true }))
         assertEquals(listOf(ChangeJournal.REASON_UNKNOWN), scan.gapReasons)
         assertFalse(scan.reset)
         // The writing process itself knows the cause.
-        assertEquals(listOf(ChangeJournal.REASON_RESTART), second.scan("default", cursor, 200, { true }).gapReasons)
+        assertEquals(listOf(ChangeJournal.REASON_RESTART), assertNotNull(second.scan("default", cursor, 200, { true })).gapReasons)
     }
 
     @Test fun `a cursor from a replaced journal resets to the new tail while page keeps rejecting it`() {
@@ -83,7 +88,7 @@ class ChangeJournalScanTest {
         Files.delete(root.resolve("changes/default.jsonl"))
         val fresh = journal()
         fresh.append("default", "new", 42, 2)
-        val scan = fresh.scan("default", old, 200, { true })
+        val scan = assertNotNull(fresh.scan("default", old, 200, { true }))
         assertEquals(listOf(ChangeJournal.REASON_JOURNAL_REPLACED), scan.gapReasons)
         assertTrue(scan.reset)
         assertTrue(scan.entries.isEmpty())
@@ -91,9 +96,40 @@ class ChangeJournalScanTest {
         assertFailsWith<IllegalArgumentException> { fresh.page("default", old, 10) { true } }
         // Malformed and future cursors are still errors, never a silent reset.
         val epoch = scan.nextCursor.substringBefore(':')
-        for (bad in listOf("nonsense", ":5", "not-an-epoch:1", "$epoch:999", "$epoch:x")) {
+        val oldEpoch = UUID.randomUUID()
+        for (bad in listOf("nonsense", ":5", "not-an-epoch:1", "$epoch:999", "$epoch:x",
+            "$oldEpoch:x", "$oldEpoch:-1", "$oldEpoch:", "0-0-0-0-0:1")) {
             assertFailsWith<IllegalArgumentException>(bad) { fresh.scan("default", bad, 10, { true }) }
         }
+    }
+
+    @Test fun `an immediate scan respects a held store lock`() {
+        val journal = journal()
+        val cursor = journal.tailCursor("default")
+        FileChannel.open(root.resolve("changes/store.lock"), StandardOpenOption.WRITE).use { file ->
+            file.lock().use {
+                assertTimeoutPreemptively(Duration.ofSeconds(2)) {
+                    assertNull(journal.scan("default", cursor, 10, { true }, budgetNanos = 0))
+                }
+            }
+        }
+        val scan = assertNotNull(journal.scan("default", cursor, 10, { true }))
+        assertEquals(cursor, scan.nextCursor)
+        assertTrue(scan.writerCaughtUp)
+    }
+
+    @Test fun `a replaced journal with the same file size resets a warm reader`() {
+        val reader = journal()
+        val oldCursor = reader.tailCursor("default")
+        val path = root.resolve("changes/default.jsonl")
+        val previousSize = Files.size(path)
+        Files.delete(path)
+        val newCursor = journal().tailCursor("default")
+        assertEquals(previousSize, Files.size(path))
+
+        val scan = assertNotNull(reader.scan("default", oldCursor, 10, { true }))
+        assertTrue(scan.reset)
+        assertEquals(newCursor, scan.nextCursor)
     }
 
     @Test fun `a cursor older than the retained window reports retention`() {
@@ -101,7 +137,7 @@ class ChangeJournalScanTest {
         val cursor = journal.tailCursor("default")
         repeat(ChangeJournal.RETAINED + 5) { journal.append("default", "new", 42, it + 1L) }
         journal.tailCursor("default")
-        val scan = journal.scan("default", cursor, 10, { true })
+        val scan = assertNotNull(journal.scan("default", cursor, 10, { true }))
         assertEquals(listOf(ChangeJournal.REASON_RETENTION), scan.gapReasons)
         assertFalse(scan.reset)
     }
@@ -121,7 +157,7 @@ class ChangeJournalScanTest {
             var reasons = emptyList<String>()
             var next = cursor
             do {
-                val scan = journal.scan("default", next, 200, { true })
+                val scan = assertNotNull(journal.scan("default", next, 200, { true }))
                 reasons = reasons + scan.gapReasons
                 next = scan.nextCursor
             } while (scan.hasMore)

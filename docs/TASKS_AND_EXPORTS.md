@@ -76,7 +76,7 @@ as `changes_since` and `wait_for_changes`, sends nothing and marks nothing read.
 | `cursor` | string | Resume point; omit to start at the journal tail (no backlog replay) |
 | `chat_id` | ID or `@username` | Settle one conversation; resolved and authorized before waiting |
 | `settle_seconds` | 0–20 (5) | Quiet time after the last incoming message; 0 returns as soon as one arrives |
-| `timeout_seconds` | 0–30 (25) | Longest wait, including message lookups; the call also ends early inside the tool-call deadline. 0 checks once, allowing up to 250 ms for lookups, never past the tool-call deadline |
+| `timeout_seconds` | 0–30 (25) | Wait budget for journal locks and message lookups, capped by the tool-call deadline. 0 checks the durable journal immediately and allows one lookup budget of up to 250 ms |
 | `limit` | 1–200 (50) | Most messages per result |
 | `addressed_only` | boolean (false) | Count only messages addressed to the account |
 
@@ -104,10 +104,10 @@ not see are never looked up.
 Semantics worth knowing:
 
 - **`settled` always comes from a complete look.** Before returning it, the
-  wait scans the journal again from the current position; that scan must reach
-  the end, add nothing to the burst, and start after the quiet window elapsed.
-  A message that arrives while earlier ones are being looked up therefore joins
-  the burst instead of being split off.
+  wait scans the journal again from the current position. That scan must reach
+  the end, cover updates that were queued at its start, add nothing to the
+  burst, and start after the quiet window elapsed. A message that arrives
+  during earlier lookups joins the burst.
 - **Quiet time comes from the journal timestamps.** A resumed cursor whose burst
   is already older than `settle_seconds` settles immediately.
 - **A timeout never splits a burst.** If messages are still arriving when the

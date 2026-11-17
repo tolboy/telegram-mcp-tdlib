@@ -92,7 +92,14 @@ class SettledMessageWaiter(
     }
 
     fun await(account: String, request: SettleRequest, allowed: (Long) -> Boolean): SettledWaitResult =
-        journal.withWaiterPermit(account) { run(account, request, allowed) }
+        journal.withWaiterPermit(account) {
+            try {
+                run(account, request, allowed)
+            } catch (interrupted: InterruptedException) {
+                Thread.currentThread().interrupt()
+                throw TelegramApiException(406, "Canceled settled wait: interrupted", interrupted, readOnlyRequest = true)
+            }
+        }
 
     private class Lookup(val facts: Map<Pair<Long, Long>, MessageAddressing>, val failedChats: Set<Long>,
         val exhausted: Boolean)
@@ -107,6 +114,7 @@ class SettledMessageWaiter(
         val burst = ArrayList<Pending>()
         val skipped = LinkedHashMap<String, Int>()
         var confirmed = false
+        var firstScan = true
         fun skip(reason: String, count: Int = 1) { if (count > 0) skipped.merge(reason, count, Int::plus) }
 
         fun result(status: String, gapReasons: List<String> = emptyList(), hasMore: Boolean = false): SettledWaitResult {
@@ -138,71 +146,70 @@ class SettledMessageWaiter(
             )
         }
 
-        try {
-            while (true) {
-                // Updates observed before this instant are in the scan (the journal flushes its writer first).
-                val scanStarted = clock.instant()
-                val scan = journal.scan(account, cursor, minOf(200, request.limit - burst.size), visible, writerBudget())
-                if (scan.gap) {
-                    // Catch-up covers everything here, so a known gap never waits on TDLib lookups.
-                    skip(SKIP_BEHIND_GAP, scan.entries.count { it.kind != ChangeJournal.GAP })
-                    cursor = scan.nextCursor
-                    return result(if (scan.reset) "reset" else "gap", scan.gapReasons, scan.hasMore)
-                }
-                val lookup = lookUp(scan.entries, lookupBudget(remaining()))
-                // Out of time before this page was classified: resume before it (and before any burst).
-                if (lookup.exhausted) return result("timed_out", hasMore = true)
-                val before = burst.size
-                for (entry in scan.entries) {
-                    val chatId = entry.chatId
-                    val facts = if (entry.kind == "new") lookup.facts[chatId to entry.messageId] else null
-                    when {
-                        entry.kind == ChangeJournal.GAP -> Unit
-                        entry.kind != "new" -> skip(SKIP_OTHER_CHANGE)
-                        chatId != null && chatId in lookup.failedChats -> skip(SKIP_LOOKUP_FAILED)
-                        facts == null -> skip(SKIP_VANISHED)
-                        facts.isOutgoing -> skip(SKIP_OUTGOING)
-                        else -> Pending(entry, facts).let {
-                            if (!request.addressedOnly || it.reasons.isNotEmpty()) burst += it else skip(SKIP_NOT_ADDRESSED)
-                        }
+        while (true) {
+            val scanStarted = clock.instant()
+            val scan = journal.scan(account, cursor, request.limit - burst.size, visible, writerBudget())
+            if (scan == null) {
+                if (remaining() <= 0) return result("timed_out", hasMore = true)
+                continue
+            }
+            if (scan.gap) {
+                // Catch-up covers everything here, so a known gap never waits on TDLib lookups.
+                skip(SKIP_BEHIND_GAP, scan.entries.count { it.kind != ChangeJournal.GAP })
+                cursor = scan.nextCursor
+                return result(if (scan.reset) "reset" else "gap", scan.gapReasons, scan.hasMore)
+            }
+            val lookup = lookUp(scan.entries, lookupBudget(remaining(), firstScan && request.timeout.isZero))
+            firstScan = false
+            // Out of time before this page was classified: resume before it (and before any burst).
+            if (lookup.exhausted) return result("timed_out", hasMore = true)
+            val before = burst.size
+            for (entry in scan.entries) {
+                val chatId = entry.chatId
+                val facts = if (entry.kind == "new") lookup.facts[chatId to entry.messageId] else null
+                when {
+                    entry.kind == ChangeJournal.GAP -> Unit
+                    entry.kind != "new" -> skip(SKIP_OTHER_CHANGE)
+                    chatId != null && chatId in lookup.failedChats -> skip(SKIP_LOOKUP_FAILED)
+                    facts == null -> skip(SKIP_VANISHED)
+                    facts.isOutgoing -> skip(SKIP_OUTGOING)
+                    else -> Pending(entry, facts).let {
+                        if (!request.addressedOnly || it.reasons.isNotEmpty()) burst += it else skip(SKIP_NOT_ADDRESSED)
                     }
                 }
-                cursor = scan.nextCursor
-                if (burst.size >= request.limit) return result("limit", hasMore = scan.hasMore)
-                val left = remaining()
-                if (scan.hasMore) {
-                    if (left > 0) continue
-                    return result("timed_out", hasMore = true)
-                }
-                val last = burst.lastOrNull()?.let { Instant.parse(it.entry.observedAt) }
-                // Settled only from a complete look: the whole tail was scanned, it added nothing to the
-                // burst, and the scan began after the quiet window had already elapsed.
-                if (last != null && burst.size == before && Duration.between(last, scanStarted) >= request.settle) {
-                    return result("settled")
-                }
-                val untilSettled = last?.let { request.settle.toNanos() - Duration.between(it, clock.instant()).toNanos() }
-                if (untilSettled != null && untilSettled <= 0 && (left > 0 || !confirmed)) {
-                    // Quiet now: confirm with one fresh scan, even at the deadline (an empty scan needs no lookups).
-                    if (left <= 0) confirmed = true
-                    continue
-                }
-                if (left <= 0) return result("timed_out")
-                journal.pause(minOf(left, POLL_NANOS, untilSettled ?: Long.MAX_VALUE).coerceAtLeast(1_000_000L))
             }
-        } catch (interrupted: InterruptedException) {
-            Thread.currentThread().interrupt()
-            throw TelegramApiException(406, "Canceled settled wait: interrupted", interrupted, readOnlyRequest = true)
+            cursor = scan.nextCursor
+            if (burst.size >= request.limit) return result("limit", hasMore = scan.hasMore || !scan.writerCaughtUp)
+            val left = remaining()
+            if (scan.hasMore || !scan.writerCaughtUp) {
+                if (left > 0) continue
+                return result("timed_out", hasMore = true)
+            }
+            val last = burst.lastOrNull()?.let { Instant.parse(it.entry.observedAt) }
+            // Settled only from a complete look: the whole tail was scanned, it added nothing to the
+            // burst, and the scan began after the quiet window had already elapsed.
+            if (last != null && burst.size == before && Duration.between(last, scanStarted) >= request.settle) {
+                return result("settled")
+            }
+            val untilSettled = last?.let { request.settle.toNanos() - Duration.between(it, clock.instant()).toNanos() }
+            if (untilSettled != null && untilSettled <= 0 && (left > 0 || !confirmed)) {
+                // Quiet now: confirm with one fresh scan, even at the deadline (an empty scan needs no lookups).
+                if (left <= 0) confirmed = true
+                continue
+            }
+            if (left <= 0) return result("timed_out")
+            journal.pause(minOf(left, POLL_NANOS, untilSettled ?: Long.MAX_VALUE).coerceAtLeast(1_000_000L))
         }
     }
 
     /**
-     * The wait's remaining time, or the [MIN_LOOKUP_NANOS] floor when that is larger. The floor
-     * never reaches past the outer tool-call deadline (less the reserve kept for the answer);
-     * [ToolCallDeadline.capped] clamps to that deadline again.
+     * The wait's remaining time. A zero-timeout poll gets one lookup budget up to [MIN_LOOKUP_NANOS],
+     * within the outer tool-call deadline and its reserve for the answer.
      */
-    internal fun lookupBudget(remainingNanos: Long): Long {
+    internal fun lookupBudget(remainingNanos: Long, immediatePoll: Boolean): Long {
+        if (!immediatePoll) return remainingNanos.coerceAtLeast(0)
         val outer = ToolCallDeadline.remainingNanos()?.minus(TimeUnit.MILLISECONDS.toNanos(50)) ?: Long.MAX_VALUE
-        return maxOf(remainingNanos, minOf(MIN_LOOKUP_NANOS, outer))
+        return outer.coerceIn(0, MIN_LOOKUP_NANOS)
     }
 
     /**

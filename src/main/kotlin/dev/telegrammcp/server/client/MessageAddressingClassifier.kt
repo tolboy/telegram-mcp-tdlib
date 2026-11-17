@@ -8,7 +8,7 @@ internal object MessageAddressingClassifier {
     /** The replied-to message ID when the reply stays in the message's own chat. */
     fun sameChatReplyTarget(message: TdApi.Message): Long? {
         val reply = message.replyTo as? TdApi.MessageReplyToMessage ?: return null
-        return reply.messageId.takeIf { it > 0 && (reply.chatId == 0L || reply.chatId == message.chatId) }
+        return reply.messageId.takeIf { it > 0 && reply.chatId == message.chatId }
     }
 
     fun classify(message: TdApi.Message, chatType: TdApi.ChatType?, me: TdApi.User, myMessageIds: Set<Long>): MessageAddressing {
@@ -32,33 +32,43 @@ internal object MessageAddressingClassifier {
     }
 
     private fun mentions(content: TdApi.MessageContent?, me: TdApi.User): Boolean {
-        val text = formattedText(content) ?: return false
         val usernames = me.usernames?.let { names ->
             (names.activeUsernames.orEmpty().asSequence() + sequenceOf(names.editableUsername))
                 .filterNotNull().filter { it.isNotBlank() }.map { it.lowercase() }.toSet()
         }.orEmpty()
-        return text.entities.orEmpty().any { entity ->
-            when (val type = entity.type) {
-                is TdApi.TextEntityTypeMentionName -> type.userId == me.id
-                is TdApi.TextEntityTypeMention -> {
-                    val end = entity.offset + entity.length
-                    entity.offset >= 0 && end <= text.text.length &&
-                        text.text.substring(entity.offset, end).removePrefix("@").lowercase() in usernames
+        return formattedTexts(content).filterNotNull().any { text ->
+            text.entities.orEmpty().any { entity ->
+                when (val type = entity.type) {
+                    is TdApi.TextEntityTypeMentionName -> type.userId == me.id
+                    is TdApi.TextEntityTypeMention -> {
+                        val value = text.text.orEmpty()
+                        val offset = entity.offset
+                        val length = entity.length
+                        offset >= 0 && length > 0 && length <= value.length - offset &&
+                            value.substring(offset, offset + length).removePrefix("@").lowercase() in usernames
+                    }
+                    else -> false
                 }
-                else -> false
             }
         }
     }
 
-    private fun formattedText(content: TdApi.MessageContent?): TdApi.FormattedText? = when (content) {
-        is TdApi.MessageText -> content.text
-        is TdApi.MessagePhoto -> content.caption
-        is TdApi.MessageVideo -> content.caption
-        is TdApi.MessageDocument -> content.caption
-        is TdApi.MessageAudio -> content.caption
-        is TdApi.MessageVoiceNote -> content.caption
-        is TdApi.MessageAnimation -> content.caption
-        is TdApi.MessagePaidMedia -> content.caption
-        else -> null
+    private fun formattedTexts(content: TdApi.MessageContent?): Sequence<TdApi.FormattedText?> = when (content) {
+        is TdApi.MessageText -> sequenceOf(content.text)
+        is TdApi.MessagePhoto -> sequenceOf(content.caption)
+        is TdApi.MessageVideo -> sequenceOf(content.caption)
+        is TdApi.MessageDocument -> sequenceOf(content.caption)
+        is TdApi.MessageAudio -> sequenceOf(content.caption)
+        is TdApi.MessageVoiceNote -> sequenceOf(content.caption)
+        is TdApi.MessageAnimation -> sequenceOf(content.caption)
+        is TdApi.MessagePaidMedia -> sequenceOf(content.caption)
+        is TdApi.MessageInvoice -> sequenceOf(content.paidMediaCaption)
+        is TdApi.MessageGame -> sequenceOf(content.game?.text)
+        is TdApi.MessageChecklist -> sequenceOf(content.list?.title) +
+            content.list?.tasks.orEmpty().asSequence().map { it.text }
+        is TdApi.MessagePoll -> sequenceOf(content.poll?.question, content.description,
+            (content.poll?.type as? TdApi.PollTypeQuiz)?.explanation) +
+            content.poll?.options.orEmpty().asSequence().map { it.text }
+        else -> emptySequence()
     }
 }
