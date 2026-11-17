@@ -73,7 +73,9 @@ permissions and the selected account explicitly, and restore prior state afterwa
 
 Open [permission-editor.html](permission-editor.html) locally in a browser. Add or
 remove grants, import an existing file, review the generated JSON and save it.
-The editor has no network access and does not modify a running server. Replace
+The editor has no network access and does not modify a running server. Each
+grant has an "Allow sensitive chats" checkbox for `allow_sensitive_chats`; it is
+off by default and omitted from the JSON unless checked. Replace
 the configured local file with the reviewed output, restart and reconnect clients.
 Keep the file writable only by the operator; it is an authority configuration.
 The editor supports JavaScript-safe integer chat IDs; larger 64-bit IDs, if

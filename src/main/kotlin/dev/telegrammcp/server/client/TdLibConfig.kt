@@ -238,7 +238,10 @@ class TdLibConfig(
             val chatFolderState = ChatFolderState()
             // READY can arrive before builder.build returns, so the check reaches the client through this.
             val clientRef = CompletableFuture<SimpleTelegramClient>()
-            val accountCheck = ExpectedAccountCheck(config.label, config.expectedAccount, config.databaseDirectory)
+            val accountCheck = ExpectedAccountCheck(
+                config.label, config.expectedAccount, config.databaseDirectory,
+                budget = ExpectedAccountCheck.budgetFor(config.authReadyTimeout),
+            )
             builder.addUpdateHandler(TdApi.UpdateAuthorizationState::class.java) { update ->
                 handleAuthState(config.label, update, authGate) { onSessionReady(config.label, authGate, clientRef, accountCheck, journal) }
                 if (update.authorizationState is TdApi.AuthorizationStateClosed) messageSendTracker.close()
@@ -402,6 +405,7 @@ class TdLibConfig(
                     SensitiveChatDiscovery.discover(label) { username -> client.send(TdApi.SearchPublicChat(username)) }
                 }
             },
+            onDeadline = authGate::markVerifying,
             onRefused = { record ->
                 authGate.markFailed(record.message)
                 if (record.result == AccountCheckResult.MISMATCH) {

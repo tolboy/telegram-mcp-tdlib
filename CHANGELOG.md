@@ -5,6 +5,25 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- **`prefix*` patterns in `MCP_TOOL_ALLOW` and `MCP_TOOL_DENY`.** An entry may
+  end in a single `*` to match every tool with that prefix (`get_*`). Deny always
+  wins over allow. A bare `*` in the allow list keeps every profile tool and is
+  logged; a bare `*` in the deny list and any other `*` placement fail startup.
+  Every entry that matches no registered tool is logged as a warning. Unknown
+  exact names still fail startup, and so does a deny pattern that matches
+  nothing, since a typo there would leave tools visible; an allow pattern that
+  matches nothing only warns.
+- **The expected-account check fits the auth ready-timeout.** The first GetMe
+  waits up to 15 seconds (was 30) and each retry up to 5, and the whole check is
+  bounded by `TDLIB_AUTH_READY_TIMEOUT` minus a margin (40 seconds by default).
+  Retries that cannot fit are skipped, including a retry that a busy executor
+  starts too late, and each skip is logged. A tool call waiting for the session
+  shares the check's deadline: it gets the verdict even if it started mid-login,
+  or, if its own tool-call deadline comes first, a clear "expected-account check
+  has not finished" error. Nothing is passed through unverified.
+- **The permission editor supports `allow_sensitive_chats`.** It used to reject
+  files containing the field; it now imports, edits and exports it.
+
 Safety hardening. Review the behaviour changes below before upgrading.
 
 - **Sensitive chats are blocked by default.** Telegram's service chat `777000`
