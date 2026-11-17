@@ -538,6 +538,7 @@ class TelegramAuthOrchestrator(
                 gate.markReady()
                 SensitiveChatDiscovery.discover(accountLabel) { username -> client.send(TdApi.SearchPublicChat(username)) }
             },
+            onDeadline = gate::markVerifying,
             onRefused = { record ->
                 gate.markFailed(record.message)
                 lock.withLock {

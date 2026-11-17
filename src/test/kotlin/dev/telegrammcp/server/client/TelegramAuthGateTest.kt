@@ -187,4 +187,67 @@ class TelegramAuthGateTest {
         assertEquals(gated, gated)
         assertTrue(gated.toString().contains("default"))
     }
+
+    @Test
+    fun `a call that started mid-login waits for the account check verdict past its own ready-timeout`() {
+        val gate = gate(Duration.ofMillis(100))
+        val service = mockk<TelegramClientService>(relaxed = true)
+        val gated = gate.gate(service)
+        gate.markVerifying(System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(1_000))
+        thread { Thread.sleep(400); gate.markFailed("Telegram account 'default' is signed in with user ID 9") }
+
+        val startedAt = System.nanoTime()
+        val error = assertFailsWith<TdLibAuthException> { gated.getMe() }
+        val waited = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
+
+        assertTrue("signed in with user ID 9" in error.message, "the waiter gets the verdict: ${error.message}")
+        assertTrue(waited in 350..1_400, "waited $waited ms")
+        verify(exactly = 0) { service.getMe() }
+    }
+
+    @Test
+    fun `an accepted check releases a waiting call`() {
+        val gate = gate(Duration.ofMillis(100))
+        val service = mockk<TelegramClientService>(relaxed = true)
+        val gated = gate.gate(service)
+        gate.markVerifying(System.nanoTime() + TimeUnit.SECONDS.toNanos(2))
+        thread { Thread.sleep(300); gate.markReady() }
+
+        gated.getMe()
+
+        assertTrue(gate.isReady())
+        verify(exactly = 1) { service.getMe() }
+    }
+
+    @Test
+    fun `a tool-call deadline shorter than the check gets a clear still-verifying error`() {
+        val gate = gate(Duration.ofMillis(100))
+        val service = mockk<TelegramClientService>(relaxed = true)
+        val gated = gate.gate(service)
+        gate.markVerifying(System.nanoTime() + TimeUnit.SECONDS.toNanos(10))
+
+        val startedAt = System.nanoTime()
+        val error = assertFailsWith<TdLibAuthException> {
+            ToolCallDeadline.run(Duration.ofMillis(300)) { gated.getMe() }
+        }
+        val waited = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
+
+        assertTrue("expected-account check has not finished" in error.message, error.message)
+        assertTrue("Nothing was sent" in error.message, error.message)
+        assertTrue(waited < 2_000, "the tool-call deadline bounds the wait: $waited ms")
+        assertFalse(gate.isReady())
+        verify(exactly = 0) { service.getMe() }
+    }
+
+    @Test
+    fun `verifying never overrides a recorded failure and never counts as ready`() {
+        val gate = gate()
+        gate.markVerifying(System.nanoTime() + TimeUnit.SECONDS.toNanos(5))
+        assertFalse(gate.isReady())
+        gate.markFailed("mismatch")
+        gate.markVerifying(System.nanoTime() + TimeUnit.SECONDS.toNanos(5))
+        gate.markReady()
+        val error = assertFailsWith<TdLibAuthException> { gate.awaitReady() }
+        assertTrue(error.message.endsWith("mismatch"), error.message)
+    }
 }

@@ -231,18 +231,67 @@ class ExpectedAccountCheckTest {
 
     @Test
     fun `retries use the shorter retry timeout`() {
-        val calls = java.util.concurrent.atomic.AtomicInteger()
-        val started = System.nanoTime()
-        val (accepted, record) = runCheck(check(ExpectedAccount(userId = 4242), timeout = Duration.ofMillis(300),
-            retryTimeout = Duration.ofMillis(50), retryBackoff = listOf(Duration.ofMillis(10), Duration.ofMillis(10)))) {
-            calls.incrementAndGet()
-            CompletableFuture() // never answers
+        val startedAt = java.util.concurrent.CopyOnWriteArrayList<Long>()
+        val (accepted, record) = runCheck(check(ExpectedAccount(userId = 4242), timeout = Duration.ofMillis(1_500),
+            retryTimeout = Duration.ofMillis(100), retryBackoff = listOf(Duration.ofMillis(10), Duration.ofMillis(10)))) {
+            startedAt += System.nanoTime()
+            CompletableFuture<TdApi.User>()
         }
-        val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
         assertFalse(accepted)
         assertEquals(AccountCheckResult.UNVERIFIED, record.result)
-        assertEquals(3, calls.get())
-        assertTrue(elapsed in 300..2_000, "first attempt 300ms, two retries of 50ms, took $elapsed ms")
+        assertEquals(3, startedAt.size)
+        val firstAttempt = TimeUnit.NANOSECONDS.toMillis(startedAt[1] - startedAt[0])
+        val retryAttempts = listOf(startedAt[2] - startedAt[1]).map(TimeUnit.NANOSECONDS::toMillis)
+        // The first attempt runs its full 1.5s; each retry gets only 100ms. Reusing the first
+        // timeout would make every retry gap at least 1.5s, far above the 1s bound.
+        assertTrue(firstAttempt >= 1_500, "first attempt took $firstAttempt ms")
+        retryAttempts.forEach { assertTrue(it in 100..1_000, "retry attempt took $it ms") }
+    }
+
+    @Test
+    fun `defaults give the first attempt 15 seconds and every retry 5`() {
+        val defaults = ExpectedAccountCheck("work", ExpectedAccount(userId = 4242), null)
+        assertEquals(Duration.ofSeconds(15), defaults.attemptTimeout(0))
+        (1..ExpectedAccountCheck.DEFAULT_RETRY_BACKOFF.size).forEach { assertEquals(Duration.ofSeconds(5), defaults.attemptTimeout(it)) }
+    }
+
+    @Test
+    fun `a retry that starts after the budget ran out is refused without calling getMe`() {
+        val calls = java.util.concurrent.atomic.AtomicInteger()
+        // A busy executor: the retry was scheduled with time to spare but only runs after the deadline.
+        val lateScheduler: (Duration, Runnable) -> Unit = { _, task ->
+            Thread { Thread.sleep(1_300); task.run() }.start()
+        }
+        val check = ExpectedAccountCheck("work", ExpectedAccount(userId = 4242), directory, Duration.ofMillis(50), clock,
+            retryBackoff = listOf(Duration.ofMillis(10)), retryTimeout = Duration.ofSeconds(5),
+            budget = Duration.ofMillis(1_200), scheduleRetry = lateScheduler)
+        val (accepted, record) = runCheck(check) {
+            calls.incrementAndGet()
+            CompletableFuture.failedFuture(IllegalStateException("not yet"))
+        }
+        assertFalse(accepted)
+        assertEquals(1, calls.get(), "the late retry must not call getMe")
+        assertEquals(AccountCheckResult.UNVERIFIED, record.result)
+        assertTrue("time budget ran out" in record.message, record.message)
+    }
+
+    @Test
+    fun `the deadline is reported before the first attempt so waiters can share it`() {
+        val reported = java.util.concurrent.atomic.AtomicLong()
+        val before = System.nanoTime()
+        val check = check(ExpectedAccount(userId = 4242), budget = Duration.ofSeconds(2))
+        val done = CountDownLatch(1)
+        check.run({
+            assertTrue(reported.get() != 0L, "deadline must be reported before GetMe")
+            CompletableFuture.completedFuture(user(4242, ""))
+        }, { done.countDown() }, { done.countDown() }, onDeadline = reported::set)
+        assertTrue(done.await(5, TimeUnit.SECONDS))
+        val offset = TimeUnit.NANOSECONDS.toMillis(reported.get() - before)
+        assertTrue(offset in 1_900..2_100, "deadline is about 2s out: $offset ms")
+
+        val unconfigured = java.util.concurrent.atomic.AtomicBoolean()
+        check(ExpectedAccount.NONE, budget = Duration.ofSeconds(2)).run({ error("unused") }, {}, {}, onDeadline = { unconfigured.set(true) })
+        assertFalse(unconfigured.get(), "no check, no deadline")
     }
 
     @Test

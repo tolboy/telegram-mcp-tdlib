@@ -16,8 +16,11 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 - **The expected-account check fits the auth ready-timeout.** The first GetMe
   waits up to 15 seconds (was 30) and each retry up to 5, and the whole check is
   bounded by `TDLIB_AUTH_READY_TIMEOUT` minus a margin (40 seconds by default).
-  Retries that cannot fit are skipped, so a waiting tool call gets the check's
-  verdict instead of an auth timeout.
+  Retries that cannot fit are skipped, including a retry that a busy executor
+  starts too late, and each skip is logged. A tool call waiting for the session
+  shares the check's deadline: it gets the verdict even if it started mid-login,
+  or, if its own tool-call deadline comes first, a clear "expected-account check
+  has not finished" error. Nothing is passed through unverified.
 - **The permission editor supports `allow_sensitive_chats`.** It used to reject
   files containing the field; it now imports, edits and exports it.
 

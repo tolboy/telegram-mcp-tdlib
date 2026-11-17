@@ -85,7 +85,7 @@ class ExpectedAccountCheck(
     /** Where to persist the [AccountCheckRecord]; null skips persistence. */
     private val recordDirectory: Path?,
     /** How long the first GetMe may take. */
-    private val timeout: Duration = Duration.ofSeconds(15),
+    private val timeout: Duration = DEFAULT_FIRST_TIMEOUT,
     private val clock: Clock = Clock.systemUTC(),
     /**
      * Pauses before each retry when GetMe fails or times out; its size is the
@@ -93,7 +93,7 @@ class ExpectedAccountCheck(
      */
     private val retryBackoff: List<Duration> = DEFAULT_RETRY_BACKOFF,
     /** How long each retried GetMe may take; shorter than [timeout] so retries fit the budget. */
-    private val retryTimeout: Duration = Duration.ofSeconds(5),
+    private val retryTimeout: Duration = DEFAULT_RETRY_TIMEOUT,
     /**
      * Upper bound for the whole check, normally derived from the auth
      * ready-timeout with [budgetFor], so a waiting tool call gets the check's
@@ -102,6 +102,10 @@ class ExpectedAccountCheck(
      * Null means no overall bound.
      */
     private val budget: Duration? = null,
+    /** Runs a retry after its pause; replaceable in tests to simulate a busy executor. */
+    private val scheduleRetry: (Duration, Runnable) -> Unit = { pause, task ->
+        CompletableFuture.runAsync(task, CompletableFuture.delayedExecutor(pause.toMillis(), TimeUnit.MILLISECONDS))
+    },
 ) {
     private val log = StructuredLogger.forClass<ExpectedAccountCheck>()
 
@@ -114,6 +118,12 @@ class ExpectedAccountCheck(
         getMe: () -> CompletableFuture<TdApi.User>,
         onAccepted: (AccountCheckRecord) -> Unit,
         onRefused: (AccountCheckRecord) -> Unit,
+        /**
+         * Receives the check's absolute deadline ([System.nanoTime] based)
+         * before the first GetMe, when a [budget] is set, so the auth gate can
+         * let waiting tool calls wait for the same deadline.
+         */
+        onDeadline: (Long) -> Unit = {},
     ) {
         if (!expected.configured) {
             val record = record(AccountCheckResult.NOT_CONFIGURED, null,
@@ -123,6 +133,7 @@ class ExpectedAccountCheck(
             return
         }
         val deadline = budget?.let { System.nanoTime() + it.toNanos() }
+        deadline?.let(onDeadline)
         attempt(getMe, onAccepted, onRefused, retry = 0, deadline = deadline)
     }
 
@@ -136,7 +147,18 @@ class ExpectedAccountCheck(
         retry: Int,
         deadline: Long?,
     ) {
-        val limit = (if (retry == 0) timeout else retryTimeout).toMillis()
+        // A retry can start late when its executor is busy: re-check the budget
+        // when it actually runs, and refuse rather than fire a doomed GetMe.
+        if (retry > 0) {
+            val left = remainingMillis(deadline)
+            if (left != null && left < MIN_ATTEMPT.toMillis()) {
+                log.warn("Skipping retry {} of the account check for '{}': only {} ms of its budget left",
+                    retry, label, left.coerceAtLeast(0))
+                finish(unverified(null, attempts = retry, budgetExhausted = true), onAccepted, onRefused)
+                return
+            }
+        }
+        val limit = attemptTimeout(retry).toMillis()
         val attemptMillis = remainingMillis(deadline)?.let { minOf(limit, it) }?.coerceAtLeast(1) ?: limit
         val future = try {
             getMe()
@@ -150,25 +172,30 @@ class ExpectedAccountCheck(
             if ((error != null || user == null) && pause != null && retryFits) {
                 log.warn("Could not verify Telegram account '{}' (attempt {} of {}); retrying in {} ms",
                     label, retry + 1, retryBackoff.size + 1, pause.toMillis())
-                CompletableFuture.runAsync(
-                    { attempt(getMe, onAccepted, onRefused, retry + 1, deadline) },
-                    CompletableFuture.delayedExecutor(pause.toMillis(), TimeUnit.MILLISECONDS),
-                )
+                scheduleRetry(pause) { attempt(getMe, onAccepted, onRefused, retry + 1, deadline) }
                 return@whenComplete
             }
-            val record = if (error != null || user == null) {
-                unverified(error, attempts = retry + 1)
-            } else {
-                evaluate(user)
+            val failed = error != null || user == null
+            if (failed && pause != null) {
+                log.warn("Not retrying the account check for '{}': {} ms of its budget left, a retry needs {} ms",
+                    label, left?.coerceAtLeast(0), pause.toMillis() + MIN_ATTEMPT.toMillis())
             }
-            persist(record)
-            if (record.accepted) {
-                log.info("Telegram account '{}' matches the expected account", label)
-                onAccepted(record)
-            } else {
-                log.error(record.message)
-                onRefused(record)
-            }
+            val record = if (failed) unverified(error, attempts = retry + 1, budgetExhausted = pause != null) else evaluate(user)
+            finish(record, onAccepted, onRefused)
+        }
+    }
+
+    /** The per-attempt GetMe timeout before any budget cut: [timeout] first, [retryTimeout] for every retry. */
+    internal fun attemptTimeout(retry: Int): Duration = if (retry == 0) timeout else retryTimeout
+
+    private fun finish(record: AccountCheckRecord, onAccepted: (AccountCheckRecord) -> Unit, onRefused: (AccountCheckRecord) -> Unit) {
+        persist(record)
+        if (record.accepted) {
+            log.info("Telegram account '{}' matches the expected account", label)
+            onAccepted(record)
+        } else {
+            log.error(record.message)
+            onRefused(record)
         }
     }
 
@@ -196,12 +223,14 @@ class ExpectedAccountCheck(
         )
     }
 
-    private fun unverified(error: Throwable?, attempts: Int): AccountCheckRecord = record(
+    private fun unverified(error: Throwable?, attempts: Int, budgetExhausted: Boolean = false): AccountCheckRecord = record(
         AccountCheckResult.UNVERIFIED,
         null,
         "Could not verify that Telegram account '$label' is the expected account after $attempts attempt" +
             (if (attempts == 1) "" else "s") +
-            " (${(error?.cause ?: error)?.javaClass?.simpleName ?: "no answer"}). Refusing to serve this session; " +
+            " (${(error?.cause ?: error)?.javaClass?.simpleName ?: "no answer"}" +
+            (if (budgetExhausted) "; the check's time budget ran out" else "") +
+            "). Refusing to serve this session; " +
             "restart the server to retry the check.",
     )
 
@@ -227,6 +256,9 @@ class ExpectedAccountCheck(
 
         /** Three retries over about 7 seconds, on top of each attempt's own timeout. */
         val DEFAULT_RETRY_BACKOFF: List<Duration> = listOf(Duration.ofSeconds(1), Duration.ofSeconds(2), Duration.ofSeconds(4))
+
+        val DEFAULT_FIRST_TIMEOUT: Duration = Duration.ofSeconds(15)
+        val DEFAULT_RETRY_TIMEOUT: Duration = Duration.ofSeconds(5)
 
         /** The shortest attempt worth starting; a retry that would get less is skipped. */
         val MIN_ATTEMPT: Duration = Duration.ofSeconds(1)

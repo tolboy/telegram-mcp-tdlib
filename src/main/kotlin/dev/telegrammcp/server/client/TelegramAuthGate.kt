@@ -32,9 +32,26 @@ class TelegramAuthGate(
 
     /** TDLib reached `AuthorizationStateReady`; calls pass through while the session remains ready. */
     fun markReady() {
-        if (state.compareAndSet(AuthState.Pending, AuthState.Ready)) {
-            terminal.countDown()
+        while (true) {
+            val current = state.get()
+            if (current !is AuthState.Pending && current !is AuthState.Verifying) return
+            if (state.compareAndSet(current, AuthState.Ready)) {
+                terminal.countDown()
+                return
+            }
         }
+    }
+
+    /**
+     * TDLib is signed in and the expected-account check is running until
+     * [deadlineNanos] ([System.nanoTime] based). Calls still wait, and a waiting
+     * call may wait past its own ready-timeout up to that shared deadline
+     * (plus [VERDICT_GRACE]), never past its tool-call deadline, so it gets the
+     * check's verdict. If its tool-call deadline comes first it fails with a
+     * clear "still verifying" error; nothing is ever passed through unverified.
+     */
+    fun markVerifying(deadlineNanos: Long) {
+        state.compareAndSet(AuthState.Pending, AuthState.Verifying(deadlineNanos))
     }
 
     /**
@@ -68,20 +85,24 @@ class TelegramAuthGate(
         when (val current = state.get()) {
             AuthState.Ready -> return
             is AuthState.Failed -> throw authError(current.reason)
-            AuthState.Pending -> Unit
+            AuthState.Pending, is AuthState.Verifying -> Unit
         }
 
         // The wait counts toward the tool call's deadline and never outlasts it.
         // MCP cancellation ends this call only. Login itself keeps running.
-        val waitMillis = minOf(
-            readyTimeout.toMillis(),
-            ToolCallDeadline.remainingNanos()?.let { TimeUnit.NANOSECONDS.toMillis(it).coerceAtLeast(0) } ?: Long.MAX_VALUE,
-        )
-        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(waitMillis)
+        val startedAt = System.nanoTime()
+        val callDeadline = ToolCallDeadline.remainingNanos()?.let { startedAt + it.coerceAtLeast(0) }
+        val ownDeadline = startedAt + readyTimeout.toNanos()
+        fun deadline(): Long {
+            // While the account check runs, wait for its verdict: the shared deadline wins over our own timer.
+            val verifying = state.get() as? AuthState.Verifying
+            val wanted = if (verifying == null) ownDeadline else maxOf(ownDeadline, verifying.deadlineNanos + VERDICT_GRACE.toNanos())
+            return if (callDeadline == null) wanted else minOf(wanted, callDeadline)
+        }
         try {
-            while (state.get() === AuthState.Pending) {
+            while (state.get().let { it === AuthState.Pending || it is AuthState.Verifying }) {
                 McpCallCancellation.throwIfLocalWait("authentication")
-                val left = deadline - System.nanoTime()
+                val left = deadline() - System.nanoTime()
                 if (left <= 0) break
                 if (terminal.await(minOf(left, 50_000_000L), TimeUnit.NANOSECONDS)) break
             }
@@ -90,12 +111,17 @@ class TelegramAuthGate(
             throw authError("Interrupted while waiting for Telegram account '$label' to authenticate")
         }
 
+        val waitedSeconds = TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - startedAt)
         when (val finalState = state.get()) {
             AuthState.Ready -> return
             is AuthState.Failed -> throw authError(finalState.reason)
+            is AuthState.Verifying -> throw authError(
+                "Telegram account '$label' is signed in, but the expected-account check has not finished " +
+                    "within this tool call (waited ${waitedSeconds}s). Nothing was sent; retry shortly.",
+            )
             AuthState.Pending -> {
                 throw authError(
-                    "Telegram account '$label' is not authenticated yet (waited ${waitMillis / 1000}s). " +
+                    "Telegram account '$label' is not authenticated yet (waited ${waitedSeconds}s). " +
                         "Complete the login with 'telegram-mcp auth', or supply TDLIB_AUTH_CODE / " +
                         "TDLIB_2FA_PASSWORD for a headless start.",
                 )
@@ -112,8 +138,14 @@ class TelegramAuthGate(
 
     private fun authError(reason: String) = TdLibAuthException(reason)
 
+    companion object {
+        /** Extra time a waiter allows past the account check's deadline for its callbacks to land. */
+        val VERDICT_GRACE: Duration = Duration.ofMillis(500)
+    }
+
     private sealed interface AuthState {
         data object Pending : AuthState
+        data class Verifying(val deadlineNanos: Long) : AuthState
         data object Ready : AuthState
         data class Failed(val reason: String) : AuthState
     }

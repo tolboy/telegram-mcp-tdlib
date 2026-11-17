@@ -405,6 +405,7 @@ class TdLibConfig(
                     SensitiveChatDiscovery.discover(label) { username -> client.send(TdApi.SearchPublicChat(username)) }
                 }
             },
+            onDeadline = authGate::markVerifying,
             onRefused = { record ->
                 authGate.markFailed(record.message)
                 if (record.result == AccountCheckResult.MISMATCH) {
