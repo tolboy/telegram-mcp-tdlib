@@ -295,7 +295,7 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
      */
     fun attach(builder: SimpleTelegramClientBuilder, account: String, recording: Boolean = true): Attachment {
         val attachment = Attachment(account, recording)
-        appendGap(account, REASON_RESTART)
+        if (recording) appendGap(account, REASON_RESTART)
         builder.addUpdateHandler(TdApi.UpdateNewMessage::class.java) { attachment.record { recordNewMessage(account, it.message) } }
         builder.addUpdateHandler(TdApi.UpdateMessageSendSucceeded::class.java) { attachment.record { recordNewMessage(account, it.message) } }
         builder.addUpdateHandler(TdApi.UpdateMessageContent::class.java) {

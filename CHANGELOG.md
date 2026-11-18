@@ -5,6 +5,10 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- **Verified ownership of local MCP artifacts.** Expected-account verification
+  also binds the change journal, export jobs and send receipts to the user's
+  live Telegram ID and network. Existing artifacts require an explicit owner
+  assertion. The migration preserves cursors, job IDs and send idempotency keys.
 - **Signed inline-button clicks are the default.** Use the `button_token` from
   `list_inline_buttons`. When human approval applies, its prompt shows the
   resolved chat, message and button. The keyboard is rechecked after approval.

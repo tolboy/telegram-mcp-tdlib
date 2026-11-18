@@ -13,6 +13,7 @@ import dev.telegrammcp.server.config.TdLibProperties
 import dev.telegrammcp.server.config.TelegramProperties
 import dev.telegrammcp.server.exception.TdLibAuthException
 import dev.telegrammcp.server.security.LocalAccessChecks
+import dev.telegrammcp.server.service.AccountArtifactOwnership
 import dev.telegrammcp.server.service.PlatformPaths
 import dev.telegrammcp.server.util.StructuredLogger
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
@@ -68,6 +69,7 @@ class TelegramAuthOrchestrator(
     /** Shared with the configured accounts, so the hot-swapped service gets the same breaker health. */
     private val clientServices: TdLibClientServiceFactory =
         TdLibClientServiceFactory(TelegramConnectionStates(), meterRegistry),
+    private val artifactOwnership: AccountArtifactOwnership = AccountArtifactOwnership(platformPaths),
 ) {
 
     private val log = StructuredLogger.forClass<TelegramAuthOrchestrator>()
@@ -406,7 +408,9 @@ class TelegramAuthOrchestrator(
         myGeneration: Int = generation.get(),
     ) {
         // With an expected account, hotSwap activates this only after the check accepts the session.
-        journalAttachment = changeJournal?.attach(builder, authWizard.accountLabel, recording = !accountAuth().expectedAccount().configured)
+        val expected = accountAuth().expectedAccount()
+        if (!expected.configured) artifactOwnership.requireUnbound(accountLabel)
+        journalAttachment = changeJournal?.attach(builder, accountLabel, recording = !expected.configured)
         // The circuit breaker of the hot-swapped service reads this state.
         clientServices.attach(builder, accountLabel)
         builder.addUpdateHandler(TdApi.UpdateAuthorizationState::class.java) { update ->
@@ -536,14 +540,24 @@ class TelegramAuthOrchestrator(
         val journal = journalAttachment
         accountVerificationGate = gate
         delegatingClient.swap(gate.gate(service))
-        ExpectedAccountCheck(
+        val accountCheck = ExpectedAccountCheck(
             accountLabel, expected, databaseDirectory(),
             budget = ExpectedAccountCheck.budgetFor(account.readyTimeout),
-        ).run(
+        )
+        accountCheck.run(
             getMe = { client.send(TdApi.GetMe()) },
-            onAccepted = {
+            onAccepted = { record ->
                 lock.withLock {
                     if (generation.get() == myGeneration) {
+                        try {
+                            val useTestDc = (namedAccount()?.session ?: props.session).useTestDc
+                            artifactOwnership.bind(accountLabel, requireNotNull(record.actualUserId), useTestDc, account.legacyArtifactOwnerUserId)
+                        } catch (failure: TdLibAuthException) {
+                            gate.markFailed(failure.message)
+                            accountCheck.recordArtifactRefusal(record, failure.message)
+                            authStateHolder.setState(AuthState.Error(errorMessage = failure.message))
+                            return@withLock
+                        }
                         journal?.activate()
                         gate.markReady()
                         authStateHolder.setState(AuthState.Ready())

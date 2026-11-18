@@ -77,6 +77,7 @@ tdlib:
     # Named accounts use telegram.accounts.<label>.auth.expected-user-id / -phone-number.
     expected-user-id: ${TDLIB_EXPECTED_USER_ID:}
     expected-phone-number: ${TDLIB_EXPECTED_PHONE_NUMBER:}
+    legacy-artifact-owner-user-id: ${TDLIB_LEGACY_ARTIFACT_OWNER_USER_ID:}
   # Limits for TDLib requests made by tool calls. MCP clients give up on a
   # tool call after about 60s (TypeScript MCP SDK default, Claude Desktop), so
   # tool-deadline bounds the whole chain of TDLib waits in one call (rate

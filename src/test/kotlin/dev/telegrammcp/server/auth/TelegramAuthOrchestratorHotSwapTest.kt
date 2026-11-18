@@ -7,6 +7,7 @@ import dev.telegrammcp.server.client.TelegramConnectionStates
 import dev.telegrammcp.server.config.TdLibProperties
 import dev.telegrammcp.server.exception.TdLibAuthException
 import dev.telegrammcp.server.service.PlatformPaths
+import dev.telegrammcp.server.service.AccountArtifactOwnership
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.ratelimiter.RateLimiter
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
@@ -51,6 +52,9 @@ class TelegramAuthOrchestratorHotSwapTest {
     private val delegating = DelegatingTelegramClientService.wrapping(fallback)
     private val authState = TelegramAuthStateHolder()
     private val credentials = RuntimeCredentialsHolder()
+    private val artifactOwnership by lazy {
+        AccountArtifactOwnership(mockk { every { applicationDataDirectory } returns tempDir })
+    }
     private lateinit var orchestrator: TelegramAuthOrchestrator
 
     private fun createOrchestrator(expectedUserId: Long? = null) = TelegramAuthOrchestrator(
@@ -65,6 +69,7 @@ class TelegramAuthOrchestratorHotSwapTest {
         meterRegistry = meters,
         delegatingClient = delegating,
         platformPaths = PlatformPaths(),
+        artifactOwnership = artifactOwnership,
         clientServices = TdLibClientServiceFactory(states, meters),
     )
 
@@ -93,7 +98,7 @@ class TelegramAuthOrchestratorHotSwapTest {
         orchestrator.shutdownLifecycleExecutor()
         orchestrator = createOrchestrator(expectedUserId = 42)
         val registry = AuthWizardRuntimeConfig()
-            .authWizardAccountRegistry(delegating, AuthWizardProperties(), orchestrator)
+            .authWizardAccountRegistry(delegating, AuthWizardProperties(), orchestrator, artifactOwnership)
         assertFailsWith<TdLibAuthException> { registry.expectedAccountGate("default") }
         val authorization = authorizationHandler()
         val built = builtClient()
@@ -119,7 +124,7 @@ class TelegramAuthOrchestratorHotSwapTest {
         orchestrator.shutdownLifecycleExecutor()
         orchestrator = createOrchestrator(expectedUserId = 42)
         val registry = AuthWizardRuntimeConfig()
-            .authWizardAccountRegistry(delegating, AuthWizardProperties(), orchestrator)
+            .authWizardAccountRegistry(delegating, AuthWizardProperties(), orchestrator, artifactOwnership)
         val authorization = authorizationHandler()
         val built = builtClient()
         every { built.client.send(any<TdApi.GetMe>()) } returns CompletableFuture.completedFuture(

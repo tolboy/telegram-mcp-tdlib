@@ -6,6 +6,8 @@ import dev.telegrammcp.server.auth.TelegramAuthOrchestrator
 import dev.telegrammcp.server.auth.TelegramAuthStateHolder
 import dev.telegrammcp.server.auth.AuthState
 import dev.telegrammcp.server.client.DelegatingTelegramClientService
+import dev.telegrammcp.server.client.ExpectedAccountCheck
+import dev.telegrammcp.server.client.AccountCheckResult
 import dev.telegrammcp.server.client.MessageSendTracker
 import dev.telegrammcp.server.client.TdLibClientServiceFactory
 import dev.telegrammcp.server.client.TelegramConnectionStates
@@ -23,6 +25,7 @@ import it.tdlight.jni.TdApi
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
@@ -80,7 +83,7 @@ class ChangeJournalAttachmentTest {
         hooks.connection.captured.onUpdate(TdApi.UpdateConnectionState(TdApi.ConnectionStateConnecting()))
 
         assertFalse(attachment.recording)
-        assertEquals(listOf(ChangeJournal.GAP), journal.since(cursor).map { it.kind }, "only the attach marker")
+        assertTrue(journal.since(cursor).isEmpty(), "pending verification does not write even a gap marker")
     }
 
     @Test
@@ -126,6 +129,7 @@ class ChangeJournalAttachmentTest {
             meterRegistry = meters,
             delegatingClient = delegating,
             platformPaths = PlatformPaths(),
+            artifactOwnership = AccountArtifactOwnership(mockk { every { applicationDataDirectory } returns root }),
             changeJournal = journal,
             clientServices = TdLibClientServiceFactory(TelegramConnectionStates(), meters),
         )
@@ -185,6 +189,26 @@ class ChangeJournalAttachmentTest {
         hooks.message(42, 2)
 
         assertEquals(listOf(ChangeJournal.GAP, "new"), journal.since(cursor).map { it.kind })
+    }
+
+    @Test
+    fun `a matching wizard login stays closed when existing artifacts need adoption`() {
+        val journal = journal()
+        journal.append("default", "new", 42, 1)
+        val cursor = journal.tailCursor("default")
+        val (orchestrator, _) = orchestrator(journal, expectedUserId = 4242)
+        Files.createDirectories(root.resolve("tdlib"))
+        val hooks = handlers()
+        orchestrator.configureBuilder(hooks.builder, MessageSendTracker(), "")
+        val attachment = assertNotNull(orchestrator.journalAttachment)
+
+        orchestrator.hotSwap(client(4242))
+        awaitTrue { authState.getState() is AuthState.Error }
+        hooks.message(42, 2)
+
+        assertFalse(attachment.recording)
+        assertTrue(journal.since(cursor).isEmpty())
+        assertEquals(AccountCheckResult.ARTIFACTS_REFUSED, ExpectedAccountCheck.read(root.resolve("tdlib"))?.result)
     }
 
     @Test

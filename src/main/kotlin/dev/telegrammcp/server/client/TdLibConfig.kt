@@ -7,6 +7,7 @@ import dev.telegrammcp.server.exception.TdLibAuthException
 import dev.telegrammcp.server.runtime.ServerShutdown
 import dev.telegrammcp.server.security.LocalAccessChecks
 import dev.telegrammcp.server.security.SecretResolver
+import dev.telegrammcp.server.service.AccountArtifactOwnership
 import dev.telegrammcp.server.service.PlatformPaths
 import dev.telegrammcp.server.util.StructuredLogger
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
@@ -50,6 +51,7 @@ class TdLibConfig(
     private val telegramProperties: TelegramProperties,
     private val secretResolver: SecretResolver,
     private val platformPaths: PlatformPaths,
+    private val artifactOwnership: AccountArtifactOwnership,
     private val rateLimiter: RateLimiter,
     private val circuitBreaker: CircuitBreaker,
     private val circuitBreakerRegistry: CircuitBreakerRegistry,
@@ -78,7 +80,7 @@ class TdLibConfig(
         delegating: DelegatingTelegramClientService,
         orchestrator: TelegramAuthOrchestrator,
     ): TelegramAccountRegistry {
-        val registry = TelegramAccountRegistry()
+        val registry = TelegramAccountRegistry(artifactOwnership)
         val accountConfigurations = configuredAccounts()
 
         if (accountConfigurations.isEmpty()) {
@@ -212,6 +214,7 @@ class TdLibConfig(
             logVerbosityLevel = logVerbosityLevel,
             authReadyTimeout = auth.readyTimeout,
             expectedAccount = auth.expectedAccount(),
+            legacyArtifactOwnerUserId = auth.legacyArtifactOwnerUserId,
         )
     }
 
@@ -231,6 +234,7 @@ class TdLibConfig(
     }
 
     private fun startAccount(config: RuntimeAccountConfig): TelegramAccountRegistry.AccountHandle {
+        if (!config.expectedAccount.configured) artifactOwnership.requireUnbound(config.label)
         val factory = TdLibFactoryLifecycle.create()
         val messageSendTracker = MessageSendTracker()
         return try {
@@ -247,7 +251,7 @@ class TdLibConfig(
                 budget = ExpectedAccountCheck.budgetFor(config.authReadyTimeout),
             )
             builder.addUpdateHandler(TdApi.UpdateAuthorizationState::class.java) { update ->
-                handleAuthState(config.label, update, authGate) { onSessionReady(config.label, authGate, clientRef, accountCheck, journal) }
+                handleAuthState(config.label, update, authGate) { onSessionReady(config, authGate, clientRef, accountCheck, journal) }
                 if (update.authorizationState is TdApi.AuthorizationStateClosed) messageSendTracker.close()
             }
             builder.addUpdateHandler(TdApi.UpdateChatFolders::class.java) { update ->
@@ -395,15 +399,23 @@ class TdLibConfig(
      * and the server shuts down, like a session another process owns.
      */
     private fun onSessionReady(
-        label: String,
+        config: RuntimeAccountConfig,
         authGate: TelegramAuthGate,
         clientRef: CompletableFuture<SimpleTelegramClient>,
         accountCheck: ExpectedAccountCheck,
         journal: dev.telegrammcp.server.service.ChangeJournal.Attachment?,
     ) {
+        val label = config.label
         accountCheck.run(
             getMe = { clientRef.thenCompose { it.send(TdApi.GetMe()) } },
-            onAccepted = {
+            onAccepted = accepted@{ record ->
+                try {
+                    record.actualUserId?.let { artifactOwnership.bind(label, it, config.useTestDc, config.legacyArtifactOwnerUserId) }
+                } catch (failure: TdLibAuthException) {
+                    authGate.markFailed(failure.message)
+                    accountCheck.recordArtifactRefusal(record, failure.message)
+                    return@accepted
+                }
                 journal?.activate()
                 authGate.markReady()
                 clientRef.thenAccept { client ->
@@ -469,6 +481,7 @@ class TdLibConfig(
         val logVerbosityLevel: Int,
         val authReadyTimeout: Duration,
         val expectedAccount: ExpectedAccount,
+        val legacyArtifactOwnerUserId: Long?,
     )
 
     private companion object {

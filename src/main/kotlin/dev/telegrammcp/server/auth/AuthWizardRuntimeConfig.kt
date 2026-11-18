@@ -3,6 +3,7 @@ package dev.telegrammcp.server.auth
 import dev.telegrammcp.server.client.DelegatingTelegramClientService
 import dev.telegrammcp.server.client.TelegramAccountContext
 import dev.telegrammcp.server.client.TelegramAccountRegistry
+import dev.telegrammcp.server.service.AccountArtifactOwnership
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
@@ -17,8 +18,9 @@ class AuthWizardRuntimeConfig {
         delegating: DelegatingTelegramClientService,
         properties: AuthWizardProperties,
         orchestrator: TelegramAuthOrchestrator,
+        artifactOwnership: AccountArtifactOwnership,
     ): TelegramAccountRegistry =
-        TelegramAccountRegistry().also { registry ->
+        TelegramAccountRegistry(artifactOwnership).also { registry ->
             registry.register(
                 TelegramAccountRegistry.AccountHandle(
                     properties.accountLabel,
