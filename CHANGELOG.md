@@ -5,6 +5,9 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- **Media access checks.** Downloads refuse protected or self-destructing
+  messages and return a path only after TDLib confirms a complete download.
+  Generic file operations also exclude internal MCP stores and daemon state.
 - **Verified ownership of local MCP artifacts.** Expected-account verification
   also binds the change journal, export jobs and send receipts to the user's
   live Telegram ID and network. Existing artifacts require an explicit owner

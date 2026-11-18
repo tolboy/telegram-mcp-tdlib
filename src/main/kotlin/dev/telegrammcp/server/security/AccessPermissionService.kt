@@ -12,7 +12,9 @@ import org.springframework.stereotype.Service
 import java.nio.file.Files
 import java.nio.file.LinkOption
 
-class PermissionDeniedException : RuntimeException("The client is not permitted to perform this operation in the selected scope")
+class PermissionDeniedException(
+    message: String = "The client is not permitted to perform this operation in the selected scope",
+) : RuntimeException(message)
 
 data class PermissionDocument(val version: Int, val grants: List<PermissionGrant>)
 data class PermissionGrant(

@@ -7,6 +7,7 @@ import dev.telegrammcp.server.exception.SendOutcomeUnknownException
 import dev.telegrammcp.server.exception.TelegramTimeoutException
 import dev.telegrammcp.server.exception.TelegramUnavailableException
 import dev.telegrammcp.server.model.*
+import dev.telegrammcp.server.security.PermissionDeniedException
 import dev.telegrammcp.server.util.StructuredLogger
 import dev.telegrammcp.server.util.TextFormatter
 import io.github.resilience4j.bulkhead.Bulkhead
@@ -218,13 +219,20 @@ internal class TdLibReadAdapter(
                 val file = extractFileFromMessage(message)
                     ?: throw IllegalStateException("Message $messageId contains no downloadable media")
 
-                // Download the file via TDLib
+                if (!message.canBeSaved || message.selfDestructType != null) {
+                    throw PermissionDeniedException("Telegram does not allow this message's media to be saved")
+                }
+
                 val downloaded = withResilience("downloadFile") {
                     send<TdApi.File>(TdApi.DownloadFile(file.id, 1, 0, 0, true))
                 }
 
-                val localPath = downloaded.local?.path
-                    ?: throw IllegalStateException("Download completed but no local path returned")
+                // A synchronous request also finishes on cancellation or failure.
+                val local = downloaded.local
+                val localPath = local?.path
+                if (local?.isDownloadingCompleted != true || localPath.isNullOrBlank()) {
+                    throw IllegalStateException("TDLib did not return a complete local media file")
+                }
 
                 return DownloadResult(
                     localPath = localPath,

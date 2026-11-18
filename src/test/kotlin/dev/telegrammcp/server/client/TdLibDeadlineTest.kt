@@ -179,6 +179,7 @@ class TdLibDeadlineTest {
                 is TdApi.GetMessages -> TdApi.Messages(1, arrayOf(TdApi.Message().apply {
                     chatId = 1
                     id = 2
+                    canBeSaved = true
                     content = TdApi.MessageDocument(
                         TdApi.Document("a.bin", "application/octet-stream", null, null, TdApi.File().apply { id = 7 }),
                         TdApi.FormattedText("", emptyArray()),
