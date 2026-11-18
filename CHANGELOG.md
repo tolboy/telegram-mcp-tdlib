@@ -9,6 +9,9 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   also binds the change journal, export jobs and send receipts to the user's
   live Telegram ID and network. Existing artifacts require an explicit owner
   assertion. The migration preserves cursors, job IDs and send idempotency keys.
+- **Windows session backups.** `session clear` briefly retries publication of
+  a complete backup after an access denial. Persistent errors preserve the
+  staged session or restore it to its original path.
 - **Signed inline-button clicks are the default.** Use the `button_token` from
   `list_inline_buttons`. When human approval applies, its prompt shows the
   resolved chat, message and button. The keyboard is rechecked after approval.

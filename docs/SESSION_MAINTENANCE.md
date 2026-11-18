@@ -104,7 +104,9 @@ Clear first renames the directory atomically to a sibling
 Windows may reject the rename while a file is open; POSIX advisory locks do
 not prevent renaming, so the second check is required. Unsupported atomic
 renames and other staging errors fail closed and report both paths and the
-exception type.
+exception type. On Windows, a transient access denial while publishing the
+completed backup is retried briefly. If publication still fails, clear attempts
+to restore the staged session and preserves the session data.
 
 If the staged lock is held or unavailable, clear attempts to restore the
 original path without replacing a newly created file or directory. A failed
