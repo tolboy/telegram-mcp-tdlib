@@ -8,10 +8,13 @@ A free companion skill for the open-source, TDLib-powered telegram-mcp-tdlib ser
 
 By default, it samples at most 20 recent chats and inspects at most 5 relevant conversations, up to 10 messages each. This is a sampled digest, not a claim to process your entire inbox.
 
-## Updated for server 1.20.0
-Skill 0.1.4 recommends server 1.20.0 and keeps minimum compatibility at 1.17.2. Server 1.20.0 handles MCP cancellation on STDIO and Streamable HTTP. Interrupted reads are reported as incomplete. Optional read-only resources remain off by default. Explicitly requested subscription monitoring keeps the same account and budget and ends with unsubscription. Reduce the request size if HTTP returns 413.
-
-The server's new media and moderation tools do not expand this skill's read-only scope.
+## Optional monitoring and cancellation
+Skill 0.1.5 can monitor incoming message bursts on request when server 1.21.0
+or later exposes the settled-message wait tool. It reports gaps and checks
+available history within the selected chat scope and reading budget. Server
+1.20.0 and later handle MCP cancellation on STDIO and Streamable HTTP.
+Interrupted reads are reported as incomplete. Optional read-only resources
+remain off by default.
 
 ## Setup required
 Install telegram-mcp-tdlib separately, then authorize your own Telegram account locally using your Telegram application credentials. Run the server with MCP_TOOL_PROFILE=inbox, MCP_READ_ONLY=true, and downloads disabled. Use an AI client that supports both MCP tools and skill instructions. Installing this skill alone does not connect Telegram.
@@ -29,4 +32,5 @@ Source and skill: https://github.com/tolboy/telegram-mcp-tdlib/tree/master/skill
 Setup: https://github.com/tolboy/telegram-mcp-tdlib/blob/master/skills/telegram-inbox-assistant/SETUP.md
 Validation: https://github.com/tolboy/telegram-mcp-tdlib/blob/master/skills/VALIDATION.md
 
-Skill version 0.1.4. Recommended server 1.20.0. Minimum compatible server 1.17.2. The skill is available free under Apache-2.0. Marketplace delivery terms apply separately.
+Skill version 0.1.5. Minimum compatible server 1.17.2. The skill is available
+free under Apache-2.0. Marketplace delivery terms apply separately.

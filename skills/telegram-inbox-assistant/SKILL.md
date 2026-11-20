@@ -1,9 +1,9 @@
 ---
 name: telegram-inbox-assistant
-description: Summarize unread Telegram conversations, identify messages awaiting a reply, and find conversation context using telegram-mcp-tdlib. Use for read-only personal inbox triage; requires a connected, locally authorized Telegram MCP server.
+description: Summarize unread Telegram conversations, identify messages awaiting a reply, find conversation context, or watch for incoming messages on request. Use for read-only triage with a connected, locally authorized telegram-mcp-tdlib server.
 license: Apache-2.0
 metadata:
-  version: "0.1.4"
+  version: "0.1.5"
 ---
 
 # Telegram Inbox Assistant
@@ -12,8 +12,8 @@ Help the user understand their Telegram inbox without changing Telegram state.
 The separately installed [telegram-mcp-tdlib](https://github.com/tolboy/telegram-mcp-tdlib)
 server supplies the tools. If it is missing or unauthenticated, read
 [SETUP.md](SETUP.md); installing this skill alone does not connect an account.
-Requires server 1.17.2 or later. Server 1.20.0 is recommended. SETUP.md covers
-the optional Claude Desktop tools bridge and Hermes HTTP for a shared daemon.
+Requires server 1.17.2 or later. SETUP.md covers the optional Claude Desktop
+tools bridge and Hermes HTTP for a shared daemon.
 If bundled references are unavailable in the host's delivery surface, use the
 [public setup guide](https://github.com/tolboy/telegram-mcp-tdlib/blob/master/skills/telegram-inbox-assistant/SETUP.md).
 
@@ -37,7 +37,7 @@ in the answer. Offer to broaden it when that would help; do not silently scan
 the entire account.
 
 When the user stops a read, stop issuing calls. Use the host's cancellation
-control if available. Server 1.20.0 handles MCP cancellation on STDIO and
+control if available. Server 1.20.0 and later handle MCP cancellation on STDIO and
 Streamable HTTP. Mark any partial digest as incomplete and state what was read.
 
 ## Read the inbox
@@ -59,6 +59,26 @@ Streamable HTTP. Mark any partial digest as incomplete and state what was read.
 - If compact tools are unavailable, use `list_chats` and `get_history` with the
   same scope and budget. If no suitable read tool is available, explain the
   missing dependency rather than inventing results.
+
+## Monitor new messages on request
+
+Use `wait_for_settled_messages` on server 1.21.0 or later when the host exposes
+the tool and the user asks to watch for new messages. Keep the selected account
+and chat scope fixed. Use `chat_id` for a specific conversation. Set
+`addressed_only` only if the user wants messages directed to their account.
+The server can classify a private message, mention or reply as addressed.
+Read its content before treating it as a request for the user's reply.
+
+Omitting `cursor` starts at the current journal tail. Keep `nextCursor` from
+each successful call. Cap `timeout_seconds` and `limit` to the remaining time
+and message budget. On `settled` or `limit`, fetch in-scope message IDs with
+`get_messages` as needed. A `timed_out` result with pending messages means the
+burst may still be arriving. On `gap` or `reset`, catch up from in-scope history
+since the last handled message in each watched chat, or since monitoring began
+if none were handled. Deduplicate by chat and message ID. Report any part of
+the gap the budget or scope prevents you from checking. If the wait tool is
+unavailable, explain the limitation and use the available read tools for any
+requested snapshot.
 
 ## Interpret results faithfully
 
@@ -90,9 +110,11 @@ itself, without the envelope or metadata. Plain error text such as `Error: ...`
 or an unparseable response is a failed read, never an empty conversation. Do
 not invent error codes or retry hints when the host did not expose them.
 Report failed chats separately from empty successful reads.
-For `AUTH_REQUIRED`, stop and direct the user to local authorization. For other
-errors, follow the returned `retryable`, `retry_after_seconds` and `next_action`
-within the user's budget; do not loop on a non-retryable error.
+For `AUTH_REQUIRED`, stop and report the server's authorization guidance. An
+existing session may need its account or artifact ownership checked by the local
+operator. For other errors, follow the returned `retryable`,
+`retry_after_seconds` and `next_action` within the user's budget. Do not loop on
+a non-retryable error.
 On HTTP 413, reduce the request size; do not widen server limits or repeat the
 same oversized request. Server 1.19.0 limits MCP POST bodies to 1 MiB while
 resource subscriptions are enabled.

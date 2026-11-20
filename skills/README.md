@@ -14,8 +14,12 @@ Agensi accepted the replacement ZIP for security scan and review; the previous
 approved package stays available until approval. Listing text is already live.
 See [publication evidence](../docs/RELEASE_READINESS_1.18.1.md).
 
-Skill 0.1.4 recommends server 1.20.0 and keeps minimum compatibility at 1.17.2.
-It documents cancellation and how to report a partial inbox read.
+The source for skill 0.1.5 adds optional settled-message monitoring with server
+1.21.0 or later when the host exposes the tool. Bounded inbox reads still work
+with server 1.17.2 and later.
+
+Skill 0.1.4 recommends server 1.20.0. It documents cancellation and how to
+report a partial inbox read.
 
 Skill 0.1.3 recommended server 1.19.0.
 It adds scoped guidance for optional resources/subscriptions and HTTP 413.
