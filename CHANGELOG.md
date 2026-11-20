@@ -5,6 +5,13 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+## 1.21.0 - 2026-11-20
+
+Adds a read-only wait for incoming message bursts and stronger account and chat
+isolation. Before upgrading, check the [chat access rules](docs/PERMISSIONS.md)
+and update inline-button clients to use signed tokens. If you use expected-account
+verification, review the [artifact ownership migration](docs/SESSION_MAINTENANCE.md#bind-or-migrate-local-mcp-artifacts).
+
 - **Media access checks.** Downloads refuse protected or self-destructing
   messages and return a path only after TDLib confirms a complete download.
   Generic file operations also exclude internal MCP stores and daemon state.
@@ -15,11 +22,6 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 - **Windows session backups.** `session clear` briefly retries publication of
   a complete backup after an access denial. Persistent errors preserve the
   staged session or restore it to its original path.
-- **Signed inline-button clicks are the default.** Use the `button_token` from
-  `list_inline_buttons`. When human approval applies, its prompt shows the
-  resolved chat, message and button. The keyboard is rechecked after approval.
-  Older clients can opt in to deprecated selectors with
-  `MCP_ALLOW_LEGACY_INLINE_BUTTON_SELECTORS=true` during migration.
 - **Operator chat deny-list.** `TELEGRAM_BLOCKED_CHAT_IDS` takes precedence
   over allow-lists, client grants, and sensitive-chat opt-ins. The policy also
   applies to existing exports, saved event cursors, and resource notifications.
@@ -56,9 +58,6 @@ Notable changes to Telegram MCP Server are documented here. The project follows
   has not finished" error. Nothing is passed through unverified.
 - **The permission editor supports `allow_sensitive_chats`.** It used to reject
   files containing the field; it now imports, edits and exports it.
-
-Safety hardening. Review the behaviour changes below before upgrading.
-
 - **Sensitive chats are blocked by default.** Telegram's service chat `777000`
   (login codes and new-session alerts), Telegram Gateway's chat `489000`
   (third-party verification codes), `@BotFather` (bot tokens) and
@@ -80,16 +79,19 @@ Safety hardening. Review the behaviour changes below before upgrading.
   with code 3; on the login-wizard path the server stays up with the wizard in
   its error state. The change journal records nothing for the session until the
   check accepts it, then adds a gap marker. `session doctor` shows the last result as
-  `account_check=`, with phone numbers masked. Unset, nothing changes.
+  `account_check=`, with phone numbers masked. Keep the check enabled for every
+  account label with a saved artifact ownership record.
 - **Signed inline-button tokens.** `list_inline_buttons` returns a `token` per
   button, an HMAC over the account, chat, message, the message's `edit_date`
   and the button's position, type, text, URL and callback data.
   `press_inline_button` takes it as `button_token`, re-reads the keyboard and
   refuses without pressing if anything changed, so a bot cannot swap what a
   button does between listing and pressing. Tokens use a per-process key and
-  expire on restart. `button_index` and `button_text` still work but are
-  deprecated; responses that use them carry a `warning`, and the
-  `press_inline_button` output now always includes a nullable `warning` field.
+  expire on restart. When human approval applies, its prompt shows the resolved
+  chat, message and button. The server rechecks the keyboard after approval.
+  Older clients can temporarily enable deprecated `button_index` and `button_text`
+  selectors with `MCP_ALLOW_LEGACY_INLINE_BUTTON_SELECTORS=true`. Their responses
+  carry a warning in the nullable `warning` field.
 
 ## 1.20.0 - 2026-11-09
 
