@@ -188,6 +188,7 @@ class AntiSpamGuardService(
         "list_chats" to RuleProps(exempt = true),
         "get_history" to RuleProps(exempt = true),
         "wait_for_changes" to RuleProps(exempt = true),
+        "wait_for_settled_messages" to RuleProps(exempt = true),
         "get_messages" to RuleProps(exempt = true),
         "search_messages" to RuleProps(exempt = true),
         "search_global" to RuleProps(exempt = true),

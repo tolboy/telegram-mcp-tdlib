@@ -114,6 +114,7 @@ class TdLibClientService(
     override fun getGroupsInCommon(userId: Long, limit: Int): List<ChatInfo> = reads.getGroupsInCommon(userId, limit)
     override fun getChatJoinRequests(chatId: Long, query: String, inviteLink: String, limit: Int): ChatJoinRequestList = reads.getChatJoinRequests(chatId, query, inviteLink, limit)
     override fun getChatStatistics(chatId: Long): ChatStatisticsSummary = reads.getChatStatistics(chatId)
+    override fun getMessageAddressing(chatId: Long, messageIds: List<Long>): List<MessageAddressing> = reads.getMessageAddressing(chatId, messageIds)
     override fun sendMessage(chatId: Long, text: String, parseMode: ParseMode, replyMarkup: ReplyMarkupSpec?, messageThreadId: Long?): TelegramMessage = messages.sendMessage(chatId, text, parseMode, replyMarkup, messageThreadId)
     override fun replyToMessage(chatId: Long, replyToMessageId: Long, text: String, parseMode: ParseMode): TelegramMessage = messages.replyToMessage(chatId, replyToMessageId, text, parseMode)
     override fun editMessage(chatId: Long, messageId: Long, text: String, parseMode: ParseMode): TelegramMessage = messages.editMessage(chatId, messageId, text, parseMode)

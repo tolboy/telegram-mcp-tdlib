@@ -734,4 +734,12 @@ interface TelegramClientService {
     /** Returns headline statistics for a supergroup or channel the account administers. */
     fun getChatStatistics(chatId: Long): ChatStatisticsSummary =
         throw UnsupportedOperationException("getChatStatistics is not supported by this client")
+
+    /**
+     * Classifies up to 200 messages of one chat against the signed-in account
+     * (outgoing, private chat, mention, reply to the account). Reads only; messages
+     * that no longer exist are omitted. Never returns message content.
+     */
+    fun getMessageAddressing(chatId: Long, messageIds: List<Long>): List<MessageAddressing> =
+        throw UnsupportedOperationException("getMessageAddressing is not supported by this client")
 }

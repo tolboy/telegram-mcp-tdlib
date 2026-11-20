@@ -48,6 +48,22 @@ data class TelegramMessage(
     val contentType: String? = null,
 )
 
+/**
+ * How one message relates to the signed-in account, from data TDLib already holds.
+ * [mentionsMe] covers an @username or text-mention of the account, or Telegram's own
+ * unread-mention flag when no reply to the account explains it; [repliesToMe] covers a
+ * reply to one of the account's messages in the same chat.
+ */
+data class MessageAddressing(
+    val chatId: Long,
+    val messageId: Long,
+    val senderId: Long?,
+    val isOutgoing: Boolean,
+    val privateChat: Boolean,
+    val mentionsMe: Boolean,
+    val repliesToMe: Boolean,
+)
+
 /** Origin already disclosed on a forwarded message; hidden senders remain name-only. */
 data class MessageForwardOrigin(
     val kind: String,

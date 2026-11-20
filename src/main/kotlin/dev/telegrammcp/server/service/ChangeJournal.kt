@@ -39,6 +39,25 @@ data class ChangeWaitResult(val entries: List<ChangeEntry>, val nextCursor: Stri
 internal data class ChangeJournalHeader(val format: Int, val epoch: String)
 
 /**
+ * One scan of the journal with the reasons its coverage broke.
+ *
+ * [gapReasons] names every loss this scan crossed or that is still pending:
+ * `restart` (a client session started), `session_accepted` (recording began
+ * after the expected-account check), `reconnect`, `overflow`, `write_failed`,
+ * `retention` (the cursor is older than the retained window), `journal_replaced`
+ * (the cursor belongs to a deleted or recreated journal) and `unknown` (a marker
+ * written by another process or an earlier run, whose cause this process cannot see).
+ * [writerCaughtUp] records whether the local writer had any updates left to process
+ * when the scan finished reading the durable log.
+ */
+data class JournalScan(val entries: List<ChangeEntry>, val nextCursor: String, val hasMore: Boolean,
+    val gapReasons: List<String>, val writerCaughtUp: Boolean) {
+    val gap: Boolean get() = gapReasons.isNotEmpty()
+    /** The session or journal started over, so anything in flight before it may be missing. */
+    val reset: Boolean get() = gapReasons.any { it in ChangeJournal.RESET_REASONS }
+}
+
+/**
  * Bounded metadata journal of locally observed TDLib updates.
  *
  * TDLib calls update handlers on the thread that also delivers every request
@@ -58,9 +77,22 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
         const val MAX_WAITERS_PER_ACCOUNT = 25
         private const val MAX_BATCH = 4_096
         const val GAP = "coverage_gap"
+        const val REASON_RESTART = "restart"
+        const val REASON_SESSION_ACCEPTED = "session_accepted"
+        const val REASON_RECONNECT = "reconnect"
+        const val REASON_OVERFLOW = "overflow"
+        const val REASON_WRITE_FAILED = "write_failed"
+        const val REASON_RETENTION = "retention"
+        const val REASON_JOURNAL_REPLACED = "journal_replaced"
+        const val REASON_UNKNOWN = "unknown"
+        val RESET_REASONS = setOf(REASON_RESTART, REASON_SESSION_ACCEPTED, REASON_JOURNAL_REPLACED)
+        private const val MAX_MARKER_REASONS = 1_024
     }
 
-    private class Observed(val account: String, val kind: String, val chatId: Long?, val messageId: Long?, val at: Instant)
+    private class Observed(val account: String, val kind: String, val chatId: Long?, val messageId: Long?, val at: Instant,
+        val reason: String? = null)
+    /** Causes of the markers this process wrote, by sequence; kept in memory so the file format is unchanged. */
+    private class MarkerReasons(val epoch: String, val bySequence: java.util.TreeMap<Long, String> = java.util.TreeMap())
     private class AccountLog(val file: Path, val epoch: String, val entries: ArrayDeque<ChangeEntry>, var lines: Int, var size: Long) {
         val sequence get() = entries.lastOrNull()?.sequence ?: 0L
     }
@@ -76,6 +108,8 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
     private val lineWriter = mapper.writer().without(SerializationFeature.INDENT_OUTPUT)
     private val queue = ArrayBlockingQueue<Observed>(queueCapacity)
     private val enqueued = AtomicLong()
+    // Reserve before offering so a scan can see updates even while the writer drains the queue.
+    private val pending = AtomicLong()
     private val overflowed: MutableSet<String> = ConcurrentHashMap.newKeySet()
     private val writerStarted = AtomicBoolean()
     @Volatile private var writer: Thread? = null
@@ -86,15 +120,27 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
     private val logs = HashMap<String, AccountLog>()
     private val waiters = ConcurrentHashMap<String, Semaphore>()
     private val failed = HashSet<String>()
+    private val markerReasons = HashMap<String, MarkerReasons>()
     private var handled = 0L
     private var prepared = false
 
     /** Never blocks or touches the disk: safe on TDLib's update thread. */
-    fun append(account: String, kind: String, chatId: Long? = null, messageId: Long? = null) {
+    fun append(account: String, kind: String, chatId: Long? = null, messageId: Long? = null) =
+        enqueue(account, kind, chatId, messageId, null)
+
+    /** Appends a [GAP] marker whose cause [scan] reports while this process runs. */
+    internal fun appendGap(account: String, reason: String) = enqueue(account, GAP, null, null, reason)
+
+    private fun enqueue(account: String, kind: String, chatId: Long?, messageId: Long?, reason: String?) {
         if (closed) return
         val label = TelegramAccountRegistry.normalizeLabel(account)
-        if (queue.offer(Observed(label, kind, chatId, messageId, Instant.now()))) enqueued.incrementAndGet()
-        else { overflowed += label; if (listeners.isNotEmpty()) listenerGaps += label }
+        pending.incrementAndGet()
+        if (queue.offer(Observed(label, kind, chatId, messageId, Instant.now(), reason))) enqueued.incrementAndGet()
+        else {
+            overflowed += label
+            if (listeners.isNotEmpty()) listenerGaps += label
+            pending.decrementAndGet()
+        }
         if (writerStarted.compareAndSet(false, true)) {
             writer = Thread(::drain, "telegram-change-journal").apply { isDaemon = true; start() }
         }
@@ -110,6 +156,44 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
         awaitWriter()
         if (!acquireReadLock(TimeUnit.SECONDS.toNanos(2))) throw journalBusy(label)
         return try { readPage(label, cursor, limit, allowed) } finally { lock.unlock() }
+    }
+
+    /** The cursor at the current journal tail, after updates observed before this call are written. */
+    fun tailCursor(account: String, writerBudgetNanos: Long = TimeUnit.SECONDS.toNanos(2)): String {
+        val label = TelegramAccountRegistry.normalizeLabel(account)
+        awaitWriter(writerBudgetNanos)
+        if (!acquireReadLock(TimeUnit.SECONDS.toNanos(2))) throw journalBusy(label)
+        return try { withLog(label) { "${it.epoch}:${it.sequence}" } } finally { lock.unlock() }
+    }
+
+    /**
+     * Like [page], but reports why coverage broke, and treats a cursor from a
+     * replaced journal as a reset at the current tail instead of an error.
+     * Rejects malformed cursors and future positions in the current journal.
+     */
+    fun scan(account: String, cursor: String, limit: Int, allowed: (Long) -> Boolean,
+        writerBudgetNanos: Long = TimeUnit.SECONDS.toNanos(2)): JournalScan {
+        require(limit in 1..200)
+        val label = TelegramAccountRegistry.normalizeLabel(account)
+        awaitWriter(writerBudgetNanos)
+        if (!acquireReadLock(TimeUnit.SECONDS.toNanos(2))) throw journalBusy(label)
+        return try {
+            if (closed) throw TelegramApiException(406, "Canceled change wait: journal closed", readOnlyRequest = true)
+            readScan(label, cursor, limit, allowed, replacedIsReset = true)
+        } finally { lock.unlock() }
+    }
+
+    /** Runs [action] under the per-account waiter limit shared with [waitForChanges]. */
+    fun <T> withWaiterPermit(account: String, action: () -> T): T {
+        val label = TelegramAccountRegistry.normalizeLabel(account)
+        val permits = waiters.computeIfAbsent(label) { Semaphore(maxWaitersPerAccount) }
+        if (!permits.tryAcquire()) throw TelegramBusyException(label, maxWaitersPerAccount, retryable = true)
+        try { return action() } finally { permits.release() }
+    }
+
+    /** A bounded pause between scans that ends early on MCP cancellation. */
+    fun pause(nanos: Long) {
+        if (nanos > 0) pauseReader(nanos)
     }
 
     /**
@@ -161,17 +245,35 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
 
     /** Caller holds [lock]; file and cursor rules are shared by immediate and waiting reads. */
     private fun readPage(label: String, cursor: String?, limit: Int, allowed: (Long) -> Boolean): ChangePage =
+        readScan(label, cursor, limit, allowed, replacedIsReset = false).let { ChangePage(it.entries, it.nextCursor, it.hasMore, it.gap) }
+
+    /** Caller holds [lock]. */
+    private fun readScan(label: String, cursor: String?, limit: Int, allowed: (Long) -> Boolean,
+        replacedIsReset: Boolean): JournalScan =
         withLog(label) { journal ->
             val parts = cursor?.split(":")
+            if (replacedIsReset && parts != null && parts.size == 2 && parts[0] != journal.epoch) {
+                val validEpoch = runCatching { UUID.fromString(parts[0]).toString().equals(parts[0], ignoreCase = true) }
+                    .getOrDefault(false)
+                require(validEpoch && parts[1].toLongOrNull()?.let { it >= 0 } == true) { "Invalid change cursor" }
+                return@withLog JournalScan(emptyList(), "${journal.epoch}:${journal.sequence}", false,
+                    listOf(REASON_JOURNAL_REPLACED), pending.get() == 0L)
+            }
             require(parts == null || (parts.size == 2 && parts[0] == journal.epoch)) { "Cursor belongs to a different journal; restart without cursor" }
             val after = if (parts == null) 0L else requireNotNull(parts[1].toLongOrNull()) { "Invalid change cursor" }
             require(after in 0..journal.sequence) { "Invalid change cursor" }
             val scanned = journal.entries.asSequence().filter { it.sequence > after }.take(limit).toList()
-            ChangePage(scanned.filter { it.chatId == null || allowed(it.chatId) },
+            val known = markerReasons[label]?.takeIf { it.epoch == journal.epoch }?.bySequence
+            val reasons = LinkedHashSet<String>()
+            if (after < (journal.entries.firstOrNull()?.sequence ?: 1) - 1) reasons += REASON_RETENTION
+            scanned.filter { it.kind == GAP }.forEach { reasons += known?.get(it.sequence) ?: REASON_UNKNOWN }
+            // A loss that is not yet written as a marker; the marker follows and is reported again.
+            if (label in failed) reasons += REASON_WRITE_FAILED
+            if (label in overflowed) reasons += REASON_OVERFLOW
+            JournalScan(scanned.filter { it.chatId == null || allowed(it.chatId) },
                 "${journal.epoch}:${scanned.lastOrNull()?.sequence ?: journal.sequence}",
                 scanned.lastOrNull()?.sequence?.let { it < journal.sequence } ?: false,
-                label in failed || label in overflowed || after < (journal.entries.firstOrNull()?.sequence ?: 1) - 1 ||
-                    scanned.any { it.kind == GAP })
+                reasons.toList(), pending.get() == 0L)
         }
 
     /**
@@ -184,7 +286,7 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
      */
     fun attach(builder: SimpleTelegramClientBuilder, account: String, recording: Boolean = true): Attachment {
         val attachment = Attachment(account, recording)
-        append(account, GAP)
+        appendGap(account, REASON_RESTART)
         builder.addUpdateHandler(TdApi.UpdateNewMessage::class.java) { attachment.record { recordNewMessage(account, it.message) } }
         builder.addUpdateHandler(TdApi.UpdateMessageSendSucceeded::class.java) { attachment.record { recordNewMessage(account, it.message) } }
         builder.addUpdateHandler(TdApi.UpdateMessageContent::class.java) {
@@ -195,7 +297,7 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
             attachment.record { if (update.isPermanent) update.messageIds.forEach { append(account, "deleted", update.chatId, it) } }
         }
         builder.addUpdateHandler(TdApi.UpdateConnectionState::class.java) {
-            attachment.record { if (it.state !is TdApi.ConnectionStateReady) append(account, GAP) }
+            attachment.record { if (it.state !is TdApi.ConnectionStateReady) appendGap(account, REASON_RECONNECT) }
         }
         return attachment
     }
@@ -208,7 +310,7 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
 
         /** Starts recording once the session is accepted; the first call appends a gap marker. */
         fun activate() {
-            if (active.compareAndSet(false, true)) append(account, GAP)
+            if (active.compareAndSet(false, true)) appendGap(account, REASON_SESSION_ACCEPTED)
         }
 
         internal fun record(action: () -> Unit) {
@@ -287,7 +389,10 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
             queue.drainTo(batch, MAX_BATCH - 1)
             lock.withLock {
                 try { batch.groupBy { it.account }.forEach { (account, items) -> persist(account, items) } }
-                finally { handled += batch.size }
+                finally {
+                    handled += batch.size
+                    pending.addAndGet(-batch.size.toLong())
+                }
             }
             dispatch(batch)
             batch.clear()
@@ -310,14 +415,17 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
             withLog(account) { journal ->
                 var next = journal.sequence
                 val entries = ArrayList<ChangeEntry>(items.size + 2)
-                fun add(kind: String, chatId: Long?, messageId: Long?, at: Instant) {
+                val reasons = HashMap<Long, String>()
+                fun add(kind: String, chatId: Long?, messageId: Long?, at: Instant, reason: String? = null) {
                     entries += ChangeEntry(++next, kind, chatId, messageId, at.toString())
+                    if (kind == GAP && reason != null) reasons[next] = reason
                 }
                 // A failed batch was lost before these updates; overflowed ones arrived after them.
-                if (account in failed) add(GAP, null, null, items.first().at)
-                items.forEach { add(it.kind, it.chatId, it.messageId, it.at) }
-                if (overflowed.remove(account)) add(GAP, null, null, Instant.now())
+                if (account in failed) add(GAP, null, null, items.first().at, REASON_WRITE_FAILED)
+                items.forEach { add(it.kind, it.chatId, it.messageId, it.at, it.reason) }
+                if (overflowed.remove(account)) add(GAP, null, null, Instant.now(), REASON_OVERFLOW)
                 write(journal, entries)
+                rememberReasons(account, journal, reasons)
             }
             failed -= account
         } catch (failure: Exception) {
@@ -325,6 +433,17 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
             logs.remove(account)
             log.warn("Change journal write failed for account {}; a coverage gap follows: {}", account, failure.message)
         }
+    }
+
+    /** Caller holds [lock]. Bounded to the retained window; a replaced journal starts a new map. */
+    private fun rememberReasons(account: String, journal: AccountLog, reasons: Map<Long, String>) {
+        if (reasons.isEmpty()) return
+        val known = markerReasons[account]?.takeIf { it.epoch == journal.epoch }
+            ?: MarkerReasons(journal.epoch).also { markerReasons[account] = it }
+        known.bySequence.putAll(reasons)
+        val oldest = journal.entries.firstOrNull()?.sequence ?: 0L
+        known.bySequence.headMap(oldest).clear()
+        while (known.bySequence.size > MAX_MARKER_REASONS) known.bySequence.pollFirstEntry()
     }
 
     /** Caller holds [lock]. The store lock also serializes other processes sharing this data directory. */

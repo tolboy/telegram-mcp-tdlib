@@ -61,6 +61,25 @@ object ToolCallDeadline {
         }
     }
 
+    /**
+     * Runs [block] with at most [cap] left, and never more than the open budget.
+     * The outer budget keeps running; a write dispatched inside is still recorded on it.
+     */
+    fun <T> capped(cap: Duration, block: () -> T): T {
+        val outer = current.get()
+        val capNanos = minOf(cap.toNanos().coerceAtLeast(0), remainingNanos() ?: Long.MAX_VALUE)
+        val inner = State(capNanos, nanoTime()).apply { writeDispatched = outer?.writeDispatched == true }
+        current.set(inner)
+        try {
+            return block()
+        } finally {
+            if (outer == null) current.remove() else {
+                if (inner.writeDispatched) outer.writeDispatched = true
+                current.set(outer)
+            }
+        }
+    }
+
     /** Runs [block] without charging its duration to the open budget, if any. */
     fun <T> excluding(block: () -> T): T {
         val state = current.get()

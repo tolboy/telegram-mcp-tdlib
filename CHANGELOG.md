@@ -5,6 +5,19 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- **`wait_for_settled_messages`: a debounced wait for incoming bursts.** It
+  returns once new incoming messages have arrived and the watched chats have
+  been quiet for `settle_seconds` (default 5), with per-message `addressed` and
+  `addressedBy` (`private_chat`, `mention`, `reply`) and an optional
+  `addressed_only` filter. It uses the change-journal cursor, keeps no
+  server-side state, declares `settled` only after a complete fresh scan, never
+  splits a burst on timeout, bounds message lookups by the wait's budget, skips
+  messages of a chat whose lookup fails (counted in `skippedReasons`) instead of
+  failing the call, and reports explicit
+  `gap` and `reset` statuses with `gapReasons` so the caller knows to catch up
+  from history. Read-only, available in every profile, and subject to chat
+  scopes, the sensitive-chat block, tool deadlines and cancellation. The
+  journal file format is unchanged; marker causes are tracked in memory.
 - **`prefix*` patterns in `MCP_TOOL_ALLOW` and `MCP_TOOL_DENY`.** An entry may
   end in a single `*` to match every tool with that prefix (`get_*`). Deny always
   wins over allow. A bare `*` in the allow list keeps every profile tool and is

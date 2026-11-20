@@ -1,9 +1,10 @@
 # Compact tasks, persistent exports and changes
 
-All five tools use the usual account selection, read permission, chat restrictions,
-typed result envelope and untrusted-content normalization. None sends messages,
-marks them read or downloads media. `reader` exposes all five; `inbox` exposes
-the four compact tools; `research` exposes conversation, changes, waiting and export.
+All six tools use the usual account selection, read permission, chat restrictions,
+typed result envelope and untrusted-content normalization. They leave messages,
+read receipts and media downloads untouched. `reader` exposes all six. `inbox`
+exposes the five compact read and wait tools. `research` exposes conversation,
+changes, both waits and export.
 
 ## Compact reads
 
@@ -56,6 +57,91 @@ deletions are included; events may repeat. Use `get_messages` to hydrate a retur
 ID. Up to 25 waits can run concurrently per account; excess calls fail fast with
 `TELEGRAM_BUSY`. Waiting consumes no Telegram request or send permits. Server
 shutdown and interruption cancel waits and release their permits.
+
+## Wait for a settled burst
+
+`wait_for_settled_messages` is for agents that answer in a conversation. It
+returns once new incoming messages have arrived and then the watched chats have
+been quiet for `settle_seconds`, so a person who sends several messages in a row
+wakes the agent once, after they finish. It reads the same journal and cursor
+as `changes_since` and `wait_for_changes` and can make read-only TDLib requests
+for chat and message details when classifying addressing.
+
+```json
+{"chat_id":"@example","settle_seconds":5,"timeout_seconds":25}
+{"chat_id":"@example","cursor":"<nextCursor from previous result>","settle_seconds":5,"timeout_seconds":25}
+{"addressed_only":true,"cursor":"<nextCursor>","timeout_seconds":25}
+```
+
+| Argument | Range (default) | Meaning |
+|---|---|---|
+| `cursor` | string | Resume point; omit to start at the journal tail (no backlog replay) |
+| `chat_id` | ID or `@username` | Settle one conversation; resolved and authorized before waiting |
+| `settle_seconds` | 0–20 (5) | Quiet time after the last incoming message; 0 returns as soon as one arrives |
+| `timeout_seconds` | 0–30 (25) | Time budget for polling and message lookups. A value of 0 checks the current backlog with up to 250 ms for lookups on its first scan. The tool-call deadline can shorten either budget |
+| `limit` | 1–200 (50) | Most messages per result |
+| `addressed_only` | boolean (false) | Count only messages addressed to the account |
+
+The result has a `status`:
+
+| `status` | Meaning | What to do |
+|---|---|---|
+| `settled` | Messages arrived and the chats went quiet | Handle `messages`, keep `nextCursor` |
+| `timed_out` | Nothing settled in time | Call again with `nextCursor` |
+| `limit` | `limit` messages arrived before the chats went quiet | Handle them; call again at once when `hasMore` is true |
+| `gap` | Coverage broke (`gapReasons`: `reconnect`, `overflow`, `write_failed`, `retention`, `unknown`) | Read every followed chat from your last handled message, then continue with `nextCursor` |
+| `reset` | A session or the journal started over (`restart`, `session_accepted`, `journal_replaced`); `gap` is also true | Same catch-up as `gap` |
+
+Each message carries `chatId`, `messageId`, `senderId`, `observedAt`,
+`addressed` and `addressedBy` (`private_chat`, `mention`, `reply`); `chats`
+summarizes them per chat. Messages carry no content; hydrate them with
+`get_messages` or `conversation_bundle`. A message is addressed when it is in a
+private or secret chat (not Saved Messages), mentions the account (an @username
+of the account, a text mention of its user ID, or Telegram's own unread-mention
+flag when no reply explains it), or replies to one of the account's messages in
+the same chat. Classification reads the messages from TDLib (usually its local
+database) only when new messages appear in visible chats; chats the caller may
+not see are never looked up.
+
+Semantics worth knowing:
+
+- **`settled` requires a complete scan.** The confirming scan starts after
+  the quiet window and all addressing lookups. It must reach the end of the
+  journal with the local writer caught up and require no additional lookups.
+  A message observed during classification can therefore extend the burst.
+- **Quiet time comes from the journal timestamps.** A resumed cursor whose burst
+  is already older than `settle_seconds` settles immediately.
+- **A timeout never splits a burst.** If messages are still arriving when the
+  call times out, it returns `timed_out` with no messages, `pendingMessages` > 0,
+  and a `nextCursor` just before the burst, so the next call returns all of it.
+- **Without `chat_id`, every visible chat must be quiet.** A busy group can keep
+  the wait open; pass `chat_id`, or `addressed_only: true` so only messages
+  addressed to the account count. `limit` guarantees progress either way.
+- **Only incoming new messages form a burst.** Everything else is passed over
+  and counted in `skippedChanges`, broken down in `skippedReasons`:
+  `not_a_new_message` (edits, content changes, deletions), `outgoing`
+  (including the account's own replies from another device), `message_gone`
+  (deleted before classification), `not_addressed` (with `addressed_only`),
+  `lookup_failed` and `behind_gap`. Use `changes_since` with its own cursor when
+  you need the other changes.
+- **Lookups are bounded and cannot poison the cursor.** Classification shares
+  the wait's time budget. If it runs out, the call returns `timed_out` with
+  `hasMore: true` and a `nextCursor` before the unclassified entries and any
+  pending burst. If a lookup fails for one chat (the chat or its messages are
+  gone, or the account lost access), that chat's messages are skipped as
+  `lookup_failed` and the cursor moves past them. Failures that are not about one
+  chat (a closed or stopped client, Telegram unavailable, flood wait, server
+  errors) fail the call without moving any cursor.
+- **No server-side state.** Progress lives only in the cursor, so several
+  clients can wait on one account without taking each other's messages. The
+  wait shares the 25-waits-per-account limit with `wait_for_changes`.
+- **`gap` and `reset` return at once,** together with messages collected from
+  earlier pages. Entries in the same page as the marker are not looked up (they
+  are counted as `behind_gap`); the catch-up from history covers them. Causes are known for markers written by the running
+  process; markers from another process or an earlier run report `unknown`.
+- **Cursors belong to their account and filters.** Keep them separate when
+  following multiple accounts. A well-formed cursor with a different journal
+  epoch reports `journal_replaced` and resumes at the current journal's tail.
 
 For a live regression against an authorized account, install
 `scripts/requirements-mcp-client.txt` and `jsonschema`, then run:

@@ -413,6 +413,9 @@ class ChatAllowListCoverageTest {
                 "getPrivacySettingRules",
                 "searchGlobal",
                 "searchPublicChats",
+                // Called only by SettledMessageWaiter, with chat IDs from journal entries that the
+                // caller's chat filter (GuardrailService.isChatAllowed) has already admitted.
+                "getMessageAddressing",
             ),
             ClientMethodPolicy.POST_RESULT_VALIDATE to setOf(
                 "getChatFolder",

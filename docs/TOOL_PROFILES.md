@@ -5,10 +5,12 @@ tool inventory. Set `MCP_TOOL_PROFILE` before starting the server; changing it
 requires a restart so the MCP client receives a consistent `tools/list` result.
 The default is `reader`; selecting `all` is always explicit.
 
-`wait_for_changes` is available in every profile, including read-only mode.
-It waits on the local account journal, applies the caller's chat scope and
-does not send Telegram requests while waiting. See [cursor and timeout
-semantics](TASKS_AND_EXPORTS.md#wait-for-changes).
+`wait_for_changes` and `wait_for_settled_messages` are available in every
+profile, including read-only mode. Both wait on the local account journal and
+apply the caller's chat scope. The settled wait can make read-only TDLib
+requests to classify message addressing. See
+[cursor and timeout semantics](TASKS_AND_EXPORTS.md#wait-for-changes) and
+[settled bursts](TASKS_AND_EXPORTS.md#wait-for-a-settled-burst).
 
 | Profile | Intended use | Write tools advertised? |
 |---|---|---|
