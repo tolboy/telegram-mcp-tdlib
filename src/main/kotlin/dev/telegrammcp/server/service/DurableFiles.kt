@@ -40,11 +40,17 @@ internal object DurableFiles {
     /** Cross-process lock for a directory already secured by [privateDirectory]. */
     fun <T> lockedPrepared(directory: Path, action: () -> T): T =
         FileChannel.open(directory.resolve("store.lock"), CREATE, WRITE).use { channel ->
-            acquireStoreLock(channel).use { action() }
+            checkNotNull(acquireStoreLock(channel) { Long.MAX_VALUE }).use { action() }
+        }
+
+    /** An immediate try is allowed even if the caller's wait budget is exhausted. */
+    fun <T : Any> tryLockedPrepared(directory: Path, remainingNanos: () -> Long, action: () -> T): T? =
+        FileChannel.open(directory.resolve("store.lock"), CREATE, WRITE).use { channel ->
+            acquireStoreLock(channel, remainingNanos)?.use { action() }
         }
 
     /** Wait only for the lock; cancellation never interrupts already-started disk writes. */
-    private fun acquireStoreLock(channel: FileChannel): FileLock {
+    private fun acquireStoreLock(channel: FileChannel, remainingNanos: () -> Long): FileLock? {
         val started = System.nanoTime()
         val pause = CompletableFuture<Unit>()
         while (true) {
@@ -59,8 +65,10 @@ internal object DurableFiles {
             }
             val acquired = try { channel.tryLock() } catch (_: OverlappingFileLockException) { null }
             if (acquired != null) return acquired
+            val left = minOf(remaining, remainingNanos())
+            if (left <= 0) return null
             try {
-                McpCallCancellation.await(pause, minOf(remaining, 50_000_000L))
+                McpCallCancellation.await(pause, minOf(left, 50_000_000L))
             } catch (_: TimeoutException) {
                 // Another process or another local store instance still owns it.
             } catch (cancelled: McpCallCancelledException) {

@@ -19,6 +19,7 @@ import dev.telegrammcp.server.tool.McpProgress
 import dev.telegrammcp.server.tool.McpToolHandler
 import dev.telegrammcp.server.tool.ToolSupport
 import dev.telegrammcp.server.tool.ToolPagination
+import dev.telegrammcp.server.tool.message.PressInlineButtonTool
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification
 import io.modelcontextprotocol.server.McpSyncServerExchange
 import io.modelcontextprotocol.spec.McpSchema
@@ -127,8 +128,20 @@ class McpConfig {
                                     // Approval sees the account selector; handlers
                                     // and audit receive only routed arguments.
                                     val invoke = {
-                                        approvalService.requireApproval(exchange, tool.name(), arguments)
-                                        handler.execute(exchange, routedArguments)
+                                        // Some tools serve durable state without touching the TDLib proxy.
+                                        val verification = registry.expectedAccountGate(account)
+                                        verification?.awaitReady()
+                                        val approve = { button: DestructiveApprovalService.InlineButtonTarget? ->
+                                            approvalService.requireApproval(exchange, tool.name(), arguments, button)
+                                            verification?.awaitReady()
+                                            Unit
+                                        }
+                                        if (handler is PressInlineButtonTool) {
+                                            handler.executeWithApproval(routedArguments, approve)
+                                        } else {
+                                            approve(null)
+                                            handler.execute(exchange, routedArguments)
+                                        }
                                     }
                                     if (permissions == null) invoke() else permissions.withPermission(tool.name(), account, invoke)
                                 }

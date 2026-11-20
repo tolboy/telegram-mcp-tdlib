@@ -19,6 +19,8 @@ data class McpSecurityProperties(
     val permissionsFile: String = "",
     /** How many tool calls one authenticated client may hold in flight. */
     val maxConcurrentCallsPerClient: Int = 8,
+    /** Compatibility opt-in for inline-button clicks without a signed token. */
+    val allowLegacyInlineButtonSelectors: Boolean = false,
 ) {
     val authenticationConfigured: Boolean
         get() = security.apiKey.isNotBlank() ||

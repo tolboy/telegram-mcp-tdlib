@@ -3,16 +3,20 @@ package dev.telegrammcp.server.security
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramAccountContext
 import dev.telegrammcp.server.config.McpSecurityProperties
+import dev.telegrammcp.server.config.ServerModeProperties
 import dev.telegrammcp.server.config.TelegramProperties
 import dev.telegrammcp.server.exception.ChatNotAllowedException
 import dev.telegrammcp.server.model.ChatInfo
 import dev.telegrammcp.server.model.ChatType
+import dev.telegrammcp.server.resource.TelegramResourceAccess
+import dev.telegrammcp.server.resource.TelegramResourceUri
 import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.ChangeJournal
 import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
 import dev.telegrammcp.server.service.OperationGuardService
 import dev.telegrammcp.server.service.PlatformPaths
+import dev.telegrammcp.server.service.ToolSurfacePolicy
 import dev.telegrammcp.server.tool.chat.ListChatsTool
 import dev.telegrammcp.server.tool.executeChecked
 import dev.telegrammcp.server.tool.task.WaitForChangesTool
@@ -37,6 +41,7 @@ class SensitiveChatsTest {
     private val mapper = jacksonObjectMapper()
     private val sensitive = listOf(
         SensitiveChats.TELEGRAM_SERVICE_CHAT_ID,
+        SensitiveChats.VERIFICATION_CODES_CHAT_ID,
         SensitiveChats.BOT_FATHER_USER_ID,
         SensitiveChats.SPAM_BOT_USER_ID,
     )
@@ -58,7 +63,7 @@ class SensitiveChatsTest {
     }
 
     @Test
-    fun `service chat and sensitive bots are blocked by default even when every chat is allowed`() {
+    fun `code chats and sensitive bots are blocked by default even when every chat is allowed`() {
         val guard = guard()
         sensitive.forEach { chat ->
             assertFalse(guard.isChatAllowed(chat), "chat $chat")
@@ -84,6 +89,28 @@ class SensitiveChatsTest {
     fun `the global opt-in lifts the block for every sensitive chat`() {
         val guard = guard(TelegramProperties.SecurityProperties(allowSensitiveChats = true))
         sensitive.forEach { assertTrue(guard.isChatAllowed(it)) }
+    }
+
+    @Test
+    fun `the operator deny-list wins over static and per-client sensitive opt-ins`() {
+        val blocked = SensitiveChats.TELEGRAM_SERVICE_CHAT_ID
+        val grants = permissions(
+            PermissionGrant("stdio", "work", setOf("read"), null, allowSensitiveChats = true),
+            PermissionGrant("stdio", "work", setOf("read"), setOf(blocked, 42L)),
+        )
+        val guard = guard(TelegramProperties.SecurityProperties(
+            allowedChatIds = listOf(blocked, 42L),
+            allowSensitiveChats = true,
+            blockedChatIds = listOf(blocked),
+        ), grants)
+
+        grants.withPermission("get_history", "work") {
+            assertTrue(guard.isChatAllowed(42L))
+            assertFalse(guard.isChatAllowed(blocked))
+            val denial = assertFailsWith<ChatNotAllowedException> { guard.validateDerivedChatAccess(blocked) }
+            assertFalse(denial is SensitiveChatBlockedException)
+            assertFalse(blocked.toString() in denial.message)
+        }
     }
 
     @Test
@@ -118,7 +145,66 @@ class SensitiveChatsTest {
             assertFalse(guard.isChatAllowed(SensitiveChats.BOT_FATHER_USER_ID))
         }
         // The grant flag never outlives its invocation.
-        assertFalse(policy.requestAllowsSensitiveChats())
+        sensitive.forEach { assertFalse(policy.requestAllowsSensitiveChat(it)) }
+    }
+
+    @Test
+    fun `an unrestricted ordinary grant does not widen a scoped sensitive opt-in`() {
+        val policy = permissions(
+            PermissionGrant("stdio", "*", setOf("read"), null),
+            PermissionGrant("stdio", "work", setOf("read"), setOf(SensitiveChats.SPAM_BOT_USER_ID), allowSensitiveChats = true),
+        )
+        val guard = guard(permissions = policy)
+        policy.withPermission("get_history", "work") {
+            assertTrue(guard.isChatAllowed(42))
+            assertTrue(guard.isChatAllowed(SensitiveChats.SPAM_BOT_USER_ID))
+            assertFalse(guard.isChatAllowed(SensitiveChats.TELEGRAM_SERVICE_CHAT_ID))
+            assertFalse(guard.isChatAllowed(SensitiveChats.BOT_FATHER_USER_ID))
+        }
+        policy.withPermission("get_history", "personal") {
+            assertFalse(guard.isChatAllowed(SensitiveChats.SPAM_BOT_USER_ID))
+        }
+    }
+
+    @Test
+    fun `an unrestricted ordinary grant preserves an explicit sensitive ID from another grant`() {
+        val policy = permissions(
+            PermissionGrant("stdio", "work", setOf("read", "download"), null),
+            PermissionGrant("stdio", "work", setOf("read"), setOf(SensitiveChats.TELEGRAM_SERVICE_CHAT_ID)),
+        )
+        val guard = guard(permissions = policy)
+        policy.withPermission("get_history", "work") {
+            assertTrue(guard.isChatAllowed(SensitiveChats.TELEGRAM_SERVICE_CHAT_ID))
+            assertFalse(guard.isChatAllowed(SensitiveChats.SPAM_BOT_USER_ID))
+        }
+        policy.withPermission("download_media", "work") {
+            assertFalse(guard.isChatAllowed(SensitiveChats.TELEGRAM_SERVICE_CHAT_ID))
+        }
+    }
+
+    @Test
+    fun `resource permissions keep a sensitive opt-in specific to the subscribed chat`() {
+        val policy = permissions(
+            PermissionGrant("reader", "*", setOf("read"), null),
+            PermissionGrant("reader", "work", setOf("read"), setOf(SensitiveChats.SPAM_BOT_USER_ID), allowSensitiveChats = true),
+        )
+        val accounts = mockk<AccountAccessPolicy>()
+        every { accounts.selectAccount(mapOf("account" to "work")) } returns "work"
+        every { accounts.isExpectedAccountReady("work") } returns true
+        val surface = mockk<ToolSurfacePolicy>()
+        every { surface.isVisible(any(), any(), any()) } returns true
+        val blockedChat = -10099L
+        val guard = guard(TelegramProperties.SecurityProperties(blockedChatIds = listOf(blockedChat)), policy)
+        val resources = TelegramResourceAccess(accounts, surface, ServerModeProperties(), guard, policy)
+        val reader = ApiKeyAuthToken("reader")
+        val chatList = TelegramResourceUri.Chats("work")
+
+        assertTrue(resources.permits(TelegramResourceUri.Message("work", SensitiveChats.SPAM_BOT_USER_ID, 1), reader))
+        assertFalse(resources.permits(TelegramResourceUri.Message("work", SensitiveChats.TELEGRAM_SERVICE_CHAT_ID, 1), reader))
+        assertTrue(resources.permitsChatWithin(chatList, SensitiveChats.SPAM_BOT_USER_ID, reader))
+        assertFalse(resources.permitsChatWithin(chatList, SensitiveChats.VERIFICATION_CODES_CHAT_ID, reader))
+        assertFalse(resources.permits(TelegramResourceUri.Message("work", blockedChat, 1), reader))
+        assertFalse(resources.permitsChatWithin(chatList, blockedChat, reader))
     }
 
     @Test
@@ -131,9 +217,28 @@ class SensitiveChatsTest {
             ]}
         """.trimIndent())
         val policy = AccessPermissionService(McpSecurityProperties(permissionsFile = file.toString()), PlatformPaths(), mapper)
-        policy.withPermission("get_history", "work") { assertFalse(policy.requestAllowsSensitiveChats()) }
+        policy.withPermission("get_history", "work") {
+            sensitive.forEach { assertFalse(policy.requestAllowsSensitiveChat(it)) }
+        }
         SecurityContextHolder.getContext().authentication = ApiKeyAuthToken("ops")
-        policy.withPermission("get_history", "work") { assertTrue(policy.requestAllowsSensitiveChats()) }
+        policy.withPermission("get_history", "work") {
+            sensitive.forEach { assertTrue(policy.requestAllowsSensitiveChat(it)) }
+        }
+    }
+
+    @Test
+    fun `permission files require a boolean sensitive opt-in`() {
+        val file = directory.resolve("permissions.json")
+        for (value in listOf("\"true\"", "1", "null")) {
+            Files.writeString(file, """
+                {"version":1,"grants":[
+                  {"client":"stdio","account":"work","actions":["read"],"chat_ids":null,"allow_sensitive_chats":$value}
+                ]}
+            """.trimIndent())
+            assertFailsWith<IllegalArgumentException> {
+                AccessPermissionService(McpSecurityProperties(permissionsFile = file.toString()), PlatformPaths(), mapper)
+            }
+        }
     }
 
     @Test
@@ -208,15 +313,17 @@ class SensitiveChatsTest {
         every { client.searchGlobal("login code", 20) } returns listOf(
             dev.telegrammcp.server.model.TelegramMessage(1, SensitiveChats.TELEGRAM_SERVICE_CHAT_ID, "Telegram", "Telegram", text = "Login code: 12345", date = now),
             dev.telegrammcp.server.model.TelegramMessage(2, 42, "Friend", "Friend", text = "what was the login code thing?", date = now),
+            dev.telegrammcp.server.model.TelegramMessage(3, SensitiveChats.VERIFICATION_CODES_CHAT_ID, "Verification Codes", "External service", text = "Third-party code: 54321", date = now),
         )
         val tool = dev.telegrammcp.server.tool.message.SearchGlobalTool(client, guard(), mockk<AuditService>(relaxed = true), jacksonObjectMapper().findAndRegisterModules(), SimpleMeterRegistry())
         val text = (tool.executeChecked(mockk(relaxed = true), mapOf("query" to "login code")).content.first() as McpSchema.TextContent).text()
         assertTrue("Friend" in text, text)
         assertFalse("12345" in text, text)
+        assertFalse("54321" in text, text)
     }
 
     @Test
-    fun `changes_since omits sensitive chats from the change journal`() {
+    fun `changes_since filters sensitive and operator-denied entries after a saved cursor`() {
         val accounts = mockk<TelegramAccountContext>()
         every { accounts.currentAccount() } returns "default"
         val paths = mockk<PlatformPaths>()
@@ -225,8 +332,12 @@ class SensitiveChatsTest {
             val cursor = journal.page("default", null, 10) { true }.nextCursor
             journal.append("default", "new", SensitiveChats.BOT_FATHER_USER_ID, 1)
             journal.append("default", "new", 42, 2)
-            val tool = dev.telegrammcp.server.tool.task.ChangesSinceTool(journal, accounts, guard(), mapper, SimpleMeterRegistry())
-            assertEquals(listOf(42L), tool.run(mapOf("cursor" to cursor)).entries.map { it.chatId })
+            journal.append("default", "new", 99, 3)
+            val guard = guard(TelegramProperties.SecurityProperties(blockedChatIds = listOf(99L)))
+            val tool = dev.telegrammcp.server.tool.task.ChangesSinceTool(journal, accounts, guard, mapper, SimpleMeterRegistry())
+            val page = tool.run(mapOf("cursor" to cursor))
+            assertEquals(listOf(42L), page.entries.map { it.chatId })
+            assertEquals(journal.tailCursor("default"), page.nextCursor)
         }
     }
 
@@ -237,12 +348,31 @@ class SensitiveChatsTest {
         val paths = mockk<PlatformPaths>()
         every { paths.applicationDataDirectory } returns directory
         val client = mockk<dev.telegrammcp.server.client.TelegramClientService>()
-        val opened = dev.telegrammcp.server.service.ExportJobService(paths, mapper, accounts, client,
+        val exportMapper = mapper.copy().findAndRegisterModules()
+        every { client.getHistory(SensitiveChats.TELEGRAM_SERVICE_CHAT_ID, 0, 0, 100) } returns listOf(
+            dev.telegrammcp.server.model.TelegramMessage(1, SensitiveChats.TELEGRAM_SERVICE_CHAT_ID,
+                "Telegram", "Telegram", text = "Login code", date = java.time.Instant.EPOCH),
+        )
+        val opened = dev.telegrammcp.server.service.ExportJobService(paths, exportMapper, accounts, client,
             guard(TelegramProperties.SecurityProperties(allowSensitiveChats = true)))
         val job = opened.create(SensitiveChats.TELEGRAM_SERVICE_CHAT_ID).job
+        assertEquals(1, opened.operate(job.jobId, "resume").job.pages)
 
-        val blocked = dev.telegrammcp.server.service.ExportJobService(paths, mapper, accounts, client, guard())
+        val blocked = dev.telegrammcp.server.service.ExportJobService(paths, exportMapper, accounts, client, guard())
         assertFailsWith<SensitiveChatBlockedException> { blocked.create(SensitiveChats.TELEGRAM_SERVICE_CHAT_ID) }
         assertFailsWith<SensitiveChatBlockedException> { blocked.operate(job.jobId, "resume") }
+        assertFailsWith<SensitiveChatBlockedException> { blocked.operate(job.jobId, "page", 0) }
+
+        val deniedByOperator = dev.telegrammcp.server.service.ExportJobService(
+            paths, exportMapper, accounts, client,
+            guard(TelegramProperties.SecurityProperties(
+                allowSensitiveChats = true,
+                blockedChatIds = listOf(SensitiveChats.TELEGRAM_SERVICE_CHAT_ID),
+            )),
+        )
+        for (operation in listOf("status", "resume", "page")) {
+            val denial = assertFailsWith<ChatNotAllowedException> { deniedByOperator.operate(job.jobId, operation, 0) }
+            assertFalse(denial is SensitiveChatBlockedException)
+        }
     }
 }

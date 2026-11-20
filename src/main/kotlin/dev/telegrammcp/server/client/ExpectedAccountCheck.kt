@@ -52,6 +52,8 @@ enum class AccountCheckResult {
 
     /** TDLib could not say who is signed in; the session is refused (fail closed). */
     UNVERIFIED,
+    /** Telegram identity matched, but access to the local artifact store was refused. */
+    ARTIFACTS_REFUSED,
 }
 
 /**
@@ -187,6 +189,11 @@ class ExpectedAccountCheck(
 
     /** The per-attempt GetMe timeout before any budget cut: [timeout] first, [retryTimeout] for every retry. */
     internal fun attemptTimeout(retry: Int): Duration = if (retry == 0) timeout else retryTimeout
+
+    internal fun recordArtifactRefusal(record: AccountCheckRecord, reason: String) {
+        persist(record.copy(result = AccountCheckResult.ARTIFACTS_REFUSED, message = reason))
+        log.error(reason)
+    }
 
     private fun finish(record: AccountCheckRecord, onAccepted: (AccountCheckRecord) -> Unit, onRefused: (AccountCheckRecord) -> Unit) {
         persist(record)

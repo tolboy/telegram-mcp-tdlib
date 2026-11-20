@@ -248,7 +248,12 @@ class ChatAllowListCoverageTest {
             ),
             AllowListContract(
                 "ConfigureChatFolderTool",
-                listOf("ChatFolderInputs.definition(", "telegramClient.updateChatFolder("),
+                listOf(
+                    "ChatFolderInputs.definition(",
+                    "ChatFolderInputs.validateDerivedFolderChatAccess(",
+                    "telegramClient.getChatFolder(",
+                    "telegramClient.updateChatFolder(",
+                ),
             ),
             AllowListContract(
                 "DeleteChatFolderTool",

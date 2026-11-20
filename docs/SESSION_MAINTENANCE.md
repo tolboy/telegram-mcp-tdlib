@@ -19,11 +19,50 @@ maintenance.
 Each account also shows `account_check=`, the last expected-account check the
 server recorded (`tdlib.auth.expected-user-id` / `expected-phone-number`, or
 `TDLIB_EXPECTED_USER_ID` / `TDLIB_EXPECTED_PHONE_NUMBER`). It is one of
-`NOT_RUN` (no record yet), `NOT_CONFIGURED`, `MATCH`, `MISMATCH` or
-`UNVERIFIED`, with the expected and actual user IDs and masked phone numbers.
+`NOT_RUN` (no record yet), `NOT_CONFIGURED`, `MATCH`, `MISMATCH`,
+`UNVERIFIED` or `ARTIFACTS_REFUSED`, with the expected and actual user IDs and
+masked phone numbers. `ARTIFACTS_REFUSED` means Telegram confirmed the identity
+and the server refused the local artifact store.
 The record is `telegram-mcp-account-check.json` in the account's database
 directory, written each time the session becomes ready, and removed by
 `session clear` together with the session.
+
+When an expected account is configured, account-scoped MCP calls require a
+verified session. This includes saved change events, export pages and send
+receipts. Resource subscriptions and update notifications use the same
+readiness check. Account labels and tool definitions remain discoverable
+within the caller's normal scope during verification.
+
+### Bind or migrate local MCP artifacts
+
+With expected-account verification enabled, the first accepted login binds the
+account label's change journal, export jobs and send receipts to the Telegram ID
+returned by TDLib and the selected network (production or test DC). The
+server atomically writes `account-artifact-owners/<label>.owner` under
+`TELEGRAM_MCP_DATA_DIR`. Later logins for the label require the same verified
+identity and network. Use a different label with its own TDLib directory or
+a separate application data directory for another owner.
+
+Existing artifacts without an ownership record require a one-time operator
+assertion. Legacy export directories are opaque hashes, so any saved export
+in the data directory can trigger this requirement for a label without a record.
+Stop all processes using that label's application data and back up the directory.
+If the artifacts for the label belong to the account, set
+`TDLIB_LEGACY_ARTIFACT_OWNER_USER_ID` to that account's numeric Telegram ID
+and start with expected-account verification enabled. For a named account use
+`TELEGRAM_ACCOUNTS_<LABEL>_AUTH_LEGACY_ARTIFACT_OWNER_USER_ID`. The server checks
+the assertion against the live TDLib user ID before creating the record.
+Once `session doctor` shows `MATCH` and the ownership record is present,
+remove the one-time assertion from configuration and keep the expected-account
+check. Cursors, export IDs, delivery receipts and idempotency keys retain their
+original values. A restarted journal still emits its normal coverage marker.
+
+If ownership of the old data is uncertain, keep it archived and start with a
+separate `TELEGRAM_MCP_DATA_DIR`. Reconcile outstanding deliveries before
+retrying sends in the new directory. Keep ownership records with the artifacts
+in backups. `session clear` for the TDLib database leaves this binding in place.
+Older server versions ignore these records. When rolling back to such a
+version, use a dedicated data directory for the original owner.
 
 `td.binlog` is checked before `td.sqlite`, and any held candidate makes the
 session `LOCKED`. An open/probe error is `UNAVAILABLE`; in particular, a Windows
@@ -65,7 +104,9 @@ Clear first renames the directory atomically to a sibling
 Windows may reject the rename while a file is open; POSIX advisory locks do
 not prevent renaming, so the second check is required. Unsupported atomic
 renames and other staging errors fail closed and report both paths and the
-exception type.
+exception type. On Windows, a transient access denial while publishing the
+completed backup is retried briefly. If publication still fails, clear attempts
+to restore the staged session and preserves the session data.
 
 If the staged lock is held or unavailable, clear attempts to restore the
 original path without replacing a newly created file or directory. A failed

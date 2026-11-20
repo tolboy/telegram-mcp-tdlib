@@ -237,6 +237,43 @@ class FileSecurityServiceTest {
     }
 
     @Test
+    fun `internal MCP state is private when its parent is allowed for file operations`() {
+        val state = Files.createDirectory(tempDir.resolve("state"))
+        val paths = mockk<PlatformPaths> {
+            every { applicationDataDirectory } returns state
+            every { resolveApplicationPath(any(), any()) } answers { Path.of(firstArg<String>()).toAbsolutePath().normalize() }
+        }
+        val service = FileSecurityService(ServerModeProperties(fileSecurity = ServerModeProperties.FileSecurityProps(
+            allowedRoots = listOf(tempDir.toString()))), paths)
+
+        val internalFiles = listOf(
+            "changes/default.jsonl",
+            "exports/account-scope/job-0.page",
+            "send-operations/scope/receipts.jsonl",
+            "account-artifact-owners/default.owner",
+            "daemon/api-key",
+        )
+        for (relativePath in internalFiles) {
+            val file = state.resolve(relativePath)
+            Files.createDirectories(file.parent)
+            Files.writeString(file, "synthetic state")
+            assertThrows<FileSecurityException>("upload: $relativePath") { service.validateForUpload(file.toString()) }
+            assertThrows<FileSecurityException>("overwrite: $relativePath") { service.validateForDownload(file.toString()) }
+            val newTarget = file.parent.resolve("new/target.txt")
+            assertThrows<FileSecurityException>("new destination: $relativePath") {
+                service.validateForDownload(newTarget.toString())
+            }
+            assertTrue(Files.notExists(newTarget.parent))
+        }
+
+        val media = Files.createDirectory(state.resolve("media"))
+        val upload = Files.writeString(media.resolve("source.txt"), "user media")
+        assertEquals(upload.toRealPath(), service.validateForUpload(upload.toString()))
+        val destination = media.resolve("target.txt")
+        assertEquals(media.toRealPath().resolve("target.txt"), service.validateForDownload(destination.toString()))
+    }
+
+    @Test
     fun `POSIX hard links cannot alias an outside file into an allowed upload root`() {
         assumeTrue("unix" in tempDir.fileSystem.supportedFileAttributeViews(), "POSIX link-count policy is unavailable")
         val allowed = Files.createDirectory(tempDir.resolve("allowed"))

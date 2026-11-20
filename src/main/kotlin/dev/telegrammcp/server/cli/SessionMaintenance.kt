@@ -9,6 +9,7 @@ import dev.telegrammcp.server.service.DurableFiles
 import java.io.IOException
 import java.nio.channels.FileChannel
 import java.nio.channels.OverlappingFileLockException
+import java.nio.file.AccessDeniedException
 import java.nio.file.FileVisitResult
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
@@ -141,13 +142,36 @@ class SessionMaintenance internal constructor(
             // Publish only a complete backup. A failed/partial copy never gets
             // a normal backup name and never authorizes deleting the source.
             val ready = root.resolve(id)
-            Files.move(pending, ready, StandardCopyOption.ATOMIC_MOVE)
+            publishBackup(pending, ready)
             return ready.resolve("data")
         } catch (failure: Exception) {
             check(pending.parent == root && pending.fileName.toString() == ".pending-$id")
             runCatching { fileSystem.deleteTree(pending) }.exceptionOrNull()?.let(failure::addSuppressed)
             throw failure
         }
+    }
+
+    private fun publishBackup(pending: Path, ready: Path) {
+        if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) {
+            // A Windows process can briefly open a newly copied file without
+            // delete sharing. Retry publication only inside the private backup root.
+            for (delayMillis in longArrayOf(20, 50, 100)) {
+                try {
+                    fileSystem.moveCompletedBackup(pending, ready)
+                    return
+                } catch (failure: AccessDeniedException) {
+                    if (Files.exists(ready, NOFOLLOW_LINKS)) throw failure
+                    try {
+                        Thread.sleep(delayMillis)
+                    } catch (interrupted: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        failure.addSuppressed(interrupted)
+                        throw failure
+                    }
+                }
+            }
+        }
+        fileSystem.moveCompletedBackup(pending, ready)
     }
 
     private fun privateBackupDirectory(path: Path) {
@@ -287,6 +311,10 @@ data class SessionClearReport(
 
 /** Narrow filesystem seam for deterministic staging and recovery failure tests. */
 internal open class SessionMaintenanceFileSystem {
+    open fun moveCompletedBackup(source: Path, target: Path) {
+        Files.move(source, target, StandardCopyOption.ATOMIC_MOVE)
+    }
+
     open fun move(source: Path, target: Path, atomic: Boolean) {
         if (atomic) {
             Files.move(source, target, StandardCopyOption.ATOMIC_MOVE)

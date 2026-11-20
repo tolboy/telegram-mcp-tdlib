@@ -42,6 +42,9 @@ class AccountAccessPolicy(
         return registry.labels().filter { (allowed == null || it in allowed) && permissions?.isAccountVisible(it) != false }
     }
 
+    internal fun isExpectedAccountReady(account: String): Boolean =
+        registry.expectedAccountGate(account)?.isReady() ?: true
+
     private fun allowedAccounts(): Set<String>? {
         val auth = SecurityContextHolder.getContext().authentication
         return when (auth) {

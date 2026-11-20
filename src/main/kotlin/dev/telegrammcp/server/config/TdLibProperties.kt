@@ -71,9 +71,16 @@ data class TdLibProperties(
         val expectedUserId: Long? = null,
         /** Optional phone number (international format) the session must belong to; digits are compared. */
         val expectedPhoneNumber: String = "",
+        /** One-time operator assertion of who owns the existing label-keyed MCP artifacts. */
+        val legacyArtifactOwnerUserId: Long? = null,
     ) {
-        fun expectedAccount(): dev.telegrammcp.server.client.ExpectedAccount =
-            dev.telegrammcp.server.client.ExpectedAccount(expectedUserId, expectedPhoneNumber.trim())
+        fun expectedAccount(): dev.telegrammcp.server.client.ExpectedAccount {
+            val expected = dev.telegrammcp.server.client.ExpectedAccount(expectedUserId, expectedPhoneNumber.trim())
+            require(legacyArtifactOwnerUserId == null || (legacyArtifactOwnerUserId > 0 && expected.configured)) {
+                "legacy-artifact-owner-user-id requires a positive Telegram user ID and an expected-account check"
+            }
+            return expected
+        }
     }
 
     /**

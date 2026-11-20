@@ -33,11 +33,18 @@ Client wildcards are not supported. Rules for the same client/account/action
 are additive. Existing API-key/OAuth account restrictions and the global chat
 allow-list still intersect with grants. `chat_ids` must be explicit: `null` means
 unrestricted chats and permits account-wide tools; `[]` grants no chat access.
-Sensitive chats (`777000`, `@BotFather`, `@SpamBot`) stay blocked under
-`chat_ids: null`. A grant reaches one only by naming its chat ID in `chat_ids`,
-or by setting the optional `"allow_sensitive_chats": true`, which lifts the block
-for every sensitive chat the grant otherwise covers. The flag defaults to `false`,
-so existing files keep the block. See the README's security section.
+The server-wide `TELEGRAM_BLOCKED_CHAT_IDS` list takes precedence over every
+grant, the static read and mutation allow-lists, and sensitive-chat opt-ins.
+After a restart with an updated list, existing journal cursors and export
+jobs use the active policy when accessed. Cursors advance past filtered
+entries. Use the chat history to recover older entries if a chat becomes
+available again.
+Sensitive chats (`777000`, `489000`, `@BotFather`, `@SpamBot`) stay blocked
+under an ordinary `chat_ids: null` grant. A grant can reach one by naming its
+chat ID in `chat_ids`. Set the optional `"allow_sensitive_chats": true` on an
+unrestricted grant to reach all sensitive chats in that account and action.
+Matching grants are additive, so a grant with explicit IDs opts in only those IDs.
+The flag defaults to `false`. See the README's security section.
 
 ```json
 {"client":"ops","account":"work","actions":["read"],"chat_ids":null,"allow_sensitive_chats":true}
@@ -57,7 +64,7 @@ Forwarding requires permission for both source and destination under its action.
 
 Actions do not imply one another. A read grant does not allow downloads; a mutate
 grant does not grant transcription or read access. Server read-only mode, tool
-profiles, exact allow/deny filters, confirmation, human approval, file security
+profiles, tool-name allow/deny filters, confirmation, human approval, file security
 and anti-spam checks continue to apply. For read-only downloads, also enable
 `MCP_READ_ONLY_ALLOW_DOWNLOADS=true`. New write tools inherit the mutate action;
 new tools are denied for chat-scoped grants until reviewed.
@@ -74,8 +81,9 @@ permissions and the selected account explicitly, and restore prior state afterwa
 Open [permission-editor.html](permission-editor.html) locally in a browser. Add or
 remove grants, import an existing file, review the generated JSON and save it.
 The editor has no network access and does not modify a running server. Each
-grant has an "Allow sensitive chats" checkbox for `allow_sensitive_chats`; it is
-off by default and omitted from the JSON unless checked. Replace
+all-chats grant has an "Include sensitive chats" checkbox for `allow_sensitive_chats`.
+It is off by default and omitted from the JSON unless checked. For a chat-scoped
+grant, list the sensitive chat IDs directly. Replace
 the configured local file with the reviewed output, restart and reconnect clients.
 Keep the file writable only by the operator; it is an authority configuration.
 The editor supports JavaScript-safe integer chat IDs; larger 64-bit IDs, if

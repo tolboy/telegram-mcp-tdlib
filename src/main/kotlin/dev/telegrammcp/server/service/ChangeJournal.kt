@@ -15,7 +15,10 @@ import it.tdlight.jni.TdApi
 import org.springframework.stereotype.Service
 import java.io.IOException
 import java.nio.file.Files
+import java.nio.file.NoSuchFileException
 import java.nio.file.Path
+import java.nio.file.attribute.BasicFileAttributes
+import java.nio.file.attribute.FileTime
 import java.time.Instant
 import java.time.Duration
 import java.util.UUID
@@ -47,8 +50,6 @@ internal data class ChangeJournalHeader(val format: Int, val epoch: String)
  * `retention` (the cursor is older than the retained window), `journal_replaced`
  * (the cursor belongs to a deleted or recreated journal) and `unknown` (a marker
  * written by another process or an earlier run, whose cause this process cannot see).
- * [writerCaughtUp] records whether the local writer had any updates left to process
- * when the scan finished reading the durable log.
  */
 data class JournalScan(val entries: List<ChangeEntry>, val nextCursor: String, val hasMore: Boolean,
     val gapReasons: List<String>, val writerCaughtUp: Boolean) {
@@ -93,7 +94,10 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
         val reason: String? = null)
     /** Causes of the markers this process wrote, by sequence; kept in memory so the file format is unchanged. */
     private class MarkerReasons(val epoch: String, val bySequence: java.util.TreeMap<Long, String> = java.util.TreeMap())
-    private class AccountLog(val file: Path, val epoch: String, val entries: ArrayDeque<ChangeEntry>, var lines: Int, var size: Long) {
+    private data class LogVersion(val size: Long, val modified: FileTime, val created: FileTime, val fileKey: Any?)
+
+    private class AccountLog(val file: Path, val epoch: String, val entries: ArrayDeque<ChangeEntry>,
+        var lines: Int, var version: LogVersion) {
         val sequence get() = entries.lastOrNull()?.sequence ?: 0L
     }
 
@@ -109,7 +113,7 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
     private val queue = ArrayBlockingQueue<Observed>(queueCapacity)
     private val enqueued = AtomicLong()
     // Reserve before offering so a scan can see updates even while the writer drains the queue.
-    private val pending = AtomicLong()
+    private val pendingByAccount = ConcurrentHashMap<String, AtomicLong>()
     private val overflowed: MutableSet<String> = ConcurrentHashMap.newKeySet()
     private val writerStarted = AtomicBoolean()
     @Volatile private var writer: Thread? = null
@@ -134,8 +138,10 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
     private fun enqueue(account: String, kind: String, chatId: Long?, messageId: Long?, reason: String?) {
         if (closed) return
         val label = TelegramAccountRegistry.normalizeLabel(account)
+        val update = Observed(label, kind, chatId, messageId, Instant.now(), reason)
+        val pending = pendingByAccount.computeIfAbsent(label) { AtomicLong() }
         pending.incrementAndGet()
-        if (queue.offer(Observed(label, kind, chatId, messageId, Instant.now(), reason))) enqueued.incrementAndGet()
+        if (queue.offer(update)) enqueued.incrementAndGet()
         else {
             overflowed += label
             if (listeners.isNotEmpty()) listenerGaps += label
@@ -158,28 +164,38 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
         return try { readPage(label, cursor, limit, allowed) } finally { lock.unlock() }
     }
 
-    /** The cursor at the current journal tail, after updates observed before this call are written. */
-    fun tailCursor(account: String, writerBudgetNanos: Long = TimeUnit.SECONDS.toNanos(2)): String {
-        val label = TelegramAccountRegistry.normalizeLabel(account)
-        awaitWriter(writerBudgetNanos)
-        if (!acquireReadLock(TimeUnit.SECONDS.toNanos(2))) throw journalBusy(label)
-        return try { withLog(label) { "${it.epoch}:${it.sequence}" } } finally { lock.unlock() }
-    }
+    /** A cursor at the durable journal tail. */
+    fun tailCursor(account: String, budgetNanos: Long = TimeUnit.SECONDS.toNanos(2)): String =
+        readWithinBudget(account, budgetNanos) { _, journal -> "${journal.epoch}:${journal.sequence}" }
+            ?: throw journalBusy(TelegramAccountRegistry.normalizeLabel(account))
 
     /**
      * Like [page], but reports why coverage broke, and treats a cursor from a
      * replaced journal as a reset at the current tail instead of an error.
-     * Rejects malformed cursors and future positions in the current journal.
+     * The reader returns null if the journal locks are busy at the deadline.
      */
     fun scan(account: String, cursor: String, limit: Int, allowed: (Long) -> Boolean,
-        writerBudgetNanos: Long = TimeUnit.SECONDS.toNanos(2)): JournalScan {
+        budgetNanos: Long = TimeUnit.SECONDS.toNanos(2)): JournalScan? {
         require(limit in 1..200)
+        return readWithinBudget(account, budgetNanos) { label, journal ->
+            readScan(label, journal, cursor, limit, allowed, replacedIsReset = true)
+        }
+    }
+
+    private fun <T : Any> readWithinBudget(account: String, budgetNanos: Long,
+        read: (String, AccountLog) -> T): T? {
         val label = TelegramAccountRegistry.normalizeLabel(account)
-        awaitWriter(writerBudgetNanos)
-        if (!acquireReadLock(TimeUnit.SECONDS.toNanos(2))) throw journalBusy(label)
+        val started = System.nanoTime()
+        fun remaining() = (budgetNanos - (System.nanoTime() - started)).coerceAtLeast(0)
+        if (!isWriterCaughtUp(label)) awaitWriter(remaining())
+        if (!acquireReadLock(remaining())) return null
         return try {
             if (closed) throw TelegramApiException(406, "Canceled change wait: journal closed", readOnlyRequest = true)
-            readScan(label, cursor, limit, allowed, replacedIsReset = true)
+            withLogDirectory { directory ->
+                DurableFiles.tryLockedPrepared(directory, ::remaining) {
+                    read(label, loadLog(directory, label))
+                }
+            }
         } finally { lock.unlock() }
     }
 
@@ -245,36 +261,42 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
 
     /** Caller holds [lock]; file and cursor rules are shared by immediate and waiting reads. */
     private fun readPage(label: String, cursor: String?, limit: Int, allowed: (Long) -> Boolean): ChangePage =
-        readScan(label, cursor, limit, allowed, replacedIsReset = false).let { ChangePage(it.entries, it.nextCursor, it.hasMore, it.gap) }
+        withLog(label) { journal ->
+            val scan = readScan(label, journal, cursor, limit, allowed, replacedIsReset = false)
+            ChangePage(scan.entries, scan.nextCursor, scan.hasMore, scan.gap)
+        }
 
     /** Caller holds [lock]. */
-    private fun readScan(label: String, cursor: String?, limit: Int, allowed: (Long) -> Boolean,
-        replacedIsReset: Boolean): JournalScan =
-        withLog(label) { journal ->
-            val parts = cursor?.split(":")
-            if (replacedIsReset && parts != null && parts.size == 2 && parts[0] != journal.epoch) {
-                val validEpoch = runCatching { UUID.fromString(parts[0]).toString().equals(parts[0], ignoreCase = true) }
-                    .getOrDefault(false)
-                require(validEpoch && parts[1].toLongOrNull()?.let { it >= 0 } == true) { "Invalid change cursor" }
-                return@withLog JournalScan(emptyList(), "${journal.epoch}:${journal.sequence}", false,
-                    listOf(REASON_JOURNAL_REPLACED), pending.get() == 0L)
-            }
-            require(parts == null || (parts.size == 2 && parts[0] == journal.epoch)) { "Cursor belongs to a different journal; restart without cursor" }
-            val after = if (parts == null) 0L else requireNotNull(parts[1].toLongOrNull()) { "Invalid change cursor" }
-            require(after in 0..journal.sequence) { "Invalid change cursor" }
-            val scanned = journal.entries.asSequence().filter { it.sequence > after }.take(limit).toList()
-            val known = markerReasons[label]?.takeIf { it.epoch == journal.epoch }?.bySequence
-            val reasons = LinkedHashSet<String>()
-            if (after < (journal.entries.firstOrNull()?.sequence ?: 1) - 1) reasons += REASON_RETENTION
-            scanned.filter { it.kind == GAP }.forEach { reasons += known?.get(it.sequence) ?: REASON_UNKNOWN }
-            // A loss that is not yet written as a marker; the marker follows and is reported again.
-            if (label in failed) reasons += REASON_WRITE_FAILED
-            if (label in overflowed) reasons += REASON_OVERFLOW
-            JournalScan(scanned.filter { it.chatId == null || allowed(it.chatId) },
-                "${journal.epoch}:${scanned.lastOrNull()?.sequence ?: journal.sequence}",
-                scanned.lastOrNull()?.sequence?.let { it < journal.sequence } ?: false,
-                reasons.toList(), pending.get() == 0L)
+    private fun readScan(label: String, journal: AccountLog, cursor: String?, limit: Int, allowed: (Long) -> Boolean,
+        replacedIsReset: Boolean): JournalScan {
+        val parts = cursor?.split(":")
+        if (replacedIsReset && parts != null && parts.size == 2 && parts[0] != journal.epoch) {
+            val validEpoch = runCatching { UUID.fromString(parts[0]).toString().equals(parts[0], ignoreCase = true) }
+                .getOrDefault(false)
+            require(validEpoch && parts[1].toLongOrNull()?.let { it >= 0 } == true) { "Invalid change cursor" }
+            return JournalScan(emptyList(), "${journal.epoch}:${journal.sequence}", false,
+                listOf(REASON_JOURNAL_REPLACED), isWriterCaughtUp(label))
         }
+        require(parts == null || (parts.size == 2 && parts[0] == journal.epoch)) { "Cursor belongs to a different journal; restart without cursor" }
+        val after = if (parts == null) 0L else requireNotNull(parts[1].toLongOrNull()) { "Invalid change cursor" }
+        require(after in 0..journal.sequence) { "Invalid change cursor" }
+        val scanned = journal.entries.asSequence().filter { it.sequence > after }.take(limit).toList()
+        val known = markerReasons[label]?.takeIf { it.epoch == journal.epoch }?.bySequence
+        val reasons = LinkedHashSet<String>()
+        if (after < (journal.entries.firstOrNull()?.sequence ?: 1) - 1) reasons += REASON_RETENTION
+        scanned.filter { it.kind == GAP }.forEach { reasons += known?.get(it.sequence) ?: REASON_UNKNOWN }
+        val visible = scanned.filter { it.chatId == null || allowed(it.chatId) }
+        val writerCaughtUp = isWriterCaughtUp(label)
+        // A loss that is not yet written as a marker; the marker follows and is reported again.
+        if (label in failed) reasons += REASON_WRITE_FAILED
+        if (label in overflowed) reasons += REASON_OVERFLOW
+        return JournalScan(visible,
+            "${journal.epoch}:${scanned.lastOrNull()?.sequence ?: journal.sequence}",
+            scanned.lastOrNull()?.sequence?.let { it < journal.sequence } ?: false,
+            reasons.toList(), writerCaughtUp)
+    }
+
+    private fun isWriterCaughtUp(label: String): Boolean = (pendingByAccount[label]?.get() ?: 0L) == 0L
 
     /**
      * Records [builder]'s message updates for [account].
@@ -286,7 +308,7 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
      */
     fun attach(builder: SimpleTelegramClientBuilder, account: String, recording: Boolean = true): Attachment {
         val attachment = Attachment(account, recording)
-        appendGap(account, REASON_RESTART)
+        if (recording) appendGap(account, REASON_RESTART)
         builder.addUpdateHandler(TdApi.UpdateNewMessage::class.java) { attachment.record { recordNewMessage(account, it.message) } }
         builder.addUpdateHandler(TdApi.UpdateMessageSendSucceeded::class.java) { attachment.record { recordNewMessage(account, it.message) } }
         builder.addUpdateHandler(TdApi.UpdateMessageContent::class.java) {
@@ -388,11 +410,12 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
             batch += first
             queue.drainTo(batch, MAX_BATCH - 1)
             lock.withLock {
-                try { batch.groupBy { it.account }.forEach { (account, items) -> persist(account, items) } }
-                finally {
-                    handled += batch.size
-                    pending.addAndGet(-batch.size.toLong())
-                }
+                try {
+                    batch.groupBy { it.account }.forEach { (account, items) ->
+                        try { persist(account, items) }
+                        finally { pendingByAccount.getValue(account).addAndGet(-items.size.toLong()) }
+                    }
+                } finally { handled += batch.size }
             }
             dispatch(batch)
             batch.clear()
@@ -447,28 +470,38 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
     }
 
     /** Caller holds [lock]. The store lock also serializes other processes sharing this data directory. */
-    private fun <T> withLog(account: String, action: (AccountLog) -> T): T {
+    private fun <T> withLog(account: String, action: (AccountLog) -> T): T = withLogDirectory { directory ->
+        DurableFiles.lockedPrepared(directory) { action(loadLog(directory, account)) }
+    }
+
+    private fun <T> withLogDirectory(action: (Path) -> T): T {
         val directory = paths.applicationDataDirectory.resolve("changes")
         if (!prepared) { DurableFiles.privateDirectory(directory); prepared = true }
-        return try {
-            DurableFiles.lockedPrepared(directory) {
-                val file = directory.resolve("$account.jsonl")
-                val cached = logs[account]
-                // Appends only grow the log and compaction rewrites it, so a size change reveals another writer.
-                val journal = if (cached != null && Files.exists(file) && Files.size(file) == cached.size) cached
-                    else { logs.remove(account); load(file).also { logs[account] = it } }
-                action(journal)
-            }
-        } catch (failure: IOException) {
+        return try { action(directory) } catch (failure: IOException) {
             prepared = false
             throw failure
         }
     }
 
+    /** Caller holds the journal and file locks. */
+    private fun loadLog(directory: Path, account: String): AccountLog {
+        val file = directory.resolve("$account.jsonl")
+        val cached = logs[account]
+        val version = try { logVersion(file) } catch (_: NoSuchFileException) { null }
+        if (cached != null && cached.version == version) return cached
+        logs.remove(account)
+        return load(file, version).also { logs[account] = it }
+    }
+
+    private fun logVersion(file: Path): LogVersion {
+        val attributes = Files.readAttributes(file, BasicFileAttributes::class.java)
+        return LogVersion(attributes.size(), attributes.lastModifiedTime(), attributes.creationTime(), attributes.fileKey())
+    }
+
     private fun write(journal: AccountLog, entries: List<ChangeEntry>) {
         val bytes = entries.joinToString("") { lineWriter.writeValueAsString(it) + "\n" }.toByteArray(Charsets.UTF_8)
         DurableFiles.append(journal.file, bytes)
-        journal.size += bytes.size
+        journal.version = logVersion(journal.file)
         journal.lines += entries.size
         journal.entries.addAll(entries)
         while (journal.entries.size > RETAINED) journal.entries.removeFirst()
@@ -478,7 +511,7 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
     private fun compact(journal: AccountLog) {
         val bytes = render(journal.epoch, journal.entries)
         DurableFiles.write(journal.file, bytes)
-        journal.size = bytes.size.toLong()
+        journal.version = logVersion(journal.file)
         journal.lines = journal.entries.size + 1
     }
 
@@ -486,12 +519,12 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
         (sequenceOf<Any>(ChangeJournalHeader(FORMAT, epoch)) + entries.asSequence())
             .joinToString("") { lineWriter.writeValueAsString(it) + "\n" }.toByteArray(Charsets.UTF_8)
 
-    private fun load(file: Path): AccountLog {
-        if (!Files.exists(file)) {
+    private fun load(file: Path, version: LogVersion?): AccountLog {
+        if (version == null) {
             val epoch = UUID.randomUUID().toString()
             val bytes = render(epoch, emptyList())
             DurableFiles.write(file, bytes)
-            return AccountLog(file, epoch, ArrayDeque(), 1, bytes.size.toLong())
+            return AccountLog(file, epoch, ArrayDeque(), 1, logVersion(file))
         }
         val bytes = Files.readAllBytes(file)
         val text = String(bytes, Charsets.UTF_8)
@@ -511,7 +544,7 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
             entries += entry
         }
         while (entries.size > RETAINED) entries.removeFirst()
-        return AccountLog(file, header.epoch, entries, records.size, bytes.size.toLong())
+        return AccountLog(file, header.epoch, entries, records.size, version)
             .also { if (!complete) compact(it) }
     }
 }

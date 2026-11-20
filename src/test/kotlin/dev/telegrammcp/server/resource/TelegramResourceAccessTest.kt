@@ -28,6 +28,7 @@ class TelegramResourceAccessTest {
     init {
         every { surface.isVisible(any(), any(), any()) } returns true
         every { accounts.selectAccount(any()) } answers { firstArg<Map<String, Any>>()["account"].toString() }
+        every { accounts.isExpectedAccountReady(any()) } returns true
         every { guard.isChatAllowed(any()) } answers { firstArg<Long>() == 42L }
         every { permissions.withPermission<Boolean>(any(), any(), any()) } answers { arg<() -> Boolean>(2)() }
     }
@@ -45,6 +46,13 @@ class TelegramResourceAccessTest {
         assertFalse(access.permits(TelegramResourceUri.Chat("b", 42)))
         every { permissions.withPermission<Boolean>("list_chats", any(), any()) } throws IllegalStateException("denied")
         assertFalse(access.permits(TelegramResourceUri.Chats("a")))
+    }
+
+    @Test fun `resource subscriptions and notification authorization require a verified expected account`() {
+        val resource = TelegramResourceUri.Chat("a", 42)
+        every { accounts.isExpectedAccountReady("a") } returns false
+        assertFalse(access.permits(resource))
+        assertFalse(access.permits(resource, TestingAuthenticationToken("alice", null, "ROLE_X")))
     }
 
     @Test fun `a chat inside a chat list is judged with list_chats, not the chat resource tool`() {

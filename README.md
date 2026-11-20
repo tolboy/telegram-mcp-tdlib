@@ -439,11 +439,12 @@ git push origin master vX.Y.Z
 | `TDLIB_PROXY_HTTP_ONLY` | No | `false` | Restrict an HTTP proxy to HTTP requests; normally leave `false` for CONNECT |
 | `TDLIB_EXPECTED_USER_ID` | No | — | Telegram user ID this session must belong to. A different account is refused and tool calls fail; a configured account exits with code 3, a login-wizard session stays up in an error state. Named accounts: `TELEGRAM_ACCOUNTS_<LABEL>_AUTH_EXPECTED_USER_ID` |
 | `TDLIB_EXPECTED_PHONE_NUMBER` | No | — | Phone number (international format, digits compared) this session must belong to; combined with the user ID when both are set. Named accounts: `TELEGRAM_ACCOUNTS_<LABEL>_AUTH_EXPECTED_PHONE_NUMBER` |
+| `TDLIB_LEGACY_ARTIFACT_OWNER_USER_ID` | No | — | One-time assertion for adopting an existing journal, exports, and receipts for a verified account. Named accounts: `TELEGRAM_ACCOUNTS_<LABEL>_AUTH_LEGACY_ARTIFACT_OWNER_USER_ID` |
 
 \* Required when TDLib integration is enabled.  
 † Set exactly one: `TDLIB_PHONE_NUMBER` or `TDLIB_BOT_TOKEN`.
 
-Expected-account guard: set `TDLIB_EXPECTED_USER_ID` and/or `TDLIB_EXPECTED_PHONE_NUMBER` to make sure a reused or mixed-up session directory cannot silently serve the wrong Telegram account. When TDLib reports the session ready, the server asks Telegram who is signed in. On a mismatch, or if that answer never arrives, every tool call fails with an explanation. A mismatch on an account started from configuration also shuts the server down with exit code 3. On the interactive sign-in wizard path the server stays up and the wizard shows the error instead. A missing answer is retried up to three times (after 1, 2 and 4 seconds) before the session is refused. The first attempt waits up to 15 seconds and each retry up to 5, and the whole check is cut to fit `TDLIB_AUTH_READY_TIMEOUT` minus a small margin (40 of the default 45 seconds), and a retry that would start with less than a second left (for example after a busy executor delayed it) is refused rather than sent. A tool call waiting for the session shares that deadline: it waits past its own ready-timeout for the verdict, but never past its tool-call deadline. If that comes first, the call fails with a clear "expected-account check has not finished" error and nothing is sent; and the change journal records nothing for the session until the check accepts it. `session doctor` prints the last result as `account_check=` (phones masked). Without either setting nothing changes.
+Expected-account guard: set `TDLIB_EXPECTED_USER_ID` and/or `TDLIB_EXPECTED_PHONE_NUMBER` to make sure a reused or mixed-up session directory cannot silently serve the wrong Telegram account. When TDLib reports the session ready, the server asks Telegram who is signed in. On a mismatch, or if that answer never arrives, every tool call fails with an explanation. A mismatch on an account started from configuration also shuts the server down with exit code 3. On the interactive sign-in wizard path the server stays up and the wizard shows the error instead. A missing answer is retried up to three times (after 1, 2 and 4 seconds) before the session is refused. The first attempt waits up to 15 seconds and each retry up to 5, and the whole check is cut to fit `TDLIB_AUTH_READY_TIMEOUT` minus a small margin (40 of the default 45 seconds), and a retry that would start with less than a second left (for example after a busy executor delayed it) is refused rather than sent. A tool call waiting for the session shares that deadline: it waits past its own ready-timeout for the verdict, but never past its tool-call deadline. If that comes first, the call fails with a clear "expected-account check has not finished" error and nothing is sent; and the change journal records nothing for the session until the check accepts it. `session doctor` prints the last result as `account_check=` (phones masked). Once MCP artifacts are bound to a verified account, the account must retain verification. See [artifact migration](docs/SESSION_MAINTENANCE.md#bind-or-migrate-local-mcp-artifacts).
 
 Non-interactive auth: on a fresh container, set `TDLIB_AUTH_CODE` once (plus `TDLIB_2FA_PASSWORD` if 2FA is enabled). After the session persists to `TDLIB_DATA_DIR`, neither is needed on restart. Every direct secret setting has a mutually exclusive `*_FILE` alternative for Docker/Podman/Kubernetes secret mounts.
 
@@ -495,8 +496,9 @@ Docker, mount the secret file into the container and set the container path.
 |----------------------------|----------|-----------------|------------------------------------------|
 | `TELEGRAM_BOT_TOKEN`       | No       | —               | Legacy Bot API token (fallback only)     |
 | `TELEGRAM_BOT_USERNAME`    | No       | —               | Bot username (for logging)               |
-| `TELEGRAM_ALLOWED_CHAT_IDS`| No       | (all allowed except sensitive chats) | Comma-separated chat IDs to allow |
-| `TELEGRAM_ALLOW_SENSITIVE_CHATS` | No | `false` | Lift the default block on sensitive chats (777000 service chat with login codes, @BotFather, @SpamBot) for every client. Prefer naming one chat ID in `TELEGRAM_ALLOWED_CHAT_IDS` or a permission grant |
+| `TELEGRAM_ALLOWED_CHAT_IDS`| No       | (all admitted by the chat policy) | Comma-separated chat IDs to allow |
+| `TELEGRAM_BLOCKED_CHAT_IDS` | No | (empty) | Comma-separated signed numeric chat IDs to exclude across clients and accounts, with precedence over allow-lists and grants |
+| `TELEGRAM_ALLOW_SENSITIVE_CHATS` | No | `false` | Lift the default block on login-code and verification-code chats, @BotFather and @SpamBot for every client. Prefer naming one chat ID in `TELEGRAM_ALLOWED_CHAT_IDS` or a permission grant |
 | `TELEGRAM_MUTATION_CHAT_IDS` | No    | (same as reads) | Targets for chat-scoped writes. Empty follows the read allow-list. Account-wide operations require tool/action restrictions |
 | `MCP_API_KEY`              | Remote API-key mode* | —       | API key for MCP endpoint auth            |
 | `MCP_API_KEY_FILE`         | No       | —               | Secret-file alternative to `MCP_API_KEY` |
@@ -507,6 +509,7 @@ Docker, mount the secret file into the container and set the container path.
 | `MCP_TOOL_PROFILE`         | No       | `reader`        | `all`, `reader`, `inbox`, `community-admin`, or `research` |
 | `MCP_TOOL_ALLOW`           | No       | (profile tools) | Comma-separated tool names or `prefix*` patterns to retain after profile filtering; a bare `*` keeps every profile tool |
 | `MCP_TOOL_DENY`            | No       | —               | Comma-separated tool names or `prefix*` patterns to hide; deny always wins over allow |
+| `MCP_ALLOW_LEGACY_INLINE_BUTTON_SELECTORS` | No | `false` | Compatibility opt-in for unsigned `button_index` and `button_text` on `press_inline_button` |
 | `MCP_TRANSPORT`            | No       | `streamable-http` | `streamable-http` or `stdio`; CLI `--transport` wins |
 | `MCP_CONFIRMATION_REQUIRED`| No       | `true`          | Require caller acknowledgement (`"confirmed": true`) for destructive tools; not proof of human approval |
 | `MCP_DESTRUCTIVE_APPROVAL`| No       | `off`           | Human approval before destructive and high-risk tools (see `MCP_APPROVAL_SCOPE`): `auto`, `elicitation`, or `loopback`. With writes enabled, `off` refuses startup unless `MCP_ALLOW_MODEL_CONFIRMED_WRITES=true` |
@@ -672,27 +675,31 @@ that implements elicitation still asks you, and one that does not refuses the
 destructive tools outright instead of waiting on a page nobody can reach. Run
 the server natively when you want the loopback route.
 
-An empty `TELEGRAM_ALLOWED_CHAT_IDS` grants the connector visibility across the
-whole selected Telegram account, except for sensitive chats. Remote or model-facing deployments should set
-an explicit chat allow-list whenever the workflow has a narrower scope.
-The setting governs chat/message/folder data and chat-targeted side effects; it
-is not a complete account sandbox. Account, profile, and contact metadata tools
-remain controlled by account scopes, tool profiles, and `MCP_TOOL_ALLOW` /
-`MCP_TOOL_DENY`, so narrow those surfaces separately when required.
+An empty `TELEGRAM_ALLOWED_CHAT_IDS` admits all chats covered by the current
+client grant, subject to the sensitive-chat policy and the server deny-list.
+Set `TELEGRAM_BLOCKED_CHAT_IDS` to exclude specific chats for all accounts and
+clients, including clients with a matching allow-list or sensitive-chat opt-in.
+Use signed numeric chat IDs such as `-1001234567890`. The list applies to chat
+and folder access, search results, journal events, resource notifications, and
+access to saved export jobs. Operations with a target the server cannot verify
+in advance require an unrestricted chat scope. Account, profile, and contact
+metadata tools follow account scopes, tool profiles, and `MCP_TOOL_ALLOW` /
+`MCP_TOOL_DENY`.
 
-Sensitive chats are blocked by default for every tool and resource, even when
-all chats are allowed: Telegram's service chat `777000` (login codes, new-session
-alerts and QR-login confirmations, which are enough to take over the account),
-`@BotFather` (bot tokens) and `@SpamBot` (account limits and appeals). Direct
-access fails with a sensitive-chat error, and multi-chat results (`list_chats`,
+Sensitive chats are blocked by default for chat tools and resources, even when
+all chats are allowed. These include Telegram's service chat `777000` (login
+codes and new-session alerts), the Telegram Gateway chat `489000` (third-party
+verification codes), `@BotFather` (bot tokens) and `@SpamBot` (account limits and
+appeals). Direct access fails with a sensitive-chat error. Multi-chat results (`list_chats`,
 `search_global`, unread digests, `changes_since`, `wait_for_changes`,
-`wait_for_settled_messages`, resources
-and exports) leave them out. The bots' production IDs are built in, and each
-account also resolves the usernames once it is ready. To lift the block, name the
-chat ID in `TELEGRAM_ALLOWED_CHAT_IDS` or in a grant's `chat_ids` (that chat only),
-set `"allow_sensitive_chats": true` on a [permission grant](docs/PERMISSIONS.md),
-or set `TELEGRAM_ALLOW_SENSITIVE_CHATS=true` for every client. An all-chats grant
-(`chat_ids: null`) never lifts it.
+`wait_for_settled_messages` and the chats resource) leave them out. The bots'
+production IDs are built in. Once an account is ready, the server also attempts
+to resolve their usernames. To lift the block, name the chat ID in
+`TELEGRAM_ALLOWED_CHAT_IDS` or in a grant's `chat_ids` for that chat only, set
+`"allow_sensitive_chats": true` on an unrestricted
+[permission grant](docs/PERMISSIONS.md), or use
+`TELEGRAM_ALLOW_SENSITIVE_CHATS=true` for every client. Forwarded messages and
+quotes already present in an allowed chat follow that chat's policy.
 
 Audit summaries and JSONL records contain no argument values unless
 `MCP_AUDIT_LOG_ARGS=true`; when enabled, recognized credential fields are
@@ -783,7 +790,7 @@ The full inventory is grouped below. In practice you start with a
 | `get_message_viewers` | List read receipts for an outgoing message in small groups |
 | `get_message_context` | Get N messages surrounding a target message |
 | `list_inline_buttons` | Inspect inline keyboard buttons on a message; each button carries a signed `token` |
-| `press_inline_button` | Click an inline button by its `button_token` from `list_inline_buttons`; refuses if the keyboard changed. `button_index`/`button_text` still work but are deprecated (high-risk: human approval when enabled) |
+| `press_inline_button` | Click an inline button by its signed `button_token` from `list_inline_buttons`. The approval prompt identifies that button, and the server checks the keyboard again before the click. Older selectors require the compatibility opt-in. |
 | `message_from_link` | Resolve a t.me message link to the actual message |
 | `get_message_link` | Create a shareable t.me link for a message or media album |
 | `list_scheduled_messages` | List queued messages for a chat |

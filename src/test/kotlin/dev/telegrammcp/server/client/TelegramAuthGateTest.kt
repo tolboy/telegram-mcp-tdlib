@@ -130,11 +130,19 @@ class TelegramAuthGateTest {
         val gate = gate()
 
         gate.markFailed("original failure")
-        gate.markReady()
+        assertFalse(gate.markReady { error("a failed session must not activate recording") })
 
         assertFalse(gate.isReady())
         val error = assertFailsWith<TdLibAuthException> { gate.awaitReady() }
         assertTrue(error.message.contains("original failure"), error.message)
+    }
+
+    @Test
+    fun `recording activates before tools can use the ready session`() {
+        val gate = gate()
+        assertTrue(gate.markReady { assertFalse(gate.isReady()) })
+        assertTrue(gate.isReady())
+        assertFalse(gate.markReady { error("an already ready session must not reactivate recording") })
     }
 
     @Test

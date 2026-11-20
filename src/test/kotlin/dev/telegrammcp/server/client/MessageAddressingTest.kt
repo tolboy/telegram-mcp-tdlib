@@ -37,7 +37,7 @@ class MessageAddressingTest {
         this.senderId = TdApi.MessageSenderUser(77)
     }
 
-    private fun reply(messageId: Long, chatId: Long = 0) = TdApi.MessageReplyToMessage().apply {
+    private fun reply(messageId: Long, chatId: Long = -100) = TdApi.MessageReplyToMessage().apply {
         this.chatId = chatId
         this.messageId = messageId
     }
@@ -60,6 +60,8 @@ class MessageAddressingTest {
         // Plain text without a mention entity is not a mention, and broken offsets never throw.
         assertFalse(classify(message(content = text("owner"))).mentionsMe)
         assertFalse(classify(message(content = text("@Owner", TdApi.TextEntity(2, 40, TdApi.TextEntityTypeMention())))).mentionsMe)
+        assertFalse(classify(message(content = text("@Owner", TdApi.TextEntity(2, -1, TdApi.TextEntityTypeMention())))).mentionsMe)
+        assertFalse(classify(message(content = text("@Owner", TdApi.TextEntity(2, Int.MAX_VALUE, TdApi.TextEntityTypeMention())))).mentionsMe)
     }
 
     @Test fun `text mentions by user ID and captions count`() {
@@ -71,9 +73,21 @@ class MessageAddressingTest {
         assertTrue(classify(message(content = photo)).mentionsMe)
     }
 
+    @Test fun `mentions in poll options and checklist tasks count after the unread flag clears`() {
+        val mention = TdApi.FormattedText("@Owner", arrayOf(TdApi.TextEntity(0, 6, TdApi.TextEntityTypeMention())))
+        val poll = TdApi.MessagePoll().apply {
+            poll = TdApi.Poll().apply { options = arrayOf(TdApi.PollOption().apply { text = mention }) }
+        }
+        val checklist = TdApi.MessageChecklist().apply {
+            list = TdApi.Checklist().apply { tasks = arrayOf(TdApi.ChecklistTask().apply { text = mention }) }
+        }
+        assertTrue(classify(message(content = poll)).mentionsMe)
+        assertTrue(classify(message(content = checklist)).mentionsMe)
+    }
+
     @Test fun `replies count only when they target the account's own message in the same chat`() {
         assertEquals(5L, MessageAddressingClassifier.sameChatReplyTarget(message(replyTo = reply(5))))
-        assertEquals(5L, MessageAddressingClassifier.sameChatReplyTarget(message(replyTo = reply(5, chatId = -100))))
+        assertNull(MessageAddressingClassifier.sameChatReplyTarget(message(replyTo = reply(5, chatId = 0))))
         assertNull(MessageAddressingClassifier.sameChatReplyTarget(message(replyTo = reply(5, chatId = -200))))
         assertNull(MessageAddressingClassifier.sameChatReplyTarget(message(replyTo = TdApi.MessageReplyToStory(1, 2))))
         assertTrue(classify(message(replyTo = reply(5)), mine = setOf(5)).repliesToMe)

@@ -38,7 +38,7 @@ class ChatFolderToolsTest {
     @Test
     fun `list folders omits entries whose membership exceeds the static chat allow-list`() {
         val tool = ListChatFoldersTool(telegramClient, guardrails, audit, mapper, SimpleMeterRegistry())
-        every { guardrails.hasChatAllowList() } returns true
+        every { guardrails.hasRestrictedChatScope() } returns true
         every { guardrails.isChatAllowed(11L) } returns true
         every { guardrails.isChatAllowed(99L) } returns false
         every {
@@ -166,7 +166,7 @@ class ChatFolderToolsTest {
     @Test
     fun `blocks dynamic folder membership when a static chat allow-list is configured`() {
         val tool = ConfigureChatFolderTool(telegramClient, entityResolver, guardrails, operationGuard, audit, mapper, SimpleMeterRegistry())
-        every { guardrails.hasChatAllowList() } returns true
+        every { guardrails.hasRestrictedChatScope() } returns true
 
         val result = tool.executeChecked(
             exchange,
@@ -192,5 +192,27 @@ class ChatFolderToolsTest {
         }
         assertTrue(result.isError)
         verify(exactly = 0) { telegramClient.createChatFolder(any()) }
+    }
+
+    @Test
+    fun `replacing a folder cannot bypass the policy of its existing membership`() {
+        val scoped = GuardrailService(
+            McpSecurityProperties(),
+            TelegramProperties(security = TelegramProperties.SecurityProperties(blockedChatIds = listOf(99L))),
+        )
+        val tool = ConfigureChatFolderTool(telegramClient, entityResolver, scoped, operationGuard, audit, mapper, SimpleMeterRegistry())
+        every { telegramClient.getChatFolder(3) } returns
+            ChatFolderDetails(3, ChatFolderDefinition(title = "Existing", includedChatIds = listOf(99L)))
+        every { telegramClient.getChatFolder(4) } returns
+            ChatFolderDetails(4, ChatFolderDefinition(title = "Allowed", includedChatIds = listOf(11L)))
+        every { telegramClient.updateChatFolder(4, any()) } returns ChatFolderInfo(4, "Replacement")
+
+        val denied = tool.executeChecked(exchange, mapOf("title" to "Replacement", "folder_id" to 3))
+        val allowed = tool.executeChecked(exchange, mapOf("title" to "Replacement", "folder_id" to 4))
+
+        assertTrue(denied.isError)
+        assertFalse(allowed.isError)
+        verify(exactly = 0) { telegramClient.updateChatFolder(3, any()) }
+        verify(exactly = 1) { telegramClient.updateChatFolder(4, any()) }
     }
 }

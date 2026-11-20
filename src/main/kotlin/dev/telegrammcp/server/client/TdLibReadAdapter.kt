@@ -7,6 +7,7 @@ import dev.telegrammcp.server.exception.SendOutcomeUnknownException
 import dev.telegrammcp.server.exception.TelegramTimeoutException
 import dev.telegrammcp.server.exception.TelegramUnavailableException
 import dev.telegrammcp.server.model.*
+import dev.telegrammcp.server.security.PermissionDeniedException
 import dev.telegrammcp.server.util.StructuredLogger
 import dev.telegrammcp.server.util.TextFormatter
 import io.github.resilience4j.bulkhead.Bulkhead
@@ -19,6 +20,7 @@ import dev.telegrammcp.server.exception.TelegramApiException
 import it.tdlight.jni.TdApi
 import java.time.Duration
 import java.time.Instant
+import java.util.Base64
 import java.util.concurrent.TimeUnit
 
 /** Read and lookup calls. They do not send messages or change chat membership. */
@@ -217,13 +219,20 @@ internal class TdLibReadAdapter(
                 val file = extractFileFromMessage(message)
                     ?: throw IllegalStateException("Message $messageId contains no downloadable media")
 
-                // Download the file via TDLib
+                if (!message.canBeSaved || message.selfDestructType != null) {
+                    throw PermissionDeniedException("Telegram does not allow this message's media to be saved")
+                }
+
                 val downloaded = withResilience("downloadFile") {
                     send<TdApi.File>(TdApi.DownloadFile(file.id, 1, 0, 0, true))
                 }
 
-                val localPath = downloaded.local?.path
-                    ?: throw IllegalStateException("Download completed but no local path returned")
+                // A synchronous request also finishes on cancellation or failure.
+                val local = downloaded.local
+                val localPath = local?.path
+                if (local?.isDownloadingCompleted != true || localPath.isNullOrBlank()) {
+                    throw IllegalStateException("TDLib did not return a complete local media file")
+                }
 
                 return DownloadResult(
                     localPath = localPath,
@@ -553,8 +562,8 @@ internal class TdLibReadAdapter(
                         if (button == null) return@forEachIndexed
                         val (typeName, url, cbData) = when (val t = button.type) {
                             is TdApi.InlineKeyboardButtonTypeUrl -> Triple("url", t.url, null)
-                            is TdApi.InlineKeyboardButtonTypeCallback -> Triple("callback", null, t.data?.let { String(it) })
-                            is TdApi.InlineKeyboardButtonTypeCallbackWithPassword -> Triple("callback_with_password", null, t.data?.let { String(it) })
+                            is TdApi.InlineKeyboardButtonTypeCallback -> Triple("callback", null, t.data)
+                            is TdApi.InlineKeyboardButtonTypeCallbackWithPassword -> Triple("callback_with_password", null, t.data)
                             is TdApi.InlineKeyboardButtonTypeCallbackGame -> Triple("callback_game", null, null)
                             is TdApi.InlineKeyboardButtonTypeSwitchInline -> Triple("switch_inline", null, null)
                             is TdApi.InlineKeyboardButtonTypeLoginUrl -> Triple("login_url", t.url, null)
@@ -567,9 +576,10 @@ internal class TdLibReadAdapter(
                             text = button.text ?: "",
                             type = typeName,
                             url = url,
-                            callbackData = cbData,
+                            callbackData = cbData?.toString(Charsets.UTF_8),
                             position = position++,
                             messageEditDate = message.editDate,
+                            callbackDataBase64 = cbData?.let { Base64.getEncoder().encodeToString(it) },
                         )
                     }
                 }

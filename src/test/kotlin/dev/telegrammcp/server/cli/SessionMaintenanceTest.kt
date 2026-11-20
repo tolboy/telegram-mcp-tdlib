@@ -7,6 +7,7 @@ import org.junit.jupiter.api.condition.EnabledOnOs
 import org.junit.jupiter.api.condition.OS
 import java.io.IOException
 import java.nio.channels.FileChannel
+import java.nio.file.AccessDeniedException
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -118,6 +119,26 @@ class SessionMaintenanceTest {
             assertTrue(acl.acl.none { it.type() == AclEntryType.ALLOW && it.principal() != acl.owner &&
                 AclEntryPermission.READ_DATA in it.permissions() })
         }
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    fun `transient backup access denial is retried before removing staged data`() {
+        val original = session("td.binlog" to 16)
+        var moves = 0
+        val fs = object : SessionMaintenanceFileSystem() {
+            override fun moveCompletedBackup(source: Path, target: Path) {
+                assertFalse(Files.exists(target))
+                assertTrue(Files.exists(source.resolve("data/td.binlog")))
+                if (++moves == 1) throw AccessDeniedException(source.toString())
+                super.moveCompletedBackup(source, target)
+            }
+        }
+        val result = SessionMaintenance(tempDir, emptyMap(), fs).clear("default", true)
+        assertTrue(moves >= 2)
+        assertTrue(result.deleted)
+        assertFalse(Files.exists(original))
+        assertEquals(16L, Files.size(assertNotNull(result.backupDirectory).resolve("td.binlog")))
     }
 
     @Test

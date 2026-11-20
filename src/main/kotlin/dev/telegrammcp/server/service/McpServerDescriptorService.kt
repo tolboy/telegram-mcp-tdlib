@@ -25,7 +25,7 @@ class McpServerDescriptorService(
     private val toolNames = handlers
         .asSequence()
         .map { it.definition().name() }
-        .filter { toolSurfacePolicy.isVisible(it, serverMode.readOnly) }
+        .filter { toolSurfacePolicy.isVisible(it, serverMode.readOnly, serverMode.readOnlyAllowDownloads) }
         .sorted()
         .toList()
 

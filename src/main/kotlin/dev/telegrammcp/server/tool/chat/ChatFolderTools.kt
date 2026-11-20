@@ -38,7 +38,7 @@ class ListChatFoldersTool(
     override fun execute(exchange: McpSyncServerExchange, arguments: Map<String, Any>): McpSchema.CallToolResult =
         ToolSupport.execute(TOOL_NAME, arguments, objectMapper, meterRegistry, log, "Failed to list chat folders", auditService) {
             val listing = telegramClient.listChatFolders()
-            if (!guardrailService.hasChatAllowList()) {
+            if (!guardrailService.hasRestrictedChatScope()) {
                 listing
             } else {
                 listing.copy(
@@ -134,7 +134,17 @@ class ConfigureChatFolderTool(
             operationGuardService.checkPermission(TOOL_NAME, arguments)
             val folder = ChatFolderInputs.definition(arguments, entityResolver, guardrailService)
             val folderId = ChatFolderInputs.optionalPositiveInt(arguments, "folder_id")
-            if (folderId == null) telegramClient.createChatFolder(folder) else telegramClient.updateChatFolder(folderId, folder)
+            if (folderId == null) {
+                telegramClient.createChatFolder(folder)
+            } else {
+                if (guardrailService.hasRestrictedChatScope()) {
+                    ChatFolderInputs.validateDerivedFolderChatAccess(
+                        telegramClient.getChatFolder(folderId).definition,
+                        guardrailService,
+                    )
+                }
+                telegramClient.updateChatFolder(folderId, folder)
+            }
         }
 }
 
@@ -258,9 +268,9 @@ private object ChatFolderInputs {
 
     fun validateFolderChatAccess(folder: ChatFolderDefinition, guardrailService: GuardrailService) {
         folderChatIds(folder).forEach(guardrailService::validateChatAccess)
-        if (guardrailService.hasChatAllowList() && folder.hasDynamicMembership()) {
+        if (guardrailService.hasRestrictedChatScope() && folder.hasDynamicMembership()) {
             throw InvalidToolInputException(
-                "Dynamic folder membership is unavailable while a static chat allow-list is configured",
+                "Dynamic folder membership is unavailable with a restricted chat scope",
             )
         }
     }
@@ -270,16 +280,16 @@ private object ChatFolderInputs {
 
     fun validateDerivedFolderChatAccess(folder: ChatFolderDefinition, guardrailService: GuardrailService) {
         folderChatIds(folder).forEach(guardrailService::validateDerivedChatAccess)
-        if (guardrailService.hasChatAllowList() && folder.hasDynamicMembership()) {
+        if (guardrailService.hasRestrictedChatScope() && folder.hasDynamicMembership()) {
             throw InvalidToolInputException(
-                "Dynamic folder membership is unavailable while a static chat allow-list is configured",
+                "Dynamic folder membership is unavailable with a restricted chat scope",
             )
         }
     }
 
     fun isDerivedFolderAllowed(folder: ChatFolderDefinition, guardrailService: GuardrailService): Boolean =
         folderChatIds(folder).all(guardrailService::isChatAllowed) &&
-            (!guardrailService.hasChatAllowList() || !folder.hasDynamicMembership())
+            (!guardrailService.hasRestrictedChatScope() || !folder.hasDynamicMembership())
 
     private fun ChatFolderDefinition.hasDynamicMembership(): Boolean =
         includeContacts || includeNonContacts || includeBots || includeGroups || includeChannels

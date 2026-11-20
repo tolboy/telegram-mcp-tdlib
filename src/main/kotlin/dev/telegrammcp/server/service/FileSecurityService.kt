@@ -54,17 +54,21 @@ class FileSecurityService(
             .toSet()
 
     /**
-     * TDLib session directories stay out of file operations even when an
-     * operator points [allowedRoots] at a parent of those directories.
-     * Upload and download must not read `td.binlog` or the media cache.
+     * TDLib sessions and internal MCP stores remain private even when an
+     * operator includes an ancestor of those directories in [allowedRoots].
      */
     private val protectedDirectories: List<Path> =
         // Path is Iterable<Path>; adding it directly would append its segments
         // instead of the absolute protected directory.
         sessionDirectories(tdLibProperties, telegramProperties) + listOf(
-            canonicalizeForComparison(uploadSnapshotDirectory),
-            canonicalizeForComparison(platformPaths.applicationDataDirectory.resolve("tdlib-backups")),
-        )
+            uploadSnapshotDirectory,
+            platformPaths.applicationDataDirectory.resolve("tdlib-backups"),
+            platformPaths.applicationDataDirectory.resolve("changes"),
+            platformPaths.applicationDataDirectory.resolve("exports"),
+            platformPaths.applicationDataDirectory.resolve("send-operations"),
+            platformPaths.applicationDataDirectory.resolve("account-artifact-owners"),
+            platformPaths.applicationDataDirectory.resolve("daemon"),
+        ).map(::canonicalizeForComparison)
 
     companion object {
         /** Characters forbidden in file paths. */
@@ -296,13 +300,13 @@ class FileSecurityService(
                 "Path is outside allowed file system roots",
             )
         }
-        val overlapsSession = protectedDirectories.any { protected ->
+        val overlapsProtected = protectedDirectories.any { protected ->
             canonicalPath.startsWith(protected) || protected.startsWith(canonicalPath)
         }
-        if (overlapsSession) {
-            log.warn("Path '{}' overlaps a TDLib session directory", canonicalPath)
+        if (overlapsProtected) {
+            log.warn("Path '{}' overlaps a protected server directory", canonicalPath)
             throw FileSecurityException(
-                "Path overlaps a TDLib session directory and is not available for file operations",
+                "Path overlaps protected server state (TDLib session data or internal MCP storage)",
             )
         }
     }

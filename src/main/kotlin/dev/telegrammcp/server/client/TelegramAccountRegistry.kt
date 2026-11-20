@@ -1,6 +1,7 @@
 package dev.telegrammcp.server.client
 
 import dev.telegrammcp.server.exception.TelegramUnavailableException
+import dev.telegrammcp.server.service.AccountArtifactOwnership
 import kotlinx.coroutines.asContextElement
 import org.slf4j.LoggerFactory
 import java.lang.reflect.InvocationHandler
@@ -18,7 +19,7 @@ import java.util.concurrent.ConcurrentHashMap
  * Telegram profile name. Each label has its own TDLib database directory and
  * client factory; services never share a TDLib session.
  */
-class TelegramAccountRegistry {
+class TelegramAccountRegistry(private val artifactOwnership: AccountArtifactOwnership? = null) {
 
     private val log = LoggerFactory.getLogger(TelegramAccountRegistry::class.java)
     private val accounts = ConcurrentHashMap<String, AccountHandle>()
@@ -26,6 +27,8 @@ class TelegramAccountRegistry {
     data class AccountHandle(
         val label: String,
         val service: TelegramClientService,
+        /** Supplies the current session's gate when an expected account is configured. */
+        val expectedAccountGate: (() -> TelegramAuthGate)? = null,
         val close: (() -> Unit)? = null,
     )
 
@@ -43,8 +46,18 @@ class TelegramAccountRegistry {
         log.info("Replaced Telegram account '{}'", label)
     }
 
-    fun require(label: String): TelegramClientService =
-        accounts[normalizeLabel(label)]?.service
+    fun require(label: String): TelegramClientService = account(label).service
+
+    internal fun expectedAccountGate(label: String): TelegramAuthGate? {
+        val handle = account(label)
+        val provider = handle.expectedAccountGate
+        if (provider != null) return provider()
+        artifactOwnership?.requireUnbound(handle.label)
+        return null
+    }
+
+    private fun account(label: String): AccountHandle =
+        accounts[normalizeLabel(label)]
             ?: throw TelegramUnavailableException(
                 IllegalArgumentException("Unknown Telegram account '$label'. Available accounts: ${labels().joinToString()}")
             )

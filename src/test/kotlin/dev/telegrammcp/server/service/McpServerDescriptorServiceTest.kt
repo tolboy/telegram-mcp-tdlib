@@ -103,6 +103,26 @@ class McpServerDescriptorServiceTest {
         assertEquals(listOf("get_history"), descriptor.capabilities.toolNames)
     }
 
+    @Test
+    fun `build applies wildcard filters and preserves opt-in downloads in reader mode`() {
+        val security = McpSecurityProperties(
+            toolProfile = McpToolProfile.READER,
+            toolAllow = listOf("download_*", "get_*", "send_*"),
+            toolDeny = listOf("get_user_*"),
+        )
+        val service = McpServerDescriptorService(
+            descriptorProperties = McpDescriptorProperties(),
+            securityProperties = security,
+            accountRegistry = TelegramAccountRegistry(),
+            handlers = listOf("download_media", "get_history", "get_user_photos", "send_message").map(::fakeHandler),
+            serverMode = ServerModeProperties(readOnly = true, readOnlyAllowDownloads = true),
+            toolSurfacePolicy = ToolSurfacePolicy(security),
+            environment = MockEnvironment(),
+        )
+
+        assertEquals(listOf("download_media", "get_history"), service.build("http://localhost:8080").capabilities.toolNames)
+    }
+
     private fun fakeHandler(name: String): McpToolHandler = object : McpToolHandler {
         override fun definition(): McpSchema.Tool = McpSchema.Tool(
             name,

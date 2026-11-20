@@ -5,6 +5,26 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- **Media access checks.** Downloads refuse protected or self-destructing
+  messages and return a path only after TDLib confirms a complete download.
+  Generic file operations also exclude internal MCP stores and daemon state.
+- **Verified ownership of local MCP artifacts.** Expected-account verification
+  also binds the change journal, export jobs and send receipts to the user's
+  live Telegram ID and network. Existing artifacts require an explicit owner
+  assertion. The migration preserves cursors, job IDs and send idempotency keys.
+- **Windows session backups.** `session clear` briefly retries publication of
+  a complete backup after an access denial. Persistent errors preserve the
+  staged session or restore it to its original path.
+- **Signed inline-button clicks are the default.** Use the `button_token` from
+  `list_inline_buttons`. When human approval applies, its prompt shows the
+  resolved chat, message and button. The keyboard is rechecked after approval.
+  Older clients can opt in to deprecated selectors with
+  `MCP_ALLOW_LEGACY_INLINE_BUTTON_SELECTORS=true` during migration.
+- **Operator chat deny-list.** `TELEGRAM_BLOCKED_CHAT_IDS` takes precedence
+  over allow-lists, client grants, and sensitive-chat opt-ins. The policy also
+  applies to existing exports, saved event cursors, and resource notifications.
+  Replacing a folder under a restricted chat scope checks its existing and
+  proposed membership.
 - **`wait_for_settled_messages`: a debounced wait for incoming bursts.** It
   returns once new incoming messages have arrived and the watched chats have
   been quiet for `settle_seconds` (default 5), with per-message `addressed` and
@@ -40,15 +60,17 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 Safety hardening. Review the behaviour changes below before upgrading.
 
 - **Sensitive chats are blocked by default.** Telegram's service chat `777000`
-  (login codes and new-session alerts), `@BotFather` (bot tokens) and
-  `@SpamBot` are refused by every tool and resource and left out of multi-chat
+  (login codes and new-session alerts), Telegram Gateway's chat `489000`
+  (third-party verification codes), `@BotFather` (bot tokens) and
+  `@SpamBot` are refused by chat tools and resources and left out of multi-chat
   results (`list_chats`, `search_global`, unread digests, `changes_since`,
   `wait_for_changes`, resource lists and exports), even with an empty
   `TELEGRAM_ALLOWED_CHAT_IDS` or a `chat_ids: null` grant. Lift the block by
   naming the chat ID in `TELEGRAM_ALLOWED_CHAT_IDS` or a grant's `chat_ids`,
   with `"allow_sensitive_chats": true` on a permission grant, or globally with
   `TELEGRAM_ALLOW_SENSITIVE_CHATS=true`. Existing export jobs for those chats
-  stop resuming until one of these is set.
+  stop resuming until one of these is set. When grants are combined, each
+  grant's sensitive-chat opt-in stays within its own chat scope.
 - **Optional expected-account guard.** Set `TDLIB_EXPECTED_USER_ID` and/or
   `TDLIB_EXPECTED_PHONE_NUMBER` (named accounts:
   `TELEGRAM_ACCOUNTS_<LABEL>_AUTH_EXPECTED_USER_ID` / `_PHONE_NUMBER`). Once

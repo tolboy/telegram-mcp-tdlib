@@ -78,7 +78,7 @@ for chat and message details when classifying addressing.
 | `cursor` | string | Resume point; omit to start at the journal tail (no backlog replay) |
 | `chat_id` | ID or `@username` | Settle one conversation; resolved and authorized before waiting |
 | `settle_seconds` | 0–20 (5) | Quiet time after the last incoming message; 0 returns as soon as one arrives |
-| `timeout_seconds` | 0–30 (25) | Time budget for polling and message lookups. A value of 0 checks the current backlog with up to 250 ms for lookups on its first scan. The tool-call deadline can shorten either budget |
+| `timeout_seconds` | 0–30 (25) | Budget for polling, journal locks and message lookups. A value of 0 checks the durable journal immediately, with up to 250 ms for lookups on the first scan. The tool-call deadline can shorten either budget |
 | `limit` | 1–200 (50) | Most messages per result |
 | `addressed_only` | boolean (false) | Count only messages addressed to the account |
 
@@ -107,8 +107,8 @@ Semantics worth knowing:
 
 - **`settled` requires a complete scan.** The confirming scan starts after
   the quiet window and all addressing lookups. It must reach the end of the
-  journal with the local writer caught up and require no additional lookups.
-  A message observed during classification can therefore extend the burst.
+  journal with no pending writes for that account and require no additional
+  lookups. A message observed during classification can extend the burst.
 - **Quiet time comes from the journal timestamps.** A resumed cursor whose burst
   is already older than `settle_seconds` settles immediately.
 - **A timeout never splits a burst.** If messages are still arriving when the
