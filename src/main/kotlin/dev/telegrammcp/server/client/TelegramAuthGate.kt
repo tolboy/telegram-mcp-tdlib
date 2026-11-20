@@ -29,17 +29,21 @@ class TelegramAuthGate(
 ) {
     private val terminal = CountDownLatch(1)
     private val state = AtomicReference<AuthState>(AuthState.Pending)
+    private val transitionLock = Any()
 
     /** TDLib reached `AuthorizationStateReady`; calls pass through while the session remains ready. */
     fun markReady() {
-        while (true) {
-            val current = state.get()
-            if (current !is AuthState.Pending && current !is AuthState.Verifying) return
-            if (state.compareAndSet(current, AuthState.Ready)) {
-                terminal.countDown()
-                return
-            }
-        }
+        markReady {}
+    }
+
+    /** Runs nonblocking activation before opening the gate, only if the session has not failed. */
+    internal fun markReady(activate: () -> Unit): Boolean = synchronized(transitionLock) {
+        val current = state.get()
+        if (current !is AuthState.Pending && current !is AuthState.Verifying) return@synchronized false
+        activate()
+        state.set(AuthState.Ready)
+        terminal.countDown()
+        true
     }
 
     /**
@@ -61,13 +65,10 @@ class TelegramAuthGate(
      * TDLib client.
      */
     fun markFailed(reason: String) {
-        while (true) {
-            val current = state.get()
-            if (current is AuthState.Failed) return
-            if (state.compareAndSet(current, AuthState.Failed(reason))) {
-                terminal.countDown()
-                return
-            }
+        synchronized(transitionLock) {
+            if (state.get() is AuthState.Failed) return
+            state.set(AuthState.Failed(reason))
+            terminal.countDown()
         }
     }
 

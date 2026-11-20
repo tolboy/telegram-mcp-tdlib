@@ -118,6 +118,38 @@ class ChangeJournalScanTest {
         assertTrue(scan.writerCaughtUp)
     }
 
+    @Test fun `a scan reports a pending update enqueued after the writer flush`() {
+        val journal = journal()
+        val cursor = journal.tailCursor("default")
+        journal.append("default", "new", 42, 1)
+
+        val scan = assertNotNull(journal.scan("default", cursor, 10, {
+            journal.append("default", "new", 42, 2)
+            true
+        }))
+
+        assertEquals(listOf(1L), scan.entries.map { it.messageId })
+        assertFalse(scan.hasMore)
+        assertFalse(scan.writerCaughtUp)
+        val followUp = assertNotNull(journal.scan("default", scan.nextCursor, 10, { true }))
+        assertEquals(listOf(2L), followUp.entries.map { it.messageId })
+        assertTrue(followUp.writerCaughtUp)
+    }
+
+    @Test fun `a pending update on another account does not keep the scan open`() {
+        val journal = journal()
+        val cursor = journal.tailCursor("default")
+        journal.append("default", "new", 42, 1)
+
+        val scan = assertNotNull(journal.scan("default", cursor, 10, {
+            journal.append("another", "new", 42, 2)
+            true
+        }))
+
+        assertEquals(listOf(1L), scan.entries.map { it.messageId })
+        assertTrue(scan.writerCaughtUp)
+    }
+
     @Test fun `a replaced journal with the same file size resets a warm reader`() {
         val reader = journal()
         val oldCursor = reader.tailCursor("default")

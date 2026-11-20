@@ -250,8 +250,13 @@ class TdLibConfig(
                 config.label, config.expectedAccount, config.databaseDirectory,
                 budget = ExpectedAccountCheck.budgetFor(config.authReadyTimeout),
             )
+            val readyHandled = AtomicBoolean()
             builder.addUpdateHandler(TdApi.UpdateAuthorizationState::class.java) { update ->
-                handleAuthState(config.label, update, authGate) { onSessionReady(config, authGate, clientRef, accountCheck, journal) }
+                handleAuthState(config.label, update, authGate) {
+                    if (readyHandled.compareAndSet(false, true)) {
+                        onSessionReady(config, authGate, clientRef, accountCheck, journal)
+                    }
+                }
                 if (update.authorizationState is TdApi.AuthorizationStateClosed) messageSendTracker.close()
             }
             builder.addUpdateHandler(TdApi.UpdateChatFolders::class.java) { update ->
@@ -410,14 +415,17 @@ class TdLibConfig(
             getMe = { clientRef.thenCompose { it.send(TdApi.GetMe()) } },
             onAccepted = accepted@{ record ->
                 try {
-                    record.actualUserId?.let { artifactOwnership.bind(label, it, config.useTestDc, config.legacyArtifactOwnerUserId) }
+                    if (record.result == AccountCheckResult.MATCH) {
+                        val userId = record.actualUserId
+                            ?: throw TdLibAuthException("Telegram account '$label' did not return a verified user ID")
+                        artifactOwnership.bind(label, userId, config.useTestDc, config.legacyArtifactOwnerUserId)
+                    }
                 } catch (failure: TdLibAuthException) {
                     authGate.markFailed(failure.message)
                     accountCheck.recordArtifactRefusal(record, failure.message)
                     return@accepted
                 }
-                journal?.activate()
-                authGate.markReady()
+                if (!authGate.markReady { journal?.activate() }) return@accepted
                 clientRef.thenAccept { client ->
                     SensitiveChatDiscovery.discover(label) { username -> client.send(TdApi.SearchPublicChat(username)) }
                 }
