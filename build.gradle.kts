@@ -99,7 +99,7 @@ val tdlightVersion = "3.5.9+td.1.8.68"
 val resilience4jVersion = "2.4.0"
 val caffeineVersion = "3.3.1"
 val logstashVersion = "9.0"
-val mockkVersion = "1.14.11"
+val mockkVersion = "1.14.12"
 
 dependencies {
     constraints {
