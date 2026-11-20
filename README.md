@@ -744,6 +744,17 @@ The full inventory is grouped below. In practice you start with a
 <details>
 <summary><b>Show all 127 tools</b></summary>
 
+### Inbox, Changes & Exports (6 tools)
+
+| Tool | Description |
+|------|-------------|
+| `inbox_snapshot` | Bounded unread inbox with a JSON character budget |
+| `conversation_bundle` | Compact conversation page with an exclusive older-than cursor |
+| `changes_since` | Persistent observed message changes, with explicit coverage gaps |
+| `wait_for_changes` | Wait for observed message changes using a resumable cursor and optional chat filter |
+| `wait_for_settled_messages` | Wait until new incoming messages stop arriving, with addressing flags and catch-up markers |
+| `export_job` | Start, resume, inspect, read, cancel and delete durable history exports |
+
 ### Messages (35 tools)
 
 | Tool | Description |

@@ -8,6 +8,7 @@ import org.springframework.test.context.ActiveProfiles
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
@@ -27,7 +28,10 @@ class ReadmeToolInventorySyncTest {
     @Test
     fun `README tool tables match the registered tool inventory`() {
         val registered = handlers.map { it.definition().name() }.toSet()
-        val documented = readmeDocumentedTools()
+        val section = Files.readString(locateReadme())
+            .substringAfter("## Available MCP Tools")
+            .substringBefore("\n## ")
+        val documented = toolRows(section).toSet()
 
         val undocumented = registered - documented
         val stale = documented - registered
@@ -40,15 +44,22 @@ class ReadmeToolInventorySyncTest {
             stale.isEmpty(),
             "Tools documented in README but not registered in code: ${stale.sorted()}",
         )
+        val inventory = section.substringAfter("<details>").substringBefore("</details>")
+        val summary = requireNotNull(Regex("""Show all (\d+) tools""").find(inventory))
+        assertEquals(registered.size, summary.groupValues[1].toInt(), "Full inventory summary count")
+        assertEquals(registered.size, toolRows(inventory).size, "Full inventory table row count")
+        assertEquals(registered, toolRows(inventory).toSet(), "Full inventory tables")
+        val heading = Regex("""^### .* \((\d+) tools?\)\s*$""")
+        for (group in inventory.split("\n### ").drop(1)) {
+            val title = group.lineSequence().first()
+            val expected = requireNotNull(heading.matchEntire("### $title")) { "Missing count in $title" }
+            assertEquals(expected.groupValues[1].toInt(), toolRows(group).size, title)
+        }
     }
 
-    private fun readmeDocumentedTools(): Set<String> {
-        val readme = Files.readString(locateReadme())
-        val toolsSection = readme
-            .substringAfter("## Available MCP Tools")
-            .substringBefore("\n## ")
+    private fun toolRows(section: String): List<String> {
         val rowPattern = Regex("""^\|\s*`([a-z_][a-z0-9_]*)`\s*\|""", RegexOption.MULTILINE)
-        return rowPattern.findAll(toolsSection).map { it.groupValues[1] }.toSet()
+        return rowPattern.findAll(section).map { it.groupValues[1] }.toList()
     }
 
     /**
