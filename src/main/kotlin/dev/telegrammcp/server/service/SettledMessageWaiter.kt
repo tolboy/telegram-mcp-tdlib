@@ -102,7 +102,7 @@ class SettledMessageWaiter(
         }
 
     private class Lookup(val facts: Map<Pair<Long, Long>, MessageAddressing>, val failedChats: Set<Long>,
-        val exhausted: Boolean)
+        val exhausted: Boolean, val performed: Boolean)
 
     private fun run(account: String, request: SettleRequest, allowed: (Long) -> Boolean): SettledWaitResult {
         val started = System.nanoTime()
@@ -163,7 +163,6 @@ class SettledMessageWaiter(
             firstScan = false
             // Out of time before this page was classified: resume before it (and before any burst).
             if (lookup.exhausted) return result("timed_out", hasMore = true)
-            val before = burst.size
             for (entry in scan.entries) {
                 val chatId = entry.chatId
                 val facts = if (entry.kind == "new") lookup.facts[chatId to entry.messageId] else null
@@ -186,9 +185,9 @@ class SettledMessageWaiter(
                 return result("timed_out", hasMore = true)
             }
             val last = burst.lastOrNull()?.let { Instant.parse(it.entry.observedAt) }
-            // Settled only from a complete look: the whole tail was scanned, it added nothing to the
-            // burst, and the scan began after the quiet window had already elapsed.
-            if (last != null && burst.size == before && Duration.between(last, scanStarted) >= request.settle) {
+            // Confirm after the quiet window and all lookups. Updates can arrive while
+            // TDLib classifies even a page whose candidates turn out to be unrelated.
+            if (last != null && !lookup.performed && Duration.between(last, scanStarted) >= request.settle) {
                 return result("settled")
             }
             val untilSettled = last?.let { request.settle.toNanos() - Duration.between(it, clock.instant()).toNanos() }
@@ -221,19 +220,19 @@ class SettledMessageWaiter(
     private fun lookUp(entries: List<ChangeEntry>, budgetNanos: Long): Lookup {
         val byChat = entries.filter { it.kind == "new" && it.chatId != null && it.messageId != null }
             .groupBy({ it.chatId!! }, { it.messageId!! })
-        if (byChat.isEmpty()) return Lookup(emptyMap(), emptySet(), false)
+        if (byChat.isEmpty()) return Lookup(emptyMap(), emptySet(), exhausted = false, performed = false)
         val deadline = System.nanoTime() + budgetNanos
         val facts = HashMap<Pair<Long, Long>, MessageAddressing>()
         val failed = HashSet<Long>()
         for ((chatId, ids) in byChat) {
             val left = deadline - System.nanoTime()
-            if (left <= 0) return Lookup(facts, failed, true)
+            if (left <= 0) return Lookup(facts, failed, exhausted = true, performed = true)
             try {
                 ToolCallDeadline.capped(Duration.ofNanos(left)) { client.getMessageAddressing(chatId, ids.distinct()) }
                     .forEach { facts[it.chatId to it.messageId] = it }
             } catch (timeout: TelegramTimeoutException) {
                 if (timeout.reason == TelegramTimeoutException.Reason.LOCAL_CANCEL) throw timeout
-                return Lookup(facts, failed, true)
+                return Lookup(facts, failed, exhausted = true, performed = true)
             } catch (error: TelegramApiException) {
                 if (error.kind !in CHAT_SPECIFIC_FAILURES) throw error
                 log.warn("Skipping {} new message(s) in chat {}: lookup failed ({})", ids.size, chatId, error.kind)
@@ -245,7 +244,7 @@ class SettledMessageWaiter(
             // Anything else (a closed or stopped client, an unavailable account, flood wait, server errors)
             // is not about this chat: it fails the call and leaves the cursor where it was.
         }
-        return Lookup(facts, failed, false)
+        return Lookup(facts, failed, exhausted = false, performed = true)
     }
 
     /** The cursor just before [sequence], in the same journal as [cursor]. */

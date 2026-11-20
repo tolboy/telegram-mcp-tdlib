@@ -1,9 +1,10 @@
 # Compact tasks, persistent exports and changes
 
-All five tools use the usual account selection, read permission, chat restrictions,
-typed result envelope and untrusted-content normalization. None sends messages,
-marks them read or downloads media. `reader` exposes all five; `inbox` exposes
-the four compact tools; `research` exposes conversation, changes, waiting and export.
+All six tools use the usual account selection, read permission, chat restrictions,
+typed result envelope and untrusted-content normalization. They leave messages,
+read receipts and media downloads untouched. `reader` exposes all six. `inbox`
+exposes the five compact read and wait tools. `research` exposes conversation,
+changes, both waits and export.
 
 ## Compact reads
 
@@ -63,7 +64,8 @@ shutdown and interruption cancel waits and release their permits.
 returns once new incoming messages have arrived and then the watched chats have
 been quiet for `settle_seconds`, so a person who sends several messages in a row
 wakes the agent once, after they finish. It reads the same journal and cursor
-as `changes_since` and `wait_for_changes`, sends nothing and marks nothing read.
+as `changes_since` and `wait_for_changes` and can make read-only TDLib requests
+for chat and message details when classifying addressing.
 
 ```json
 {"chat_id":"@example","settle_seconds":5,"timeout_seconds":25}
@@ -76,7 +78,7 @@ as `changes_since` and `wait_for_changes`, sends nothing and marks nothing read.
 | `cursor` | string | Resume point; omit to start at the journal tail (no backlog replay) |
 | `chat_id` | ID or `@username` | Settle one conversation; resolved and authorized before waiting |
 | `settle_seconds` | 0–20 (5) | Quiet time after the last incoming message; 0 returns as soon as one arrives |
-| `timeout_seconds` | 0–30 (25) | Wait budget for journal locks and message lookups, capped by the tool-call deadline. 0 checks the durable journal immediately and allows one lookup budget of up to 250 ms |
+| `timeout_seconds` | 0–30 (25) | Budget for polling, journal locks and message lookups. A value of 0 checks the durable journal immediately, with up to 250 ms for lookups on the first scan. The tool-call deadline can shorten either budget |
 | `limit` | 1–200 (50) | Most messages per result |
 | `addressed_only` | boolean (false) | Count only messages addressed to the account |
 
@@ -103,11 +105,10 @@ not see are never looked up.
 
 Semantics worth knowing:
 
-- **`settled` always comes from a complete look.** Before returning it, the
-  wait scans the journal again from the current position. That scan must reach
-  the end, cover updates that were queued at its start, add nothing to the
-  burst, and start after the quiet window elapsed. A message that arrives
-  during earlier lookups joins the burst.
+- **`settled` requires a complete scan.** The confirming scan starts after
+  the quiet window and all addressing lookups. It must reach the end of the
+  journal with no pending writes for that account and require no additional
+  lookups. A message observed during classification can extend the burst.
 - **Quiet time comes from the journal timestamps.** A resumed cursor whose burst
   is already older than `settle_seconds` settles immediately.
 - **A timeout never splits a burst.** If messages are still arriving when the
@@ -138,6 +139,9 @@ Semantics worth knowing:
   earlier pages. Entries in the same page as the marker are not looked up (they
   are counted as `behind_gap`); the catch-up from history covers them. Causes are known for markers written by the running
   process; markers from another process or an earlier run report `unknown`.
+- **Cursors belong to their account and filters.** Keep them separate when
+  following multiple accounts. A well-formed cursor with a different journal
+  epoch reports `journal_replaced` and resumes at the current journal's tail.
 
 For a live regression against an authorized account, install
 `scripts/requirements-mcp-client.txt` and `jsonschema`, then run:

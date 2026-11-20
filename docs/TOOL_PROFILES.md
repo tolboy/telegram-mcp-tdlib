@@ -6,8 +6,9 @@ requires a restart so the MCP client receives a consistent `tools/list` result.
 The default is `reader`; selecting `all` is always explicit.
 
 `wait_for_changes` and `wait_for_settled_messages` are available in every
-profile, including read-only mode. They wait on the local account journal, apply
-the caller's chat scope and do not send Telegram requests while waiting. See
+profile, including read-only mode. Both wait on the local account journal and
+apply the caller's chat scope. The settled wait can make read-only TDLib
+requests to classify message addressing. See
 [cursor and timeout semantics](TASKS_AND_EXPORTS.md#wait-for-changes) and
 [settled bursts](TASKS_AND_EXPORTS.md#wait-for-a-settled-burst).
 
