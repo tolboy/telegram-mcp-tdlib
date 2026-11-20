@@ -47,9 +47,11 @@ internal data class ChangeJournalHeader(val format: Int, val epoch: String)
  * `retention` (the cursor is older than the retained window), `journal_replaced`
  * (the cursor belongs to a deleted or recreated journal) and `unknown` (a marker
  * written by another process or an earlier run, whose cause this process cannot see).
+ * [writerCaughtUp] records whether the local writer had any updates left to process
+ * when the scan finished reading the durable log.
  */
 data class JournalScan(val entries: List<ChangeEntry>, val nextCursor: String, val hasMore: Boolean,
-    val gapReasons: List<String>) {
+    val gapReasons: List<String>, val writerCaughtUp: Boolean) {
     val gap: Boolean get() = gapReasons.isNotEmpty()
     /** The session or journal started over, so anything in flight before it may be missing. */
     val reset: Boolean get() = gapReasons.any { it in ChangeJournal.RESET_REASONS }
@@ -106,6 +108,8 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
     private val lineWriter = mapper.writer().without(SerializationFeature.INDENT_OUTPUT)
     private val queue = ArrayBlockingQueue<Observed>(queueCapacity)
     private val enqueued = AtomicLong()
+    // Reserve before offering so a scan can see updates even while the writer drains the queue.
+    private val pending = AtomicLong()
     private val overflowed: MutableSet<String> = ConcurrentHashMap.newKeySet()
     private val writerStarted = AtomicBoolean()
     @Volatile private var writer: Thread? = null
@@ -130,8 +134,13 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
     private fun enqueue(account: String, kind: String, chatId: Long?, messageId: Long?, reason: String?) {
         if (closed) return
         val label = TelegramAccountRegistry.normalizeLabel(account)
+        pending.incrementAndGet()
         if (queue.offer(Observed(label, kind, chatId, messageId, Instant.now(), reason))) enqueued.incrementAndGet()
-        else { overflowed += label; if (listeners.isNotEmpty()) listenerGaps += label }
+        else {
+            overflowed += label
+            if (listeners.isNotEmpty()) listenerGaps += label
+            pending.decrementAndGet()
+        }
         if (writerStarted.compareAndSet(false, true)) {
             writer = Thread(::drain, "telegram-change-journal").apply { isDaemon = true; start() }
         }
@@ -160,7 +169,7 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
     /**
      * Like [page], but reports why coverage broke, and treats a cursor from a
      * replaced journal as a reset at the current tail instead of an error.
-     * Malformed or future cursors are still rejected.
+     * Rejects malformed cursors and future positions in the current journal.
      */
     fun scan(account: String, cursor: String, limit: Int, allowed: (Long) -> Boolean,
         writerBudgetNanos: Long = TimeUnit.SECONDS.toNanos(2)): JournalScan {
@@ -243,9 +252,12 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
         replacedIsReset: Boolean): JournalScan =
         withLog(label) { journal ->
             val parts = cursor?.split(":")
-            if (replacedIsReset && parts != null && parts.size == 2 && parts[0] != journal.epoch &&
-                runCatching { UUID.fromString(parts[0]) }.isSuccess) {
-                return@withLog JournalScan(emptyList(), "${journal.epoch}:${journal.sequence}", false, listOf(REASON_JOURNAL_REPLACED))
+            if (replacedIsReset && parts != null && parts.size == 2 && parts[0] != journal.epoch) {
+                val validEpoch = runCatching { UUID.fromString(parts[0]).toString().equals(parts[0], ignoreCase = true) }
+                    .getOrDefault(false)
+                require(validEpoch && parts[1].toLongOrNull()?.let { it >= 0 } == true) { "Invalid change cursor" }
+                return@withLog JournalScan(emptyList(), "${journal.epoch}:${journal.sequence}", false,
+                    listOf(REASON_JOURNAL_REPLACED), pending.get() == 0L)
             }
             require(parts == null || (parts.size == 2 && parts[0] == journal.epoch)) { "Cursor belongs to a different journal; restart without cursor" }
             val after = if (parts == null) 0L else requireNotNull(parts[1].toLongOrNull()) { "Invalid change cursor" }
@@ -261,7 +273,7 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
             JournalScan(scanned.filter { it.chatId == null || allowed(it.chatId) },
                 "${journal.epoch}:${scanned.lastOrNull()?.sequence ?: journal.sequence}",
                 scanned.lastOrNull()?.sequence?.let { it < journal.sequence } ?: false,
-                reasons.toList())
+                reasons.toList(), pending.get() == 0L)
         }
 
     /**
@@ -377,7 +389,10 @@ class ChangeJournal(private val paths: PlatformPaths, private val mapper: Object
             queue.drainTo(batch, MAX_BATCH - 1)
             lock.withLock {
                 try { batch.groupBy { it.account }.forEach { (account, items) -> persist(account, items) } }
-                finally { handled += batch.size }
+                finally {
+                    handled += batch.size
+                    pending.addAndGet(-batch.size.toLong())
+                }
             }
             dispatch(batch)
             batch.clear()

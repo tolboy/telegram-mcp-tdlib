@@ -337,6 +337,30 @@ class SettledMessageWaiterTest {
         assertEquals(listOf(1L, 2L), whole.messages.map { it.messageId })
     }
 
+    @Test fun `a confirming page with an outgoing lookup cannot hide a new incoming message`() {
+        val journal = journal()
+        val waiter = SettledMessageWaiter(journal, client)
+        val cursor = journal.tailCursor("default")
+        journal.message(42, 1)
+        journal.tailCursor("default")
+        every { client.getMessageAddressing(42, listOf(1L)) } answers {
+            journal.message(42, 2, outgoing = true)
+            journal.tailCursor("default")
+            listOf(facts.getValue(42L to 1L))
+        }
+        every { client.getMessageAddressing(42, listOf(2L)) } answers {
+            journal.message(42, 3)
+            journal.tailCursor("default")
+            listOf(facts.getValue(42L to 2L))
+        }
+
+        val result = waiter.await("default", request(cursor, settleMillis = 0)) { true }
+
+        assertEquals("settled", result.status)
+        assertEquals(listOf(1L, 3L), result.messages.map { it.messageId })
+        assertEquals(listOf(SkippedChanges(SettledMessageWaiter.SKIP_OUTGOING, 1)), result.skippedReasons)
+    }
+
     @Test fun `an already quiet backlog still settles with a zero timeout after one confirming scan`() {
         val journal = journal()
         val waiter = SettledMessageWaiter(journal, client)
@@ -461,8 +485,10 @@ class SettledMessageWaiterTest {
     @Test fun `the zero-timeout lookup floor never reaches past the tool-call deadline`() {
         val journal = journal()
         val waiter = SettledMessageWaiter(journal, client)
-        assertEquals(SettledMessageWaiter.MIN_LOOKUP_NANOS, waiter.lookupBudget(0))
-        assertEquals(TimeUnit.SECONDS.toNanos(3), waiter.lookupBudget(TimeUnit.SECONDS.toNanos(3)))
+        assertEquals(SettledMessageWaiter.MIN_LOOKUP_NANOS, waiter.lookupBudget(0, immediatePoll = true))
+        assertEquals(0L, waiter.lookupBudget(0, immediatePoll = false))
+        assertEquals(TimeUnit.MILLISECONDS.toNanos(10),
+            waiter.lookupBudget(TimeUnit.MILLISECONDS.toNanos(10), immediatePoll = false))
         val cursor = journal.tailCursor("default")
         journal.message(42, 1)
         journal.tailCursor("default")
@@ -475,7 +501,7 @@ class SettledMessageWaiterTest {
         }
         val started = System.nanoTime()
         val result = ToolCallDeadline.run(Duration.ofMillis(150)) {
-            assertTrue(waiter.lookupBudget(0) <= TimeUnit.MILLISECONDS.toNanos(100))
+            assertTrue(waiter.lookupBudget(0, immediatePoll = true) <= TimeUnit.MILLISECONDS.toNanos(100))
             waiter.await("default", request(cursor, settleMillis = 0, timeoutSeconds = 0)) { true }
         }
         val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)

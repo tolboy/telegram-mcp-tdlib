@@ -91,9 +91,27 @@ class ChangeJournalScanTest {
         assertFailsWith<IllegalArgumentException> { fresh.page("default", old, 10) { true } }
         // Malformed and future cursors are still errors, never a silent reset.
         val epoch = scan.nextCursor.substringBefore(':')
-        for (bad in listOf("nonsense", ":5", "not-an-epoch:1", "$epoch:999", "$epoch:x")) {
+        val oldEpoch = old.substringBefore(':')
+        for (bad in listOf("nonsense", ":5", "not-an-epoch:1", "1-1-1-1-1:0", "$epoch:999",
+            "$epoch:x", "$oldEpoch:x", "$oldEpoch:-1")) {
             assertFailsWith<IllegalArgumentException>(bad) { fresh.scan("default", bad, 10, { true }) }
         }
+    }
+
+    @Test fun `a scan reports a pending update enqueued after the writer flush`() {
+        val journal = journal()
+        val cursor = journal.tailCursor("default")
+        journal.append("default", "new", 42, 1)
+        journal.tailCursor("default")
+        val scan = journal.scan("default", cursor, 200, {
+            journal.append("default", "new", 42, 2)
+            true
+        })
+        assertEquals(listOf(1L), scan.entries.map { it.messageId })
+        assertFalse(scan.writerCaughtUp)
+        val next = journal.scan("default", scan.nextCursor, 200, { true })
+        assertEquals(listOf(2L), next.entries.map { it.messageId })
+        assertTrue(next.writerCaughtUp)
     }
 
     @Test fun `a cursor older than the retained window reports retention`() {
