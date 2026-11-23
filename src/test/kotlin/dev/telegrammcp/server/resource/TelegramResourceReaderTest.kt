@@ -27,12 +27,12 @@ class TelegramResourceReaderTest {
 
     private fun reader(vararg tools: String) = TelegramResourceReader({ name ->
         if (name !in tools) null else SyncToolSpecification.builder()
-            .tool(McpSchema.Tool.builder().name(name).inputSchema(McpSchema.JsonSchema("object", emptyMap(), emptyList(), false, null, null)).build())
+            .tool(McpSchema.Tool.builder(name, mapOf("type" to "object", "properties" to emptyMap<String, Any>(), "required" to emptyList<String>(), "additionalProperties" to false)).build())
             .callHandler { _, request -> calls += request; result }.build()
     }, mapper)
 
     private fun read(reader: TelegramResourceReader, uri: String) =
-        reader.read(mockk<McpSyncServerExchange>(), McpSchema.ReadResourceRequest(uri))
+        reader.read(mockk<McpSyncServerExchange>(), McpSchema.ReadResourceRequest.builder(uri).build())
 
     @Test fun `chat resource calls the backing tool with the account and returns its envelope`() {
         result = success(mapOf("chatId" to 42, "messages" to listOf(mapOf("messageId" to 7, "text" to "hi"))))

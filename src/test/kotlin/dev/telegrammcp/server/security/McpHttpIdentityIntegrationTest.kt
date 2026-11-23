@@ -65,7 +65,7 @@ class McpHttpIdentityIntegrationTest {
             assertTrue("get_history" in names)
             assertFalse("send_message" in names, "A mutate grant outside the key's account scope must not advertise writes")
             fun probe(client: io.modelcontextprotocol.client.McpSyncClient, account: String): McpSchema.CallToolResult =
-                client.callTool(McpSchema.CallToolRequest("identity_probe", mapOf("account" to account)))
+                client.callTool(McpSchema.CallToolRequest.builder("identity_probe").arguments(mapOf("account" to account)).build())
             fun identity(result: McpSchema.CallToolResult): List<String> {
                 assertFalse(result.isError() == true)
                 val text = (result.content().first() as McpSchema.TextContent).text()
@@ -173,10 +173,10 @@ class McpHttpIdentityIntegrationTest {
             }
         }
         @Bean fun identityProbe(accountContext: TelegramAccountContext): McpToolHandler = object : McpToolHandler {
-            override fun definition(): McpSchema.Tool = McpSchema.Tool.builder().name("identity_probe")
+            override fun definition(): McpSchema.Tool = McpSchema.Tool.builder("identity_probe", mapOf("type" to "object", "properties" to mapOf("account" to mapOf("type" to "string",
+                    "enum" to listOf("default", "personal"))), "required" to emptyList<String>(), "additionalProperties" to false))
                 .description("Tests server-validated HTTP identity")
-                .inputSchema(McpSchema.JsonSchema("object", mapOf("account" to mapOf("type" to "string",
-                    "enum" to listOf("default", "personal"))), emptyList(), false, emptyMap(), emptyMap())).build()
+                .build()
             override fun execute(exchange: McpSyncServerExchange, arguments: Map<String, Any>): McpSchema.CallToolResult {
                 val account = accountContext.currentAccount()
                 return McpSchema.CallToolResult.builder().addTextContent(jacksonObjectMapper().writeValueAsString(mapOf(

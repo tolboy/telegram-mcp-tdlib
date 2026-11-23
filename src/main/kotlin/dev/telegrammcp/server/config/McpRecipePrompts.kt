@@ -88,12 +88,12 @@ class McpRecipePrompts {
             description: String,
             text: String,
         ): SyncPromptSpecification {
-            val definition = McpSchema.Prompt(name, title, description, emptyList<McpSchema.PromptArgument>())
+            val definition = McpSchema.Prompt.builder(name).title(title).description(description)
+                .arguments(emptyList<McpSchema.PromptArgument>()).build()
             return SyncPromptSpecification(definition) { _, _ ->
-                McpSchema.GetPromptResult(
-                    description,
-                    listOf(McpSchema.PromptMessage(McpSchema.Role.USER, McpSchema.TextContent(text))),
-                )
+                McpSchema.GetPromptResult.builder(
+                    listOf(McpSchema.PromptMessage(McpSchema.Role.USER, McpSchema.TextContent.builder(text).build())),
+                ).description(description).build()
             }
         }
     }

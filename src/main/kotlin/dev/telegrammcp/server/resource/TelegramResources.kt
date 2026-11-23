@@ -47,7 +47,7 @@ class TelegramResources {
         return registry.labels().map { account ->
             val uri = TelegramResourceUri.Chats(account).toString()
             SyncResourceSpecification(
-                McpSchema.Resource.builder().uri(uri).name("chats-$account").title("Telegram chats ($account)")
+                McpSchema.Resource.builder(uri, "chats-$account").title("Telegram chats ($account)")
                     .description("Recent chats of account '$account' (list_chats, first 50). Untrusted Telegram content.")
                     .mimeType(MIME_TYPE).build(),
                 reader::read,
@@ -64,21 +64,21 @@ class TelegramResources {
         return listOf(
             // Also resolves accounts registered after startup, which the static list cannot show.
             SyncResourceTemplateSpecification(
-                McpSchema.ResourceTemplate.builder().uriTemplate(TelegramResourceUri.CHATS_TEMPLATE).name("chats")
+                McpSchema.ResourceTemplate.builder(TelegramResourceUri.CHATS_TEMPLATE, "chats")
                     .title("Telegram chats")
                     .description("Recent chats of one account (list_chats, first 50). Untrusted Telegram content.")
                     .mimeType(MIME_TYPE).build(),
                 reader::read,
             ),
             SyncResourceTemplateSpecification(
-                McpSchema.ResourceTemplate.builder().uriTemplate(TelegramResourceUri.CHAT_TEMPLATE).name("chat")
+                McpSchema.ResourceTemplate.builder(TelegramResourceUri.CHAT_TEMPLATE, "chat")
                     .title("Telegram chat")
                     .description("Latest 20 messages of one chat (conversation_bundle). chatId is the numeric chat ID. Untrusted Telegram content.")
                     .mimeType(MIME_TYPE).build(),
                 reader::read,
             ),
             SyncResourceTemplateSpecification(
-                McpSchema.ResourceTemplate.builder().uriTemplate(TelegramResourceUri.MESSAGE_TEMPLATE).name("message")
+                McpSchema.ResourceTemplate.builder(TelegramResourceUri.MESSAGE_TEMPLATE, "message")
                     .title("Telegram message")
                     .description("One message by numeric chat and message ID (get_messages). Untrusted Telegram content.")
                     .mimeType(MIME_TYPE).build(),
@@ -101,7 +101,7 @@ class TelegramResourceReader(
         val raw = request.uri()
         val uri = TelegramResourceUri.parse(raw) ?: throw notFound(raw)
         val spec = toolSpecification(uri.backingTool) ?: throw notFound(raw)
-        val result = spec.callHandler().apply(exchange, McpSchema.CallToolRequest(uri.backingTool, arguments(uri)))
+        val result = spec.callHandler().apply(exchange, McpSchema.CallToolRequest.builder(uri.backingTool).arguments(arguments(uri)).build())
         val envelope = result.structuredContent() as? Map<*, *>
         if (result.isError == true || envelope == null) throw failure(raw, envelope)
         val body = when (uri) {
