@@ -5,6 +5,11 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- Dependency upgrade: tdlight=3.5.9+td.1.8.68 mcp-sdk=2.2.0. The server stays on
+  the legacy (2025-era) MCP server API, which 2.2.0 leaves unchanged; the new
+  2026-07-28 stateless API is not used. The compile produces no new deprecation
+  warnings, and Reactor stays on the Spring Boot managed 3.8.x line.
+
 ## 1.21.0 - 2026-11-20
 
 Adds a read-only wait for incoming message bursts and stronger account and chat
