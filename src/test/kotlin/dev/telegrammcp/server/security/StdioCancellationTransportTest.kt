@@ -46,10 +46,8 @@ class StdioCancellationTransportTest {
             .capabilities(McpSchema.ServerCapabilities.builder().tools(false).build())
             .immediateExecution(false)
             .toolCall(
-                McpSchema.Tool.builder()
-                    .name("block")
+                McpSchema.Tool.builder("block", mapOf("type" to "object", "properties" to emptyMap<String, Any>(), "required" to emptyList<String>(), "additionalProperties" to false))
                     .description("blocks until the local wait is cancelled")
-                    .inputSchema(McpSchema.JsonSchema("object", emptyMap(), emptyList(), false, emptyMap(), emptyMap()))
                     .build(),
             ) { _, _ ->
                 val call = calls.incrementAndGet()

@@ -156,9 +156,7 @@ class McpConfigDeadlineTest {
         )
     }
 
-    private fun tool(name: String): McpSchema.Tool = McpSchema.Tool.builder()
-        .name(name)
+    private fun tool(name: String): McpSchema.Tool = McpSchema.Tool.builder(name, mapOf("type" to "object", "properties" to emptyMap<String, Any>(), "required" to emptyList<String>(), "additionalProperties" to false))
         .description("test handler")
-        .inputSchema(McpSchema.JsonSchema("object", emptyMap(), emptyList(), false, emptyMap(), emptyMap()))
         .build()
 }

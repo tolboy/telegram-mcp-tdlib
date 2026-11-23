@@ -31,6 +31,6 @@ class DependencyUpgradeGateTest {
 
     private companion object {
         const val TDLIGHT = "3.5.9+td.1.8.68"
-        const val MCP_SDK = "2.1.0"
+        const val MCP_SDK = "2.2.0"
     }
 }

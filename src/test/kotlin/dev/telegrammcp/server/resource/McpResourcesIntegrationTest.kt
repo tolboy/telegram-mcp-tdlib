@@ -89,24 +89,24 @@ class McpResourcesIntegrationTest {
             assertEquals(setOf(TelegramResourceUri.CHATS_TEMPLATE, TelegramResourceUri.CHAT_TEMPLATE, TelegramResourceUri.MESSAGE_TEMPLATE),
                 scoped.listResourceTemplates().resourceTemplates().map { it.uriTemplate() }.toSet())
 
-            val chat = text(scoped.readResource(McpSchema.ReadResourceRequest("telegram://personal/chat/42")))
+            val chat = text(scoped.readResource(McpSchema.ReadResourceRequest.builder("telegram://personal/chat/42").build()))
             assertEquals("application/json", chat.mimeType())
             assertEquals(true, chat.meta()["io.github.tolboy/untrusted-content"])
             val bundle = mapper.readTree(chat.text())
             assertEquals(listOf(8, 7, 6), bundle.path("data").path("messages").map { it.path("messageId").asInt() })
 
-            val single = mapper.readTree(text(scoped.readResource(McpSchema.ReadResourceRequest("telegram://personal/chat/42/message/7"))).text())
+            val single = mapper.readTree(text(scoped.readResource(McpSchema.ReadResourceRequest.builder("telegram://personal/chat/42/message/7").build())).text())
             assertEquals(7, single.path("data").path("messageId").asInt())
             assertEquals("text 7", single.path("data").path("text").asText())
 
-            val chats = mapper.readTree(text(owner.readResource(McpSchema.ReadResourceRequest("telegram://personal/chats"))).text())
+            val chats = mapper.readTree(text(owner.readResource(McpSchema.ReadResourceRequest.builder("telegram://personal/chats").build())).text())
             assertEquals(listOf(42, 43), chats.path("data").map { it.path("chatId").asInt() })
-            val scopedChats = mapper.readTree(text(scoped.readResource(McpSchema.ReadResourceRequest("telegram://personal/chats"))).text())
+            val scopedChats = mapper.readTree(text(scoped.readResource(McpSchema.ReadResourceRequest.builder("telegram://personal/chats").build())).text())
             assertEquals(listOf(42), scopedChats.path("data").map { it.path("chatId").asInt() }, "chat-scoped grants filter the chat list")
 
             val denied = listOf("telegram://personal/chat/43", "telegram://personal/chat/43/message/7",
                 "telegram://default/chats", "telegram://personal/chat/042").map { uri ->
-                assertThrows<McpError> { scoped.readResource(McpSchema.ReadResourceRequest(uri)) }.jsonRpcError
+                assertThrows<McpError> { scoped.readResource(McpSchema.ReadResourceRequest.builder(uri).build()) }.jsonRpcError
             }
             assertEquals(setOf(McpSchema.ErrorCodes.RESOURCE_NOT_FOUND), denied.map { it.code() }.toSet())
             assertEquals(1, denied.map { it.message() }.toSet().size)
@@ -121,11 +121,11 @@ class McpResourcesIntegrationTest {
         try {
             scoped.initialize()
             owner.initialize()
-            val denied = assertThrows<McpError> { scoped.subscribeResource(McpSchema.SubscribeRequest("telegram://personal/chat/43")) }
+            val denied = assertThrows<McpError> { scoped.subscribeResource(McpSchema.SubscribeRequest.builder("telegram://personal/chat/43").build()) }
             assertEquals(McpSchema.ErrorCodes.RESOURCE_NOT_FOUND, denied.jsonRpcError.code())
-            scoped.subscribeResource(McpSchema.SubscribeRequest("telegram://personal/chat/42"))
-            owner.subscribeResource(McpSchema.SubscribeRequest("telegram://personal/chat/43"))
-            owner.subscribeResource(McpSchema.SubscribeRequest("telegram://personal/chat/42"))
+            scoped.subscribeResource(McpSchema.SubscribeRequest.builder("telegram://personal/chat/42").build())
+            owner.subscribeResource(McpSchema.SubscribeRequest.builder("telegram://personal/chat/43").build())
+            owner.subscribeResource(McpSchema.SubscribeRequest.builder("telegram://personal/chat/42").build())
             Thread.sleep(300) // let both GET streams attach before the first event
 
             repeat(5) { journal.append("personal", "new", 42, 100L + it) }
@@ -135,7 +135,7 @@ class McpResourcesIntegrationTest {
             assertEquals(setOf("telegram://personal/chat/42", "telegram://personal/chat/43"), ownerSeen)
             assertNull(scopedUpdates.poll(500, TimeUnit.MILLISECONDS), "bursts coalesce and foreign chats stay silent")
 
-            scoped.unsubscribeResource(McpSchema.UnsubscribeRequest("telegram://personal/chat/42"))
+            scoped.unsubscribeResource(McpSchema.UnsubscribeRequest.builder("telegram://personal/chat/42").build())
             journal.append("personal", "deleted", 42, 100)
             assertEquals("telegram://personal/chat/42", ownerUpdates.poll(10, TimeUnit.SECONDS))
             assertNull(scopedUpdates.poll(500, TimeUnit.MILLISECONDS))
@@ -151,8 +151,8 @@ class McpResourcesIntegrationTest {
         try {
             scoped.initialize()
             owner.initialize()
-            scoped.subscribeResource(McpSchema.SubscribeRequest("telegram://personal/chats"))
-            owner.subscribeResource(McpSchema.SubscribeRequest("telegram://personal/chats"))
+            scoped.subscribeResource(McpSchema.SubscribeRequest.builder("telegram://personal/chats").build())
+            owner.subscribeResource(McpSchema.SubscribeRequest.builder("telegram://personal/chats").build())
             Thread.sleep(300) // let both GET streams attach before the first event
 
             journal.append("personal", "new", 43, 900)

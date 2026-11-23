@@ -241,10 +241,8 @@ class McpConfigApprovalTest {
         var executionCount: Int = 0
         var receivedArguments: Map<String, Any> = emptyMap()
 
-        override fun definition(): McpSchema.Tool = McpSchema.Tool.builder()
-            .name(name)
+        override fun definition(): McpSchema.Tool = McpSchema.Tool.builder(name, mapOf("type" to "object", "properties" to emptyMap<String, Any>(), "required" to emptyList<String>(), "additionalProperties" to false))
             .description("test handler")
-            .inputSchema(McpSchema.JsonSchema("object", emptyMap(), emptyList(), false, emptyMap(), emptyMap()))
             .build()
 
         override fun execute(
