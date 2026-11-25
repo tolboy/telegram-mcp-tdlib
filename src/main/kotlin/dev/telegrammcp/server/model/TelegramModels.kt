@@ -327,7 +327,7 @@ data class InlineButtonInfo(
     /**
      * Opaque, server-signed `button_token` for press_inline_button. It is
      * bound to this account, chat, message, edit date, position and button
-     * content, so it stops working as soon as the keyboard changes.
+     * content. A fresh read must match those fields for the token to be valid.
      */
     val token: String? = null,
     /** Byte-exact payload for token verification and TDLib. callbackData is the display form. */

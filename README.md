@@ -790,7 +790,7 @@ The full inventory is grouped below. In practice you start with a
 | `get_message_viewers` | List read receipts for an outgoing message in small groups |
 | `get_message_context` | Get N messages surrounding a target message |
 | `list_inline_buttons` | Inspect inline keyboard buttons on a message; each button carries a signed `token` |
-| `press_inline_button` | Click an inline button by its signed `button_token` from `list_inline_buttons`. The approval prompt identifies that button, and the server checks the keyboard again before the click. Older selectors require the compatibility opt-in. |
+| `press_inline_button` | Click an inline button using its signed `button_token` from `list_inline_buttons`. The approval prompt identifies the selected button. For callbacks, TDLib receives the bytes from the final verified read and the bot decides how to handle them. Older selectors require the compatibility opt-in. |
 | `message_from_link` | Resolve a t.me message link to the actual message |
 | `get_message_link` | Create a shareable t.me link for a message or media album |
 | `list_scheduled_messages` | List queued messages for a chat |

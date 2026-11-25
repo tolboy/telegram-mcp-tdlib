@@ -51,7 +51,7 @@ class ListInlineButtonsTool(
     override fun definition(): McpSchema.Tool = ToolSupport.definition(
         name = TOOL_NAME,
         description = "List inline-keyboard buttons attached to a Telegram message. Each button has a token: pass it " +
-            "as button_token to press_inline_button. A token stops working when the message or keyboard changes.",
+            "as button_token to press_inline_button. A fresh read must match the selected button and message edit timestamp.",
         inputSchema = INPUT_SCHEMA,
         objectMapper = objectMapper,
     )

@@ -5,6 +5,10 @@ Notable changes to Telegram MCP Server are documented here. The project follows
 
 ## Unreleased
 
+- If the keyboard or selected button position disappears before the final
+  verification of a signed inline button, the error tells the client to list
+  the buttons again. A regression test verifies the callback bytes submitted
+  to TDLib when an edit occurs after final verification.
 - Dependency upgrade: tdlight=3.5.9+td.1.8.68 mcp-sdk=2.2.0. The server stays on
   the legacy (2025-era) MCP server API, which 2.2.0 leaves unchanged; the new
   2026-07-28 stateless API is not used. The compile produces no new deprecation
@@ -89,11 +93,12 @@ verification, review the [artifact ownership migration](docs/SESSION_MAINTENANCE
 - **Signed inline-button tokens.** `list_inline_buttons` returns a `token` per
   button, an HMAC over the account, chat, message, the message's `edit_date`
   and the button's position, type, text, URL and callback data.
-  `press_inline_button` takes it as `button_token`, re-reads the keyboard and
-  refuses without pressing if anything changed, so a bot cannot swap what a
-  button does between listing and pressing. Tokens use a per-process key and
-  expire on restart. When human approval applies, its prompt shows the resolved
-  chat, message and button. The server rechecks the keyboard after approval.
+  `press_inline_button` takes it as `button_token` and re-reads the keyboard to
+  verify the selected button. When human approval applies, its prompt shows
+  the resolved chat, message and button. The server checks the button again
+  after approval. For callback buttons, the request to TDLib carries the exact
+  bytes from the final verified read. The bot decides how to handle them.
+  Tokens use a per-process key and expire on restart.
   Older clients can temporarily enable deprecated `button_index` and `button_text`
   selectors with `MCP_ALLOW_LEGACY_INLINE_BUTTON_SELECTORS=true`. Their responses
   carry a warning in the nullable `warning` field.

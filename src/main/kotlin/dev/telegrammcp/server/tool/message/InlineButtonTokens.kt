@@ -12,15 +12,13 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * Signs inline buttons so press_inline_button presses exactly the button the
- * model saw.
+ * Signs the button snapshots returned by list_inline_buttons.
  *
  * A token is an HMAC-SHA256 under a random per-process key over the account,
  * chat ID, message ID, the message's `edit_date`, the button's position and
- * its type, text, URL and callback data. A bot that edits the message or the
- * keyboard in between invalidates every token for it, and a token never works
- * on another account, chat or message. Tokens do not survive a restart; the
- * model then lists the buttons again.
+ * its type, text, URL and callback data. A fresh read must match those fields
+ * for the token to be valid. Tokens are scoped to one account, chat and
+ * message and expire on server restart.
  */
 @Component
 class InlineButtonTokens(private val accounts: TelegramAccountContext? = null) {
@@ -32,8 +30,7 @@ class InlineButtonTokens(private val accounts: TelegramAccountContext? = null) {
 
     /**
      * Finds the button in a fresh read ([current]) whose token equals [token],
-     * comparing in constant time. Null means the keyboard changed or the token
-     * was made for something else.
+     * comparing in constant time. Returns null when no current button matches.
      */
     fun find(token: String, chatId: Long, messageId: Long, current: List<InlineButtonInfo>): InlineButtonInfo? {
         val presented = token.trim().toByteArray(Charsets.US_ASCII)

@@ -68,7 +68,8 @@ class PressInlineButtonTool(
         dev.telegrammcp.server.tool.ToolSupport.definition(
             TOOL_NAME,
             "Press a callback or URL inline-keyboard button on a message. Call list_inline_buttons first and pass the " +
-                "button's token as button_token; if the keyboard changed since, nothing is pressed and you must list again.",
+                "button's token as button_token. If the selected button or message edit timestamp fails verification, " +
+                "list the buttons again.",
             inputSchema(),
             objectMapper,
         )
