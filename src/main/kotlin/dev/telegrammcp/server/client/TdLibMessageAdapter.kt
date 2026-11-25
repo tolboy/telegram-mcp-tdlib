@@ -363,17 +363,21 @@ internal class TdLibMessageAdapter(
                 log.info("Pressing inline button (index={}, text={}) on message {} in chat {}", buttonIndex, buttonText, messageId, chatId)
 
                 val buttons = reads.listInlineButtons(chatId, messageId)
-                if (buttons.isEmpty()) throw IllegalStateException("Message has no inline keyboard")
-
                 val target = when {
                     buttonIndex != null -> buttons.getOrNull(buttonIndex)
-                        ?: throw IllegalArgumentException("button_index $buttonIndex out of range (0..${buttons.lastIndex})")
                     !buttonText.isNullOrBlank() -> buttons.firstOrNull { it.text.equals(buttonText, ignoreCase = true) }
-                        ?: throw IllegalArgumentException("No button with text '$buttonText'")
-                    else -> throw IllegalArgumentException("Either button_index or button_text is required")
+                    else -> null
                 }
                 if (expected != null && target != expected.copy(token = null)) {
                     throw InvalidToolInputException(STALE_INLINE_BUTTON_MESSAGE)
+                }
+                if (target == null) {
+                    throw when {
+                        buttons.isEmpty() -> IllegalStateException("Message has no inline keyboard")
+                        buttonIndex != null -> IllegalArgumentException("button_index $buttonIndex out of range (0..${buttons.lastIndex})")
+                        !buttonText.isNullOrBlank() -> IllegalArgumentException("No button with text '$buttonText'")
+                        else -> IllegalArgumentException("Either button_index or button_text is required")
+                    }
                 }
 
                 return when (target.type) {
